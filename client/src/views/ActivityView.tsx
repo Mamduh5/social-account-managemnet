@@ -3,13 +3,12 @@ import { api } from '../api/client';
 import { ActivityEvent } from '../types';
 import { 
   Activity, CheckCircle2, AlertTriangle, AlertCircle, 
-  Info, RefreshCw, Trash2, Filter 
+  Info, RefreshCw 
 } from 'lucide-react';
 
 export const ActivityView: React.FC = () => {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [severityFilter, setSeverityFilter] = useState('');
-  const [loading, setLoading] = useState(true);
 
   const loadData = async () => {
     try {
@@ -17,8 +16,6 @@ export const ActivityView: React.FC = () => {
       setEvents(res.events || []);
     } catch (err) {
       console.error(err);
-    } finally {
-      setLoading(false);
     }
   };
 

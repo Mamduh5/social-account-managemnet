@@ -241,25 +241,47 @@ Copy-Item -Path .data\social_command_center.db -Destination .data\backup_$(Get-D
 
 ---
 
-## 11. Project Structure
+## 11. Project Structure & Architecture
 
 ```
 social-account-managemnet/
+├── AGENTS.md                        # Quickstart operating guide for developers & AI agents
+├── docs/
+│   ├── PROJECT_MAP.md               # Architectural reference & task-to-file guide
+│   ├── UI_REDESIGN_HANDOFF.md       # Dedicated guide for the UI/UX redesign agent
+│   └── qa/
+│       ├── REFACTOR_REPORT.md       # Architecture refactor & QA test report
+│       └── screenshots/             # 25+ visual regression & acceptance screenshots
 ├── server/
 │   ├── src/
-│   │   ├── connectors/          # Meta, TikTok, Simulator, and Browser Bridge
-│   │   ├── db/                  # SQLite database, schema, and seed data
-│   │   ├── services/            # FFmpeg engine, Durable Queue, Events, Pipeline Watcher
-│   │   ├── routes/              # Express REST API endpoints
-│   │   └── index.ts             # Server entrypoint with Range MP4 streaming
-├── client/                      # React 18 + Vite + Tailwind CSS Dark Mode UI
+│   │   ├── domain/                  # Pure domain rules (publishing states, safe area math)
+│   │   ├── repositories/            # Data access layer (SQLite queries via better-sqlite3)
+│   │   ├── services/                # Application services (FFmpeg, Durable Queue, Pipeline)
+│   │   │   └── connectors/          # Meta Graph, TikTok, Simulator, and Browser Bridge
+│   │   ├── routes/                  # Express REST API endpoints (decoupled from raw SQL)
+│   │   └── index.ts                 # Server entrypoint with Range MP4 streaming & SSE
+├── client/                          # React + Vite + Tailwind CSS Frontend
 │   ├── src/
-│   │   ├── api/                 # Typed API client
-│   │   ├── types/               # Full TypeScript interface definitions
-│   │   ├── views/               # Dashboard, Accounts, Publishing, Branding, Inbox, Activity, Analytics, Settings
-│   │   └── App.tsx              # Root application router and sidebar
-├── test/                        # Automated unit and integration test suite
-├── Dockerfile                   # Multi-stage production container
-├── docker-compose.yml           # Self-hosted Docker stack
-└── README.md                    # Operational documentation
+│   │   ├── api/                     # Typed API client
+│   │   ├── components/              # Modular UI components (common/, accounts/, publishing/, etc.)
+│   │   ├── hooks/                   # Custom stateful hooks (useAccounts, usePublishing, useInbox)
+│   │   ├── theme/                   # Centralized design tokens (surfaces, platforms, safe areas)
+│   │   ├── types/                   # Full TypeScript interface definitions
+│   │   ├── views/                   # Composed views (Dashboard, Accounts, Publishing, Branding, etc.)
+│   │   └── App.tsx                  # App shell and active view router
+├── test/                            # Unit, integration, and Playwright E2E test suites
+├── Dockerfile                       # Multi-stage production container
+├── docker-compose.yml               # Self-hosted Docker stack
+└── README.md                        # Product documentation
 ```
+
+---
+
+## 12. Developer & Agent Guides
+
+For detailed architectural maps, task navigation, and redesign instructions, consult:
+- **Developer & Agent Guide**: [`AGENTS.md`](AGENTS.md)
+- **Architecture & Task-to-File Reference**: [`docs/PROJECT_MAP.md`](docs/PROJECT_MAP.md)
+- **UI/UX Cozy Redesign Handoff**: [`docs/UI_REDESIGN_HANDOFF.md`](docs/UI_REDESIGN_HANDOFF.md)
+- **Refactoring & QA Test Report**: [`docs/qa/REFACTOR_REPORT.md`](docs/qa/REFACTOR_REPORT.md)
+

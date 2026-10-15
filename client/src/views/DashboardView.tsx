@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../api/client';
-import { Account, Category, PublishingDestination, ActivityEvent, CommentItem } from '../types';
+import { Account, PublishingDestination, ActivityEvent, CommentItem } from '../types';
 import { 
   CheckCircle2, AlertTriangle, Clock, Share2, MessageSquare, 
-  Eye, RefreshCw, ArrowUpRight, Film, PlusCircle, ExternalLink 
+  Eye, ArrowUpRight, Film, PlusCircle 
 } from 'lucide-react';
+import { MetricCard } from '../components/common/MetricCard';
 
 interface Props {
   onNavigate: (tab: string) => void;
@@ -17,9 +18,8 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [analytics, setAnalytics] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [accRes, qRes, cmtRes, actRes, anaRes] = await Promise.all([
         api.getAccounts(),
@@ -35,16 +35,14 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
       setAnalytics(anaRes);
     } catch (err) {
       console.error('Error loading dashboard:', err);
-    } finally {
-      setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
     const interval = setInterval(loadData, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadData]);
 
   const filteredAccounts = selectedCategory === 'all'
     ? accounts
@@ -57,29 +55,35 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
     <div className="space-y-6">
       {/* Top Banner Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-surface-card border border-border p-5 rounded-xl flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-wider text-slate-400 font-medium">Connected Accounts</p>
-            <h3 className="text-2xl font-bold text-white mt-1">
-              {accounts.filter(a => a.status === 'connected').length} <span className="text-sm font-normal text-slate-400">/ {accounts.length}</span>
-            </h3>
-            <p className="text-xs text-emerald-400 flex items-center mt-1">
+        <MetricCard
+          label="Connected Accounts"
+          value={
+            <>
+              {accounts.filter(a => a.status === 'connected').length}{' '}
+              <span className="text-sm font-normal text-slate-400">/ {accounts.length}</span>
+            </>
+          }
+          subValue={
+            <p className="text-xs text-emerald-400 flex items-center">
               <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
               {accounts.filter(a => a.health_status.includes('Healthy')).length} healthy sessions
             </p>
-          </div>
-          <div className="w-12 h-12 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-400">
-            <Share2 className="w-6 h-6" />
-          </div>
-        </div>
+          }
+          icon={<Share2 className="w-6 h-6" />}
+          iconBg="bg-indigo-500/10"
+          iconColor="text-indigo-400"
+        />
 
-        <div className="bg-surface-card border border-border p-5 rounded-xl flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-wider text-slate-400 font-medium">Publishing Queue</p>
-            <h3 className="text-2xl font-bold text-white mt-1">
-              {activeQueue.length} <span className="text-sm font-normal text-slate-400">active</span>
-            </h3>
-            <p className="text-xs text-amber-400 flex items-center mt-1">
+        <MetricCard
+          label="Publishing Queue"
+          value={
+            <>
+              {activeQueue.length}{' '}
+              <span className="text-sm font-normal text-slate-400">active</span>
+            </>
+          }
+          subValue={
+            <p className="text-xs text-amber-400 flex items-center">
               {failedQueue.length > 0 ? (
                 <>
                   <AlertTriangle className="w-3.5 h-3.5 mr-1" />
@@ -89,39 +93,37 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
                 <span className="text-slate-400">All tasks nominal</span>
               )}
             </p>
-          </div>
-          <div className="w-12 h-12 bg-amber-500/10 rounded-xl flex items-center justify-center text-amber-400">
-            <Clock className="w-6 h-6" />
-          </div>
-        </div>
+          }
+          icon={<Clock className="w-6 h-6" />}
+          iconBg="bg-amber-500/10"
+          iconColor="text-amber-400"
+        />
 
-        <div className="bg-surface-card border border-border p-5 rounded-xl flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-wider text-slate-400 font-medium">Awaiting Response</p>
-            <h3 className="text-2xl font-bold text-white mt-1">{comments.length}</h3>
-            <p className="text-xs text-blue-400 flex items-center mt-1">
+        <MetricCard
+          label="Awaiting Response"
+          value={comments.length}
+          subValue={
+            <p className="text-xs text-blue-400 flex items-center">
               <MessageSquare className="w-3.5 h-3.5 mr-1" /> Across FB & TikTok
             </p>
-          </div>
-          <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-400">
-            <MessageSquare className="w-6 h-6" />
-          </div>
-        </div>
+          }
+          icon={<MessageSquare className="w-6 h-6" />}
+          iconBg="bg-blue-500/10"
+          iconColor="text-blue-400"
+        />
 
-        <div className="bg-surface-card border border-border p-5 rounded-xl flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-wider text-slate-400 font-medium">Total Audience Views</p>
-            <h3 className="text-2xl font-bold text-white mt-1">
-              {analytics?.totals?.total_views ? Number(analytics.totals.total_views).toLocaleString() : '36,200'}
-            </h3>
-            <p className="text-xs text-emerald-400 flex items-center mt-1">
+        <MetricCard
+          label="Total Audience Views"
+          value={analytics?.totals?.total_views ? Number(analytics.totals.total_views).toLocaleString() : '36,200'}
+          subValue={
+            <p className="text-xs text-emerald-400 flex items-center">
               <ArrowUpRight className="w-3.5 h-3.5 mr-1" /> +14.2% this week
             </p>
-          </div>
-          <div className="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-400">
-            <Eye className="w-6 h-6" />
-          </div>
-        </div>
+          }
+          icon={<Eye className="w-6 h-6" />}
+          iconBg="bg-emerald-500/10"
+          iconColor="text-emerald-400"
+        />
       </div>
 
       {/* Accounts Command Matrix */}

@@ -1,7 +1,10 @@
-import { db } from '../db/database.js';
 import { ffmpegService, BrandKitOptions } from './ffmpeg.service.js';
 import { getConnector } from '../connectors/registry.js';
 import { eventService } from './events.service.js';
+import { publishingRepo } from '../repositories/publishing.repo.js';
+import { activityRepo } from '../repositories/activity.repo.js';
+import { resolveParentPostStatus } from '../domain/publishing.js';
+import { DestinationStatus } from '../domain/types.js';
 
 export class QueueService {
   private isRunning = false;
@@ -31,58 +34,28 @@ export class QueueService {
     console.log('[QueueService] Background publishing worker stopped.');
   }
 
-  private recoverInterruptedJobs() {
-    const stuckJobs = db.prepare(`
-      SELECT id, status FROM publishing_destinations
-      WHERE status IN ('preparing', 'branding', 'uploading')
-    `).all() as { id: string; status: string }[];
+  recoverInterruptedJobs() {
+    const stuckJobs = publishingRepo.getStuckJobs();
 
     if (stuckJobs.length > 0) {
       console.log(`[QueueService] Recovering ${stuckJobs.length} interrupted publishing destinations...`);
-      const resetStmt = db.prepare(`
-        UPDATE publishing_destinations
-        SET status = 'preparing', progress = 0, error_message = 'Interrupted by server restart, auto-resuming...'
-        WHERE id = ?
-      `);
       for (const job of stuckJobs) {
-        resetStmt.run(job.id);
+        publishingRepo.resetStuckJob(job.id, 'Interrupted by server restart, auto-resuming...');
       }
     }
   }
 
   async processNextJobs() {
     // 1. Check for scheduled posts that are due
-    const nowIso = new Date().toISOString();
-    const dueScheduled = db.prepare(`
-      SELECT pd.id, pd.post_id
-      FROM publishing_destinations pd
-      JOIN publishing_posts p ON pd.post_id = p.id
-      WHERE pd.status = 'scheduled'
-      AND (p.scheduled_at IS NULL OR p.scheduled_at <= datetime('now'))
-    `).all() as { id: string; post_id: string }[];
+    const dueScheduled = publishingRepo.getDueScheduledDestinations();
 
     for (const due of dueScheduled) {
-      db.prepare("UPDATE publishing_destinations SET status = 'preparing', progress = 0 WHERE id = ?").run(due.id);
-      db.prepare("UPDATE publishing_posts SET status = 'processing' WHERE id = ?").run(due.post_id);
+      publishingRepo.updateDestinationStatus(due.id, 'preparing', 0);
+      publishingRepo.updateParentPostStatus(due.post_id, 'processing');
     }
 
     // 2. Fetch up to 2 queued/preparing jobs to process concurrently
-    const pendingJobs = db.prepare(`
-      SELECT 
-        pd.id, pd.post_id, pd.account_id, pd.caption, pd.hashtags,
-        pd.apply_branding, pd.branding_override_json, pd.status,
-        pd.retry_count, pd.max_retries,
-        p.title, p.scheduled_at,
-        v.file_path as original_video_path,
-        a.platform, a.name as account_name, a.handle as account_handle,
-        a.connector_mode, a.access_token, a.external_id, a.brand_kit_json, a.status as account_status
-      FROM publishing_destinations pd
-      JOIN publishing_posts p ON pd.post_id = p.id
-      JOIN videos v ON p.video_id = v.id
-      JOIN accounts a ON pd.account_id = a.id
-      WHERE pd.status IN ('preparing', 'branding')
-      LIMIT 2
-    `).all() as any[];
+    const pendingJobs = publishingRepo.getPendingQueueJobs(2);
 
     for (const job of pendingJobs) {
       this.executeDestinationJob(job).catch((err) => {
@@ -119,10 +92,7 @@ export class QueueService {
           }
         );
 
-        db.prepare('UPDATE publishing_destinations SET branded_video_path = ? WHERE id = ?').run(
-          finalVideoPath,
-          job.id
-        );
+        publishingRepo.updateDestinationBrandedPath(job.id, finalVideoPath);
       }
 
       // Step B: Uploading via Account Connector
@@ -166,24 +136,21 @@ export class QueueService {
       );
 
       // Step C: Success Confirmation
-      db.prepare(`
-        UPDATE publishing_destinations
-        SET status = 'published', progress = 100, remote_post_id = ?,
-            remote_post_url = ?, published_at = datetime('now'),
-            verification_status = ?, error_message = NULL, updated_at = datetime('now')
-        WHERE id = ?
-      `).run(result.remotePostId, result.remotePostUrl, result.verificationStatus, job.id);
+      publishingRepo.markDestinationPublished({
+        destinationId: job.id,
+        remotePostId: result.remotePostId,
+        remotePostUrl: result.remotePostUrl,
+        verificationStatus: result.verificationStatus,
+      });
 
       // Log activity event
-      db.prepare(`
-        INSERT INTO activity_events (id, type, account_id, title, message, severity)
-        VALUES (?, 'publish_success', ?, ?, ?, 'success')
-      `).run(
-        `act-${Date.now()}`,
-        job.account_id,
-        `Published to ${job.account_name}`,
-        `Video "${job.title}" successfully published to ${job.account_name} (${job.platform}).`
-      );
+      activityRepo.logEvent({
+        type: 'publish_success',
+        accountId: job.account_id,
+        title: `Published to ${job.account_name}`,
+        message: `Video "${job.title}" successfully published to ${job.account_name} (${job.platform}).`,
+        severity: 'success',
+      });
 
       eventService.broadcast('destination_updated', {
         destinationId: job.id,
@@ -200,27 +167,21 @@ export class QueueService {
       const canRetry = retryCount <= (job.max_retries || 3);
 
       if (canRetry) {
-        db.prepare(`
-          UPDATE publishing_destinations
-          SET status = 'preparing', retry_count = ?, error_message = ?, updated_at = datetime('now')
-          WHERE id = ?
-        `).run(retryCount, `Retry ${retryCount}/${job.max_retries}: ${err.message}`, job.id);
-      } else {
-        db.prepare(`
-          UPDATE publishing_destinations
-          SET status = 'failed', error_message = ?, updated_at = datetime('now')
-          WHERE id = ?
-        `).run(err.message, job.id);
-
-        db.prepare(`
-          INSERT INTO activity_events (id, type, account_id, title, message, severity)
-          VALUES (?, 'publish_failure', ?, ?, ?, 'error')
-        `).run(
-          `act-${Date.now()}`,
-          job.account_id,
-          `Publish Failed for ${job.account_name}`,
-          `Failed to publish video "${job.title}": ${err.message}`
+        publishingRepo.retryDestination(
+          job.id,
+          retryCount,
+          `Retry ${retryCount}/${job.max_retries}: ${err.message}`
         );
+      } else {
+        publishingRepo.markDestinationFailed(job.id, err.message);
+
+        activityRepo.logEvent({
+          type: 'publish_failure',
+          accountId: job.account_id,
+          title: `Publish Failed for ${job.account_name}`,
+          message: `Failed to publish video "${job.title}": ${err.message}`,
+          severity: 'error',
+        });
       }
 
       eventService.broadcast('destination_updated', {
@@ -233,12 +194,8 @@ export class QueueService {
     }
   }
 
-  private updateDestinationStatus(destinationId: string, status: string, progress: number) {
-    db.prepare(`
-      UPDATE publishing_destinations
-      SET status = ?, progress = ?, updated_at = datetime('now')
-      WHERE id = ?
-    `).run(status, progress, destinationId);
+  updateDestinationStatus(destinationId: string, status: DestinationStatus, progress: number) {
+    publishingRepo.updateDestinationStatus(destinationId, status, progress);
 
     eventService.broadcast('destination_updated', {
       destinationId,
@@ -247,21 +204,12 @@ export class QueueService {
     });
   }
 
-  private syncParentPostStatus(postId: string) {
-    const dests = db.prepare('SELECT status FROM publishing_destinations WHERE post_id = ?').all(postId) as { status: string }[];
+  syncParentPostStatus(postId: string) {
+    const dests = publishingRepo.getDestinationsByPostId(postId);
     if (dests.length === 0) return;
 
-    const allPublished = dests.every((d) => d.status === 'published');
-    const allFailed = dests.every((d) => d.status === 'failed');
-    const anyFailed = dests.some((d) => d.status === 'failed');
-    const anyProcessing = dests.some((d) => ['preparing', 'branding', 'uploading', 'awaiting_confirmation'].includes(d.status));
-
-    let newStatus = 'processing';
-    if (allPublished) newStatus = 'completed';
-    else if (allFailed) newStatus = 'failed';
-    else if (anyFailed && !anyProcessing) newStatus = 'partial_failure';
-
-    db.prepare("UPDATE publishing_posts SET status = ?, updated_at = datetime('now') WHERE id = ?").run(newStatus, postId);
+    const newStatus = resolveParentPostStatus(dests.map((d) => d.status));
+    publishingRepo.updateParentPostStatus(postId, newStatus);
   }
 }
 

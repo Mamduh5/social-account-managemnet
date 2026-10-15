@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { db, uploadsDir } from '../db/database.js';
 import { ffmpegService } from './ffmpeg.service.js';
+import { publishingRepo } from '../repositories/publishing.repo.js';
+import { activityRepo } from '../repositories/activity.repo.js';
 
 export interface DiscoveredPipelineVideo {
   filename: string;
@@ -80,37 +82,29 @@ export class PipelineService {
     const thumbPath = path.resolve(uploadsDir, thumbName);
     await ffmpegService.generateThumbnail(destPath, thumbPath);
 
-    db.prepare(`
-      INSERT INTO videos (
-        id, title, source_type, original_filename, file_path,
-        file_size, duration, width, height, aspect_ratio,
-        thumbnail_path, pipeline_job_id, category_id
-      ) VALUES (?, ?, 'pipeline_import', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      videoId,
-      videoTitle,
-      filename,
-      destPath,
-      meta.sizeBytes,
-      meta.duration,
-      meta.width,
-      meta.height,
-      meta.aspectRatio,
-      fs.existsSync(thumbPath) ? thumbPath : null,
-      pipelineJobId || null,
-      categoryId || null
-    );
+    publishingRepo.insertVideo({
+      id: videoId,
+      title: videoTitle,
+      sourceType: 'pipeline_import',
+      originalFilename: filename,
+      filePath: destPath,
+      fileSize: meta.sizeBytes,
+      duration: meta.duration,
+      width: meta.width,
+      height: meta.height,
+      aspectRatio: meta.aspectRatio,
+      thumbnailPath: fs.existsSync(thumbPath) ? thumbPath : null,
+      pipelineJobId: pipelineJobId || null,
+      categoryId: categoryId || null,
+    });
 
     // Add activity log
-    db.prepare(`
-      INSERT INTO activity_events (id, type, category_id, title, message, severity)
-      VALUES (?, 'system', ?, ?, ?, 'info')
-    `).run(
-      `act-${Date.now()}`,
-      categoryId || null,
-      'AI Video Pipeline Import',
-      `Imported "${videoTitle}" (${meta.aspectRatio}, ${meta.duration.toFixed(1)}s) from AI Video Pipeline.`
-    );
+    activityRepo.logEvent({
+      type: 'system',
+      title: 'AI Video Pipeline Import',
+      message: `Imported "${videoTitle}" (${meta.aspectRatio}, ${meta.duration.toFixed(1)}s) from AI Video Pipeline.`,
+      severity: 'info',
+    });
 
     return videoId;
   }

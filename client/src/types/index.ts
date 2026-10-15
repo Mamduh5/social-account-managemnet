@@ -162,3 +162,49 @@ export interface ActivityEvent {
   severity: 'info' | 'success' | 'warning' | 'error';
   created_at: string;
 }
+
+export interface AccountsResponse {
+  accounts: Account[];
+}
+
+export interface CategoriesResponse {
+  categories: Category[];
+}
+
+export interface VideosResponse {
+  videos: VideoItem[];
+}
+
+export interface PostsResponse {
+  posts: PublishingPost[];
+}
+
+export interface QueueResponse {
+  queue: PublishingDestination[];
+}
+
+export interface CommentsResponse {
+  comments: CommentItem[];
+  stats?: {
+    total: number;
+    unread_count: number;
+    awaiting_reply_count: number;
+  };
+}
+
+export interface ActivityResponse {
+  events: ActivityEvent[];
+}
+
+export interface PipelineStatusResponse {
+  watchDir: string;
+  files: Array<{
+    filename: string;
+    fullPath: string;
+    sizeBytes: number;
+    modifiedAt: string;
+    isImported: boolean;
+    importedVideoId?: string;
+  }>;
+  fileCount: number;
+}

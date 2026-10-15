@@ -1,0 +1,140 @@
+import React from 'react';
+import { BrandKit } from '../../types';
+
+export interface WatermarkControlsProps {
+  brandKit: BrandKit;
+  setBrandKit: React.Dispatch<React.SetStateAction<BrandKit>>;
+}
+
+export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
+  brandKit,
+  setBrandKit,
+}) => {
+  return (
+    <div className="bg-surface-card border border-border rounded-xl p-5 space-y-4 text-xs">
+      <label className="text-xs font-bold uppercase tracking-wider text-slate-300 block">
+        2. Watermark & Movement Preset
+      </label>
+
+      <div>
+        <label className="block text-slate-300 font-semibold mb-1">Watermark Handle / Text</label>
+        <input
+          type="text"
+          value={brandKit.text || ''}
+          onChange={(e) => setBrandKit(prev => ({ ...prev, text: e.target.value }))}
+          placeholder="@YourAccountHandle"
+          className="w-full bg-surface border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+        />
+      </div>
+
+      <div>
+        <label className="block text-slate-300 font-semibold mb-1">Movement Animation Preset</label>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { id: 'smooth_sine', label: 'Smooth Sine Wave' },
+            { id: 'corner_jump', label: 'Corner Interval Jump' },
+            { id: 'diagonal_bounce', label: 'Diagonal Bounce' },
+            { id: 'static_corner', label: 'Static Corner' },
+          ].map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => setBrandKit(prev => ({ ...prev, movementPreset: preset.id as any }))}
+              className={`py-2 px-3 rounded-lg border font-semibold text-center ${
+                brandKit.movementPreset === preset.id
+                  ? 'border-indigo-500 bg-indigo-500/20 text-indigo-300'
+                  : 'border-slate-800 bg-surface text-slate-400 hover:border-slate-700'
+              }`}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-slate-300 font-semibold mb-1">
+            Speed / Cycle Time ({brandKit.speedSeconds || 12}s)
+          </label>
+          <input
+            type="range"
+            min="4"
+            max="30"
+            value={brandKit.speedSeconds || 12}
+            onChange={(e) => setBrandKit(prev => ({ ...prev, speedSeconds: Number(e.target.value) }))}
+            className="w-full accent-indigo-500"
+          />
+        </div>
+
+        <div>
+          <label className="block text-slate-300 font-semibold mb-1">
+            Corner Hop Interval ({brandKit.intervalSeconds || 6}s)
+          </label>
+          <input
+            type="range"
+            min="2"
+            max="15"
+            value={brandKit.intervalSeconds || 6}
+            onChange={(e) => setBrandKit(prev => ({ ...prev, intervalSeconds: Number(e.target.value) }))}
+            className="w-full accent-indigo-500"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-slate-300 font-semibold mb-1">
+            Watermark Opacity ({Math.round((brandKit.opacity || 0.85) * 100)}%)
+          </label>
+          <input
+            type="range"
+            min="0.2"
+            max="1.0"
+            step="0.05"
+            value={brandKit.opacity || 0.85}
+            onChange={(e) => setBrandKit(prev => ({ ...prev, opacity: Number(e.target.value) }))}
+            className="w-full accent-indigo-500"
+          />
+        </div>
+
+        <div>
+          <label className="block text-slate-300 font-semibold mb-1">
+            Font Size ({brandKit.fontSize || 24}px)
+          </label>
+          <input
+            type="range"
+            min="16"
+            max="48"
+            value={brandKit.fontSize || 24}
+            onChange={(e) => setBrandKit(prev => ({ ...prev, fontSize: Number(e.target.value) }))}
+            className="w-full accent-indigo-500"
+          />
+        </div>
+      </div>
+
+      {/* Signature option */}
+      <div className="pt-3 border-t border-slate-800">
+        <label className="flex items-center gap-2 font-semibold text-slate-300 cursor-pointer mb-2">
+          <input
+            type="checkbox"
+            checked={brandKit.enableSignature}
+            onChange={(e) => setBrandKit(prev => ({ ...prev, enableSignature: e.target.checked }))}
+            className="rounded border-slate-700 text-indigo-600 focus:ring-0"
+          />
+          Include Lower Digital Signature / Copyright
+        </label>
+
+        {brandKit.enableSignature && (
+          <input
+            type="text"
+            value={brandKit.signatureText || ''}
+            onChange={(e) => setBrandKit(prev => ({ ...prev, signatureText: e.target.value }))}
+            placeholder="e.g. Crafted with AI Video Engine"
+            className="w-full bg-surface border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+          />
+        )}
+      </div>
+    </div>
+  );
+};

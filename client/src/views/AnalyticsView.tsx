@@ -1,9 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import { 
-  BarChart3, Eye, Heart, MessageSquare, Share2, 
-  Users, TrendingUp, Layers, HelpCircle, ArrowUpRight 
-} from 'lucide-react';
+import { HelpCircle } from 'lucide-react';
 
 export const AnalyticsView: React.FC = () => {
   const [data, setData] = useState<any>(null);

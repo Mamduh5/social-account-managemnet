@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { Account } from '../types';
 import { 
-  Settings, Folder, Globe, Compass, Shield, 
-  CheckCircle2, RefreshCw, Save, ExternalLink, Database 
+  Settings, Folder, Globe, Compass, 
+  Save, Database 
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {

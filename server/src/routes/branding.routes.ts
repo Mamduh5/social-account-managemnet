@@ -1,18 +1,13 @@
 import { Router } from 'express';
-import { db } from '../db/database.js';
-import { ffmpegService, BrandKitOptions } from '../services/ffmpeg.service.js';
+import { BrandKitOptions, ffmpegService } from '../services/ffmpeg.service.js';
+import { accountsRepo } from '../repositories/accounts.repo.js';
+import { publishingRepo } from '../repositories/publishing.repo.js';
 
 export const brandingRouter = Router();
 
 // GET all account brand kits
 brandingRouter.get('/kits', (_req, res) => {
-  const accounts = db.prepare(`
-    SELECT a.id, a.name, a.handle, a.platform, a.brand_kit_json,
-           c.name as category_name, c.color as category_color
-    FROM accounts a
-    LEFT JOIN categories c ON a.category_id = c.id
-    ORDER BY a.name ASC
-  `).all() as any[];
+  const accounts = accountsRepo.getAllAccounts();
 
   const kits = accounts.map((acc) => ({
     accountId: acc.id,
@@ -32,12 +27,7 @@ brandingRouter.put('/kits/:accountId', (req, res) => {
   const { brandKit } = req.body;
   if (!brandKit) return res.status(400).json({ error: 'brandKit payload is required' });
 
-  db.prepare(`
-    UPDATE accounts
-    SET brand_kit_json = ?, updated_at = datetime('now')
-    WHERE id = ?
-  `).run(JSON.stringify(brandKit), req.params.accountId);
-
+  accountsRepo.updateBrandKit(req.params.accountId, JSON.stringify(brandKit));
   res.json({ success: true, message: 'Brand kit updated' });
 });
 
@@ -49,7 +39,7 @@ brandingRouter.post('/render-preview', async (req, res) => {
     return res.status(400).json({ error: 'videoId and brandKit are required' });
   }
 
-  const video = db.prepare('SELECT * FROM videos WHERE id = ?').get(videoId) as any;
+  const video = publishingRepo.getVideoById(videoId);
   if (!video) return res.status(404).json({ error: 'Video not found' });
 
   try {

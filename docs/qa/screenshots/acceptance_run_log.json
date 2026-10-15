@@ -1,0 +1,202 @@
+{
+  "logs": [
+    {
+      "step": "Screen 1: Dashboard rendered",
+      "status": "PASS",
+      "details": "KPI cards, active accounts, queue summary, activity feed rendered"
+    },
+    {
+      "step": "Screen 2: Accounts & Categories rendered",
+      "status": "PASS",
+      "details": "Categorized account cards with health statuses and platform badges"
+    },
+    {
+      "step": "Modal: Connect Account Dialog",
+      "status": "PASS",
+      "details": "Platform toggle, credentials, and connection mode selectors rendered"
+    },
+    {
+      "step": "Modal: Create Category Dialog",
+      "status": "PASS",
+      "details": "Category form with color picker and narrative niche description"
+    },
+    {
+      "step": "Screen 3: Publishing Center (Compose tab)",
+      "status": "PASS",
+      "details": "Video uploader, destination selector, per-platform captions rendered"
+    },
+    {
+      "step": "Screen 3b: Publishing Center (Queue tab)",
+      "status": "PASS",
+      "details": "Destination queue items, status badges, retry actions rendered"
+    },
+    {
+      "step": "Screen 3c: Publishing Center (Library tab)",
+      "status": "PASS",
+      "details": "Master video catalog and pipeline ingestion list rendered"
+    },
+    {
+      "step": "Screen 4: Branding Studio rendered",
+      "status": "PASS",
+      "details": "Dynamic 9:16 canvas preview, movement presets, sliders, and FFmpeg render panel"
+    },
+    {
+      "step": "Screen 5: Engagement Inbox rendered",
+      "status": "PASS",
+      "details": "Unified comment list, moderation filters, reply modals rendered"
+    },
+    {
+      "step": "Screen 6: Activity Feed rendered",
+      "status": "PASS",
+      "details": "Audit timeline with severity icons and real-time event logs"
+    },
+    {
+      "step": "Screen 7: Analytics rendered",
+      "status": "PASS",
+      "details": "Cross-platform KPIs, Facebook vs TikTok breakdown, Category ranking"
+    },
+    {
+      "step": "Screen 8: Settings & Bridge rendered",
+      "status": "PASS",
+      "details": "Ingestion watch directory, browser bridge launchers, connector capabilities"
+    },
+    {
+      "step": "Mobile View: Dashboard",
+      "status": "PASS",
+      "details": "Captured mobile_01_dashboard.png with responsive navigation"
+    },
+    {
+      "step": "Mobile View: Accounts",
+      "status": "PASS",
+      "details": "Captured mobile_02_accounts.png with responsive navigation"
+    },
+    {
+      "step": "Mobile View: Publishing",
+      "status": "PASS",
+      "details": "Captured mobile_03_publishing.png with responsive navigation"
+    },
+    {
+      "step": "Mobile View: Branding",
+      "status": "PASS",
+      "details": "Captured mobile_04_branding.png with responsive navigation"
+    },
+    {
+      "step": "Mobile View: Inbox",
+      "status": "PASS",
+      "details": "Captured mobile_05_inbox.png with responsive navigation"
+    },
+    {
+      "step": "Mobile View: Activity",
+      "status": "PASS",
+      "details": "Captured mobile_06_activity.png with responsive navigation"
+    },
+    {
+      "step": "Mobile View: Analytics",
+      "status": "PASS",
+      "details": "Captured mobile_07_analytics.png with responsive navigation"
+    },
+    {
+      "step": "Mobile View: Settings",
+      "status": "PASS",
+      "details": "Captured mobile_08_settings.png with responsive navigation"
+    },
+    {
+      "step": "Workflow A: Initial Account Count",
+      "status": "PASS",
+      "details": "Found 6 accounts (minimum 6 required)"
+    },
+    {
+      "step": "Workflow A: Initial Category Count",
+      "status": "PASS",
+      "details": "Found 4 categories"
+    },
+    {
+      "step": "Workflow A: Filter by Category \"Object to Life\"",
+      "status": "PASS",
+      "details": "Displayed 2 accounts (expected 2)"
+    },
+    {
+      "step": "Workflow A: Filter by Category \"Screen to Life\"",
+      "status": "PASS",
+      "details": "Displayed 2 accounts (expected 2)"
+    },
+    {
+      "step": "Workflow A: Reconnect Expired Session",
+      "status": "PASS",
+      "details": "Triggered reconnect session successfully"
+    },
+    {
+      "step": "Workflow A: Token Health Check",
+      "status": "PASS",
+      "details": "Pinged simulated connector for health validation"
+    },
+    {
+      "step": "Workflow A: Persistence Verification",
+      "status": "PASS",
+      "details": "Created category persisted across page refresh"
+    },
+    {
+      "step": "Workflow B: Import Master Video",
+      "status": "PASS",
+      "details": "Uploaded 9:16 sample_short.mp4"
+    },
+    {
+      "step": "Workflow B: Destination Selection",
+      "status": "PASS",
+      "details": "Selected Facebook Page and TikTok account"
+    },
+    {
+      "step": "Workflow B: Multi-destination Publishing Execution",
+      "status": "PASS",
+      "details": "Detected 24 completed published destinations in queue"
+    },
+    {
+      "step": "Workflow C: Save Brand Kit",
+      "status": "PASS",
+      "details": "Saved watermark configuration to SQLite database"
+    },
+    {
+      "step": "Workflow C: FFmpeg Video Rendering",
+      "status": "PASS",
+      "details": "Video rendered and loaded: /uploads/renders/branded_d5ff1825cbdcca61.mp4"
+    },
+    {
+      "step": "Workflow C: Render File Disk Inspection",
+      "status": "PASS",
+      "details": "Rendered file size: 262870 bytes"
+    },
+    {
+      "step": "Workflow C: FFprobe Stream Verification",
+      "status": "PASS",
+      "details": "Verified H.264 video stream encoding"
+    },
+    {
+      "step": "Workflow D: Platform Filter",
+      "status": "PASS",
+      "details": "Filtered inbox to Facebook comments"
+    },
+    {
+      "step": "Workflow D: Reply via Simulator",
+      "status": "PASS",
+      "details": "Submitted comment reply through simulator connector"
+    },
+    {
+      "step": "Workflow D: Comment State Transition",
+      "status": "PASS",
+      "details": "Reply appeared in comment thread"
+    },
+    {
+      "step": "Workflow E: Duplicate Prevention",
+      "status": "PASS",
+      "details": "Published count stable (24 vs 24)"
+    },
+    {
+      "step": "Workflow E: Crash Recovery Verified",
+      "status": "PASS",
+      "details": "Queue destinations recovered cleanly without duplicate publishing"
+    }
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "failedRequests": []
+}

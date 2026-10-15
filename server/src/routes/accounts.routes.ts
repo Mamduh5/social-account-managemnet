@@ -1,17 +1,13 @@
 import { Router } from 'express';
-import { db } from '../db/database.js';
 import { getConnector } from '../connectors/registry.js';
+import { accountsRepo } from '../repositories/accounts.repo.js';
+import { activityRepo } from '../repositories/activity.repo.js';
 
 export const accountsRouter = Router();
 
 // GET all accounts
-accountsRouter.get('/', (req, res) => {
-  const accounts = db.prepare(`
-    SELECT a.*, c.name as category_name, c.color as category_color, c.slug as category_slug
-    FROM accounts a
-    LEFT JOIN categories c ON a.category_id = c.id
-    ORDER BY a.created_at ASC
-  `).all() as any[];
+accountsRouter.get('/', (_req, res) => {
+  const accounts = accountsRepo.getAllAccounts();
 
   // Attach connector capabilities to each account
   const enriched = accounts.map((acc) => {
@@ -27,173 +23,183 @@ accountsRouter.get('/', (req, res) => {
   res.json({ accounts: enriched });
 });
 
-// GET single account
+// --- CATEGORIES (Registered before :id to prevent route shadowing) ---
+
+accountsRouter.get('/categories', (_req, res) => {
+  const categories = accountsRepo.getAllCategories();
+  res.json({ categories });
+});
+
+accountsRouter.get('/categories/all', (_req, res) => {
+  const categories = accountsRepo.getAllCategories();
+  res.json({ categories });
+});
+
+accountsRouter.post('/categories', (req, res) => {
+  const { name, slug, description, color } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+
+  // Protect against SQLite UNIQUE constraint failure by checking existing name
+  const existingByName = accountsRepo.getCategoryByName(name);
+  if (existingByName) {
+    return res.json({ success: true, id: existingByName.id, slug: existingByName.slug, existing: true });
+  }
+
+  const baseSlug = slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  let finalSlug = baseSlug;
+
+  const existingSlug = accountsRepo.getCategoryBySlug(finalSlug);
+  if (existingSlug) {
+    finalSlug = `${baseSlug}-${Date.now().toString(36)}`;
+  }
+
+  const id = `cat-${Date.now().toString(36)}`;
+
+  try {
+    accountsRepo.createCategory({
+      id,
+      name,
+      slug: finalSlug,
+      description: description || '',
+      color: color || '#6366F1',
+    });
+
+    res.json({ success: true, id, slug: finalSlug });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+accountsRouter.put('/categories/:id', (req, res) => {
+  const { name, description, color } = req.body;
+  accountsRepo.updateCategory(req.params.id, { name, description, color });
+  res.json({ success: true });
+});
+
+accountsRouter.delete('/categories/:id', (req, res) => {
+  accountsRepo.deleteCategory(req.params.id);
+  res.json({ success: true });
+});
+
+// --- ACCOUNTS BY ID ---
+
 accountsRouter.get('/:id', (req, res) => {
-  const acc = db.prepare('SELECT * FROM accounts WHERE id = ?').get(req.params.id) as any;
+  const acc = accountsRepo.getAccountById(req.params.id);
   if (!acc) return res.status(404).json({ error: 'Account not found' });
+
   const connector = getConnector(acc);
   res.json({
     account: {
       ...acc,
       capabilities: connector.getCapabilities(),
       brandKit: acc.brand_kit_json ? JSON.parse(acc.brand_kit_json) : null,
+      settings: acc.settings_json ? JSON.parse(acc.settings_json) : null,
     },
   });
 });
 
-// POST new account
 accountsRouter.post('/', (req, res) => {
-  const { categoryId, platform, accountType, name, handle, avatarUrl, connectorMode, accessToken, brandKit } = req.body;
-  if (!platform || !name || !handle) {
-    return res.status(400).json({ error: 'Platform, Name, and Handle are required.' });
+  const { name, handle, platform, accountType, categoryId, connectorMode, accessToken, brandKit } = req.body;
+
+  if (!name || !handle || !platform) {
+    return res.status(400).json({ error: 'Name, handle, and platform are required' });
   }
 
-  const id = `acc-${platform === 'facebook' ? 'fb' : 'tt'}-${Date.now().toString(36)}`;
-  const brandKitJson = brandKit ? JSON.stringify(brandKit) : '{}';
+  const id = `acc-${platform.substring(0, 2)}-${Date.now().toString(36)}`;
+  const avatarUrl =
+    platform === 'facebook'
+      ? 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150'
+      : 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=150';
 
-  db.prepare(`
-    INSERT INTO accounts (
-      id, category_id, platform, account_type, name, handle, avatar_url,
-      connector_mode, access_token, brand_kit_json, status, health_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'connected', 'Healthy')
-  `).run(
-    id,
-    categoryId || null,
-    platform,
-    accountType || 'page',
-    name,
-    handle,
-    avatarUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150',
-    connectorMode || 'simulator',
-    accessToken || null,
-    brandKitJson
-  );
+  try {
+    accountsRepo.createAccount({
+      id,
+      name,
+      handle,
+      platform,
+      account_type: accountType || 'page',
+      category_id: categoryId || null,
+      avatar_url: avatarUrl,
+      connector_mode: connectorMode || 'simulator',
+      access_token: accessToken || null,
+      brand_kit_json: brandKit ? JSON.stringify(brandKit) : null,
+    });
 
-  res.json({ success: true, id });
+    activityRepo.logEvent({
+      type: 'account_connected',
+      accountId: id,
+      title: 'New Account Connected',
+      message: `Account "${name}" (${handle}) connected under ${platform.toUpperCase()}.`,
+      severity: 'info',
+    });
+
+    res.json({ success: true, id });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
-// PUT update account
 accountsRouter.put('/:id', (req, res) => {
-  const { categoryId, name, handle, avatarUrl, connectorMode, accessToken, brandKit, status } = req.body;
-  const current = db.prepare('SELECT * FROM accounts WHERE id = ?').get(req.params.id) as any;
+  const { name, handle, categoryId, connectorMode, accessToken, status, healthStatus } = req.body;
+
+  try {
+    accountsRepo.updateAccount(req.params.id, {
+      name,
+      handle,
+      category_id: categoryId,
+      connector_mode: connectorMode,
+      access_token: accessToken,
+      status,
+      health_status: healthStatus,
+    });
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+accountsRouter.delete('/:id', (req, res) => {
+  accountsRepo.deleteAccount(req.params.id);
+  res.json({ success: true });
+});
+
+accountsRouter.post('/:id/reconnect', (req, res) => {
+  const current = accountsRepo.getAccountById(req.params.id);
   if (!current) return res.status(404).json({ error: 'Account not found' });
 
-  const brandKitJson = brandKit ? JSON.stringify(brandKit) : current.brand_kit_json;
-
-  db.prepare(`
-    UPDATE accounts SET
-      category_id = COALESCE(?, category_id),
-      name = COALESCE(?, name),
-      handle = COALESCE(?, handle),
-      avatar_url = COALESCE(?, avatar_url),
-      connector_mode = COALESCE(?, connector_mode),
-      access_token = COALESCE(?, access_token),
-      brand_kit_json = ?,
-      status = COALESCE(?, status),
-      updated_at = datetime('now')
-    WHERE id = ?
-  `).run(
-    categoryId !== undefined ? categoryId : current.category_id,
-    name || current.name,
-    handle || current.handle,
-    avatarUrl || current.avatar_url,
-    connectorMode || current.connector_mode,
-    accessToken !== undefined ? accessToken : current.access_token,
-    brandKitJson,
-    status || current.status,
-    req.params.id
+  const refreshedExpiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
+  accountsRepo.updateHealthStatus(
+    req.params.id,
+    'connected',
+    'Healthy (Session Reconnected)',
+    refreshedExpiresAt
   );
 
-  res.json({ success: true });
-});
-
-// DELETE account
-accountsRouter.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM accounts WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
-});
-
-// POST reconnect account
-accountsRouter.post('/:id/reconnect', (req, res) => {
-  const current = db.prepare('SELECT * FROM accounts WHERE id = ?').get(req.params.id) as any;
-  if (!current) return res.status(404).json({ error: 'Account not found' });
-
-  db.prepare(`
-    UPDATE accounts
-    SET status = 'connected', health_status = 'Healthy (Reconnected)', last_health_check = datetime('now')
-    WHERE id = ?
-  `).run(req.params.id);
-
-  db.prepare(`
-    INSERT INTO activity_events (id, type, account_id, title, message, severity)
-    VALUES (?, 'account_alert', ?, 'Account Reconnected', ?, 'success')
-  `).run(`act-${Date.now()}`, req.params.id, `Account ${current.name} was successfully reconnected.`);
+  activityRepo.logEvent({
+    type: 'account_alert',
+    accountId: req.params.id,
+    title: 'Account Reconnected',
+    message: `Account ${current.name} was successfully reconnected.`,
+    severity: 'success',
+  });
 
   res.json({ success: true, message: `Account ${current.name} reconnected.` });
 });
 
-// POST test health
 accountsRouter.post('/:id/test-health', async (req, res) => {
-  const acc = db.prepare('SELECT * FROM accounts WHERE id = ?').get(req.params.id) as any;
-  if (!acc) return res.status(404).json({ error: 'Account not found' });
+  const account = accountsRepo.getAccountById(req.params.id);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
 
-  const connector = getConnector(acc);
-  const health = await connector.verifyHealth(acc);
+  const connector = getConnector(account);
+  const health = await connector.verifyHealth(account);
 
-  db.prepare(`
-    UPDATE accounts
-    SET status = ?, health_status = ?, last_health_check = datetime('now')
-    WHERE id = ?
-  `).run(health.status, health.healthStatus, req.params.id);
+  accountsRepo.updateHealthStatus(
+    req.params.id,
+    health.status,
+    health.healthStatus,
+    health.tokenExpiresAt
+  );
 
   res.json({ success: true, health });
-});
-
-// --- CATEGORIES ---
-
-// GET categories
-accountsRouter.get('/categories/all', (req, res) => {
-  const categories = db.prepare(`
-    SELECT c.*, count(a.id) as account_count
-    FROM categories c
-    LEFT JOIN accounts a ON c.id = a.category_id
-    GROUP BY c.id
-    ORDER BY c.name ASC
-  `).all();
-  res.json({ categories });
-});
-
-// POST category
-accountsRouter.post('/categories', (req, res) => {
-  const { name, slug, description, color } = req.body;
-  if (!name) return res.status(400).json({ error: 'Name is required' });
-
-  const finalSlug = slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-  const id = `cat-${Date.now().toString(36)}`;
-
-  db.prepare(`
-    INSERT INTO categories (id, name, slug, description, color)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(id, name, finalSlug, description || '', color || '#6366F1');
-
-  res.json({ success: true, id });
-});
-
-// PUT category
-accountsRouter.put('/categories/:id', (req, res) => {
-  const { name, description, color } = req.body;
-  db.prepare(`
-    UPDATE categories SET
-      name = COALESCE(?, name),
-      description = COALESCE(?, description),
-      color = COALESCE(?, color)
-    WHERE id = ?
-  `).run(name, description, color, req.params.id);
-  res.json({ success: true });
-});
-
-// DELETE category
-accountsRouter.delete('/categories/:id', (req, res) => {
-  db.prepare('DELETE FROM categories WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
 });

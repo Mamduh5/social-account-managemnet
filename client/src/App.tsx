@@ -3,7 +3,7 @@ import { api } from './api/client';
 import { Category } from './types';
 import { 
   LayoutDashboard, Users, Send, MessageSquare, Activity, 
-  BarChart3, Sparkles, Settings, Globe, Radio, Plus, Film 
+  BarChart3, Sparkles, Settings, Globe, Radio, Plus, Film, Menu, X 
 } from 'lucide-react';
 
 import { DashboardView } from './views/DashboardView';
@@ -21,6 +21,7 @@ export function App() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [targetBrandingAccountId, setTargetBrandingAccountId] = useState<string | undefined>(undefined);
   const [sseConnected, setSseConnected] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     api.getCategories().then((res) => {
@@ -40,6 +41,7 @@ export function App() {
   const handleNavigateToBranding = (accountId: string) => {
     setTargetBrandingAccountId(accountId);
     setActiveTab('branding');
+    setMobileMenuOpen(false);
   };
 
   const navItems = [
@@ -59,7 +61,7 @@ export function App() {
       <aside className="w-full md:w-64 bg-surface border-r border-border shrink-0 flex flex-col justify-between">
         <div>
           {/* Brand Logo Header */}
-          <div className="p-5 border-b border-border/80 flex items-center justify-between">
+          <div className="p-4 md:p-5 border-b border-border/80 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
                 <Sparkles className="w-5 h-5" />
@@ -73,17 +75,29 @@ export function App() {
                 </p>
               </div>
             </div>
+
+            {/* Mobile Hamburger Toggle */}
+            <button
+              onClick={() => setMobileMenuOpen(prev => !prev)}
+              className="md:hidden p-2 rounded-lg bg-surface-card border border-border text-slate-300 hover:text-white"
+              aria-label="Toggle navigation menu"
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
           </div>
 
-          {/* Nav List */}
-          <nav className="p-3 space-y-1">
+          {/* Nav List - Always visible on desktop, toggleable on mobile */}
+          <nav className={`p-3 space-y-1 ${mobileMenuOpen ? 'block' : 'hidden md:block'}`}>
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id)}
+                  onClick={() => {
+                    setActiveTab(item.id);
+                    setMobileMenuOpen(false);
+                  }}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                     isActive
                       ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-bold'
@@ -99,7 +113,7 @@ export function App() {
         </div>
 
         {/* Sidebar Footer info */}
-        <div className="p-4 m-3 rounded-xl bg-surface-card border border-border/80 text-[11px] space-y-2">
+        <div className={`p-4 m-3 rounded-xl bg-surface-card border border-border/80 text-[11px] space-y-2 ${mobileMenuOpen ? 'block' : 'hidden md:block'}`}>
           <div className="flex items-center justify-between">
             <span className="text-slate-400">Environment</span>
             <span className="text-[10px] font-bold uppercase text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
