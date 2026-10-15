@@ -1,0 +1,160 @@
+import fs from 'fs';
+import path from 'path';
+import { spawn } from 'child_process';
+import { AccountConnector, ConnectorCapabilities, ConnectionHealth, PublishDestinationPayload, PublishResult, CommentFetchResult } from './types.js';
+import { dataDir } from '../db/database.js';
+
+export class BrowserBridgeConnector implements AccountConnector {
+  private profilesDir = path.resolve(dataDir, 'browser-profiles');
+
+  constructor() {
+    if (!fs.existsSync(this.profilesDir)) {
+      fs.mkdirSync(this.profilesDir, { recursive: true });
+    }
+  }
+
+  getCapabilities(): ConnectorCapabilities {
+    return {
+      canPublish: true,
+      canSchedule: true,
+      canReadComments: false,
+      canReply: false,
+      canReact: false,
+      canReadInsights: false,
+      canReceiveEvents: false,
+      requiresManualConfirmation: true, // Key requirement: explicit operator confirmation
+      supportedVideoFormats: ['mp4', 'mov', 'webm'],
+      maxVideoSizeMb: 2048,
+      maxDurationSeconds: 14400,
+    };
+  }
+
+  async verifyHealth(account: any): Promise<ConnectionHealth> {
+    const profilePath = path.resolve(this.profilesDir, account.id);
+    const hasProfile = fs.existsSync(profilePath) && fs.readdirSync(profilePath).length > 0;
+
+    return {
+      status: hasProfile ? 'connected' : 'disconnected',
+      healthStatus: hasProfile
+        ? 'Browser Profile Ready (Session stored)'
+        : 'Session Not Initialized (Click "Launch Browser Session" to sign in)',
+      lastCheckedAt: new Date().toISOString(),
+      warnings: hasProfile ? [] : ['No authenticated browser session found for this account.'],
+    };
+  }
+
+  async launchBrowserSession(account: any): Promise<{ success: boolean; message: string }> {
+    const profilePath = path.resolve(this.profilesDir, account.id);
+    if (!fs.existsSync(profilePath)) {
+      fs.mkdirSync(profilePath, { recursive: true });
+    }
+
+    const targetUrl =
+      account.platform === 'facebook'
+        ? 'https://business.facebook.com/latest/home'
+        : 'https://www.tiktok.com/creator-center/upload';
+
+    // Launch Chrome or default browser with isolated user data dir
+    const chromePaths = [
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Users\\mamdu\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe',
+    ];
+
+    const exe = chromePaths.find((p) => fs.existsSync(p)) || 'chrome';
+
+    try {
+      const child = spawn(
+        exe,
+        [`--user-data-dir=${profilePath}`, '--no-first-run', '--new-window', targetUrl],
+        { detached: true, stdio: 'ignore' }
+      );
+      child.unref();
+
+      return {
+        success: true,
+        message: `Browser session opened for ${account.name} at ${targetUrl}. Please log in to save session.`,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `Failed to launch browser: ${err.message}`,
+      };
+    }
+  }
+
+  async publishVideo(
+    account: any,
+    payload: PublishDestinationPayload,
+    onProgress?: (pct: number, stage: string) => void
+  ): Promise<PublishResult> {
+    if (!fs.existsSync(payload.videoPath)) {
+      throw new Error(`Video file not found at path: ${payload.videoPath}`);
+    }
+
+    if (onProgress) onProgress(20, 'preparing');
+
+    // Launch the publisher interface for operator to confirm
+    const profilePath = path.resolve(this.profilesDir, account.id);
+    const targetUrl =
+      account.platform === 'facebook'
+        ? `https://business.facebook.com/latest/composer?page_id=${account.external_id || ''}`
+        : 'https://www.tiktok.com/creator-center/upload';
+
+    if (onProgress) onProgress(60, 'awaiting_confirmation');
+
+    // We store the staged publishing package (video path + caption + hashtags) in an assisted manifest
+    const manifestPath = path.resolve(dataDir, `staged-bridge-${payload.destinationId}.json`);
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify(
+        {
+          accountId: account.id,
+          accountName: account.name,
+          platform: account.platform,
+          videoPath: payload.videoPath,
+          title: payload.title,
+          caption: payload.caption,
+          hashtags: payload.hashtags,
+          scheduledAt: payload.scheduledAt,
+          targetUrl,
+          createdAt: new Date().toISOString(),
+        },
+        null,
+        2
+      )
+    );
+
+    // Launch browser window for user to inspect & post
+    await this.launchBrowserSession(account);
+
+    return {
+      success: true,
+      remotePostId: `bridge-${Date.now()}`,
+      verificationStatus: 'unverified', // Marked honest: awaiting operator confirmation
+      publishedAt: new Date().toISOString(),
+    };
+  }
+
+  async fetchComments(_account: any): Promise<CommentFetchResult[]> {
+    return [];
+  }
+
+  async replyComment(_account: any, _commentId: string, _text: string): Promise<{ success: boolean; errorMessage?: string }> {
+    return {
+      success: false,
+      errorMessage: 'Browser Bridge uses Native Platform Handoff. Click the link to reply in your browser session.',
+    };
+  }
+
+  async reactComment(_account: any, _commentId: string, _reaction: string): Promise<{ success: boolean; errorMessage?: string }> {
+    return {
+      success: false,
+      errorMessage: 'Reacting is handled in the native browser session.',
+    };
+  }
+
+  async fetchInsights(_account: any): Promise<any> {
+    return null;
+  }
+}

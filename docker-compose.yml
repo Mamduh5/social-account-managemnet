@@ -1,0 +1,18 @@
+services:
+  social-command-center:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: social-command-center
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - TZ=Asia/Bangkok
+      - NODE_ENV=production
+    volumes:
+      # Persistent database, uploaded masters, and rendered watermarked videos
+      - ./.data:/app/.data
+      # Optional: mount AI Video Pipeline output directory for container access
+      # - D:/Mamduh/Personal/ai-video-pipeline/.tmp-live-validation:/pipeline-outputs:ro
