@@ -79,7 +79,24 @@ publishingRouter.post('/upload', upload.single('video'), async (req, res) => {
 // GET video library
 publishingRouter.get('/videos', (req, res) => {
   const categoryId = req.query.categoryId as string | undefined;
-  const videos = publishingRepo.getAllVideos(categoryId);
+  const rawVideos = publishingRepo.getAllVideos(categoryId);
+  const videos = rawVideos.map(v => {
+    const filename = path.basename(v.file_path);
+    const thumbFilename = v.thumbnail_path ? path.basename(v.thumbnail_path) : null;
+    let meta: any = {};
+    try { meta = JSON.parse(v.metadata_json || '{}'); } catch {}
+    return {
+      ...v,
+      streamUrl: `/uploads/${filename}`,
+      thumbnailUrl: thumbFilename ? `/uploads/${thumbFilename}` : null,
+      metadata: meta,
+      branded_variants: (v.branded_variants || []).map(b => ({
+        ...b,
+        previewUrl: `/uploads/renders/${path.basename(b.file_path)}`,
+        downloadUrl: `/uploads/renders/${path.basename(b.file_path)}`,
+      })),
+    };
+  });
   res.json({ videos });
 });
 
@@ -87,7 +104,56 @@ publishingRouter.get('/videos', (req, res) => {
 publishingRouter.get('/videos/:id', (req, res) => {
   const video = publishingRepo.getVideoById(req.params.id);
   if (!video) return res.status(404).json({ error: 'Video not found' });
-  res.json({ video });
+  const filename = path.basename(video.file_path);
+  const thumbFilename = video.thumbnail_path ? path.basename(video.thumbnail_path) : null;
+  res.json({
+    video: {
+      ...video,
+      streamUrl: `/uploads/${filename}`,
+      thumbnailUrl: thumbFilename ? `/uploads/${thumbFilename}` : null,
+      branded_variants: (video.branded_variants || []).map(b => ({
+        ...b,
+        previewUrl: `/uploads/renders/${path.basename(b.file_path)}`,
+        downloadUrl: `/uploads/renders/${path.basename(b.file_path)}`,
+      })),
+    }
+  });
+});
+
+// STREAM video with explicit HTTP Range support (206 Partial Content)
+publishingRouter.get('/videos/:id/stream', (req, res) => {
+  const video = publishingRepo.getVideoById(req.params.id);
+  if (!video || !fs.existsSync(video.file_path)) {
+    return res.status(404).json({ error: 'Video file not found' });
+  }
+
+  const stat = fs.statSync(video.file_path);
+  const fileSize = stat.size;
+  const range = req.headers.range;
+
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunksize = (end - start) + 1;
+    const file = fs.createReadStream(video.file_path, { start, end });
+    const head = {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunksize,
+      'Content-Type': 'video/mp4',
+    };
+    res.writeHead(206, head);
+    file.pipe(res);
+  } else {
+    const head = {
+      'Content-Length': fileSize,
+      'Content-Type': 'video/mp4',
+      'Accept-Ranges': 'bytes',
+    };
+    res.writeHead(200, head);
+    fs.createReadStream(video.file_path).pipe(res);
+  }
 });
 
 // CREATE Post with Multi-Destination Targets
@@ -97,6 +163,7 @@ publishingRouter.post('/posts', (req, res) => {
       videoId: req.body.videoId,
       title: req.body.title,
       scheduledAt: req.body.scheduledAt,
+      selectedVariantId: req.body.selectedVariantId,
       destinations: req.body.destinations,
     });
     res.json({ success: true, ...result });

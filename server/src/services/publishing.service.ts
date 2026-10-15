@@ -8,18 +8,20 @@ export interface CreatePostDestinationInput {
   hashtags?: string;
   applyBranding?: boolean;
   brandingOverride?: any;
+  selectedVariantId?: string | null;
 }
 
 export interface CreatePostInput {
   videoId: string;
   title: string;
   scheduledAt?: string | null;
+  selectedVariantId?: string | null;
   destinations: CreatePostDestinationInput[];
 }
 
 export class PublishingService {
   createPost(input: CreatePostInput): { postId: string; destinationCount: number } {
-    const { videoId, title, scheduledAt, destinations } = input;
+    const { videoId, title, scheduledAt, selectedVariantId, destinations } = input;
 
     if (!videoId || !title || !destinations || !Array.isArray(destinations) || destinations.length === 0) {
       throw new Error('Video, Title, and at least one destination account are required.');
@@ -35,15 +37,37 @@ export class PublishingService {
     const initialPostStatus: PostStatus = isScheduled ? 'scheduled' : 'processing';
     const initialDestStatus: DestinationStatus = isScheduled ? 'scheduled' : 'preparing';
 
-    const mappedDestinations = destinations.map((dest) => ({
-      id: `dest-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
-      accountId: dest.accountId,
-      caption: dest.caption || title,
-      hashtags: dest.hashtags || '',
-      applyBranding: dest.applyBranding !== undefined ? (dest.applyBranding ? 1 : 0) : 1,
-      brandingOverrideJson: dest.brandingOverride ? JSON.stringify(dest.brandingOverride) : null,
-      status: initialDestStatus,
-    }));
+    const mappedDestinations = destinations.map((dest) => {
+      const variantId = dest.selectedVariantId !== undefined 
+        ? dest.selectedVariantId 
+        : (selectedVariantId || null);
+
+      let brandedVideoPath: string | null = null;
+      let applyBranding = dest.applyBranding !== undefined ? (dest.applyBranding ? 1 : 0) : 1;
+
+      if (variantId && variantId !== 'original') {
+        const variant = publishingRepo.getBrandedVideoById(variantId);
+        if (variant) {
+          brandedVideoPath = variant.file_path;
+          applyBranding = 0; // Pre-rendered branded variant selected; no need to re-render in worker
+        }
+      } else if (variantId === 'original') {
+        brandedVideoPath = null;
+        applyBranding = 0; // Explicitly unbranded master
+      }
+
+      return {
+        id: `dest-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+        accountId: dest.accountId,
+        caption: dest.caption || title,
+        hashtags: dest.hashtags || '',
+        applyBranding,
+        brandingOverrideJson: dest.brandingOverride ? JSON.stringify(dest.brandingOverride) : null,
+        brandedVideoPath,
+        selectedVariantId: variantId,
+        status: initialDestStatus,
+      };
+    });
 
     publishingRepo.createPostWithDestinations({
       postId,
@@ -51,6 +75,7 @@ export class PublishingService {
       title,
       scheduledAt,
       postStatus: initialPostStatus,
+      selectedVariantId: selectedVariantId || null,
       destinations: mappedDestinations,
     });
 

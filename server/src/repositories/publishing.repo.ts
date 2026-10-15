@@ -1,6 +1,7 @@
 import { db } from '../db/database.js';
 import {
   VideoEntity,
+  BrandedVideoEntity,
   PublishingPostEntity,
   PublishingDestinationEntity,
   DestinationStatus,
@@ -10,7 +11,7 @@ import {
 export class PublishingRepository {
   // --- VIDEOS ---
 
-  getAllVideos(categoryId?: string): (VideoEntity & { category_name?: string; category_color?: string })[] {
+  getAllVideos(categoryId?: string): (VideoEntity & { category_name?: string; category_color?: string; branded_variants?: BrandedVideoEntity[] })[] {
     let query = `
       SELECT v.*, c.name as category_name, c.color as category_color
       FROM videos v
@@ -23,11 +24,27 @@ export class PublishingRepository {
     }
     query += ' ORDER BY v.created_at DESC';
 
-    return db.prepare(query).all(...params) as any[];
+    const videos = db.prepare(query).all(...params) as any[];
+    
+    // Attach branded variants to each video
+    const getBranded = db.prepare('SELECT * FROM branded_videos WHERE video_id = ? ORDER BY created_at DESC');
+    for (const v of videos) {
+      v.branded_variants = getBranded.all(v.id) as BrandedVideoEntity[];
+    }
+
+    return videos;
   }
 
-  getVideoById(id: string): VideoEntity | undefined {
-    return db.prepare('SELECT * FROM videos WHERE id = ?').get(id) as any;
+  getVideoById(id: string): (VideoEntity & { branded_variants?: BrandedVideoEntity[] }) | undefined {
+    const video = db.prepare('SELECT * FROM videos WHERE id = ?').get(id) as any;
+    if (video) {
+      video.branded_variants = db.prepare('SELECT * FROM branded_videos WHERE video_id = ? ORDER BY created_at DESC').all(id) as BrandedVideoEntity[];
+    }
+    return video;
+  }
+
+  getVideoByPipelineJobId(pipelineJobId: string): VideoEntity | undefined {
+    return db.prepare('SELECT * FROM videos WHERE pipeline_job_id = ?').get(pipelineJobId) as any;
   }
 
   insertVideo(data: {
@@ -44,13 +61,14 @@ export class PublishingRepository {
     thumbnailPath?: string | null;
     pipelineJobId?: string | null;
     categoryId?: string | null;
+    metadataJson?: string | null;
   }): void {
     db.prepare(`
       INSERT INTO videos (
         id, title, source_type, original_filename, file_path,
         file_size, duration, width, height, aspect_ratio,
-        thumbnail_path, pipeline_job_id, category_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        thumbnail_path, pipeline_job_id, category_id, metadata_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       data.id,
       data.title,
@@ -64,8 +82,64 @@ export class PublishingRepository {
       data.aspectRatio,
       data.thumbnailPath || null,
       data.pipelineJobId || null,
-      data.categoryId || null
+      data.categoryId || null,
+      data.metadataJson || '{}'
     );
+  }
+
+  // --- BRANDED VIDEOS (VARIANTS) ---
+
+  insertBrandedVideo(data: {
+    id: string;
+    videoId: string;
+    presetName: string;
+    movementPreset: string;
+    watermarkText: string;
+    filePath: string;
+    fileSize: number;
+    duration: number;
+    width: number;
+    height: number;
+    aspectRatio: string;
+    thumbnailPath?: string | null;
+    brandKitJson: string;
+    sha256?: string | null;
+  }): void {
+    db.prepare(`
+      INSERT OR REPLACE INTO branded_videos (
+        id, video_id, preset_name, movement_preset, watermark_text,
+        file_path, file_size, duration, width, height,
+        aspect_ratio, thumbnail_path, brand_kit_json, sha256
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      data.id,
+      data.videoId,
+      data.presetName,
+      data.movementPreset,
+      data.watermarkText,
+      data.filePath,
+      data.fileSize,
+      data.duration,
+      data.width,
+      data.height,
+      data.aspectRatio,
+      data.thumbnailPath || null,
+      data.brandKitJson,
+      data.sha256 || null
+    );
+  }
+
+  getBrandedVideosByVideoId(videoId: string): BrandedVideoEntity[] {
+    return db.prepare('SELECT * FROM branded_videos WHERE video_id = ? ORDER BY created_at DESC').all(videoId) as any[];
+  }
+
+  getBrandedVideoById(id: string): BrandedVideoEntity | undefined {
+    return db.prepare('SELECT * FROM branded_videos WHERE id = ?').get(id) as any;
+  }
+
+  deleteBrandedVideo(id: string): boolean {
+    const res = db.prepare('DELETE FROM branded_videos WHERE id = ?').run(id);
+    return res.changes > 0;
   }
 
   // --- POSTS & DESTINATIONS ---
@@ -76,6 +150,7 @@ export class PublishingRepository {
     title: string;
     scheduledAt?: string | null;
     postStatus: PostStatus;
+    selectedVariantId?: string | null;
     destinations: Array<{
       id: string;
       accountId: string;
@@ -83,19 +158,21 @@ export class PublishingRepository {
       hashtags: string;
       applyBranding: number;
       brandingOverrideJson?: string | null;
+      brandedVideoPath?: string | null;
+      selectedVariantId?: string | null;
       status: DestinationStatus;
     }>;
   }): void {
     const insertPost = db.prepare(`
-      INSERT INTO publishing_posts (id, video_id, title, scheduled_at, status)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO publishing_posts (id, video_id, title, scheduled_at, status, selected_variant_id)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
 
     const insertDest = db.prepare(`
       INSERT INTO publishing_destinations (
         id, post_id, account_id, caption, hashtags, apply_branding,
-        branding_override_json, status, progress
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+        branding_override_json, branded_video_path, selected_variant_id, status, progress
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     `);
 
     const tx = db.transaction(() => {
@@ -104,7 +181,8 @@ export class PublishingRepository {
         params.videoId,
         params.title,
         params.scheduledAt || null,
-        params.postStatus
+        params.postStatus,
+        params.selectedVariantId || null
       );
 
       for (const dest of params.destinations) {
@@ -116,6 +194,8 @@ export class PublishingRepository {
           dest.hashtags,
           dest.applyBranding,
           dest.brandingOverrideJson || null,
+          dest.brandedVideoPath || null,
+          dest.selectedVariantId || null,
           dest.status
         );
       }
@@ -275,7 +355,8 @@ export class PublishingRepository {
     return db.prepare(`
       SELECT 
         pd.id, pd.post_id, pd.account_id, pd.caption, pd.hashtags,
-        pd.apply_branding, pd.branding_override_json, pd.status,
+        pd.apply_branding, pd.branding_override_json, pd.branded_video_path,
+        pd.selected_variant_id, pd.status,
         pd.retry_count, pd.max_retries,
         p.title, p.scheduled_at,
         v.file_path as original_video_path,

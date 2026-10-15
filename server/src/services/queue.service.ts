@@ -1,3 +1,4 @@
+import fs from 'fs';
 import { ffmpegService, BrandKitOptions } from './ffmpeg.service.js';
 import { getConnector } from '../connectors/registry.js';
 import { eventService } from './events.service.js';
@@ -66,10 +67,14 @@ export class QueueService {
 
   private async executeDestinationJob(job: any) {
     try {
-      // Step A: Branding
+      // Step A: Video Version & Branding Resolution
       let finalVideoPath = job.original_video_path;
 
-      if (job.apply_branding) {
+      if (job.branded_video_path && fs.existsSync(job.branded_video_path)) {
+        // Pre-rendered branded variant explicitly selected and verified on disk
+        finalVideoPath = job.branded_video_path;
+        console.log(`[QueueService] Destination ${job.id} using pre-rendered branded variant: ${finalVideoPath}`);
+      } else if (job.apply_branding) {
         this.updateDestinationStatus(job.id, 'branding', 10);
 
         let brandKit: BrandKitOptions;
@@ -92,6 +97,9 @@ export class QueueService {
           }
         );
 
+        publishingRepo.updateDestinationBrandedPath(job.id, finalVideoPath);
+      } else {
+        // Original unbranded video published directly
         publishingRepo.updateDestinationBrandedPath(job.id, finalVideoPath);
       }
 

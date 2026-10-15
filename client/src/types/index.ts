@@ -64,6 +64,50 @@ export interface Account {
   capabilities?: ConnectorCapabilities;
 }
 
+export interface BrandedVideo {
+  id: string;
+  video_id: string;
+  preset_name: string;
+  movement_preset: string;
+  watermark_text: string;
+  file_path: string;
+  previewUrl: string;
+  downloadUrl: string;
+  file_size: number;
+  duration: number;
+  width: number;
+  height: number;
+  aspect_ratio: string;
+  thumbnail_path?: string | null;
+  brand_kit_json?: string;
+  sha256?: string;
+  created_at: string;
+}
+
+export interface DiscoveredPipelineJob {
+  jobId: string;
+  title: string;
+  aspectRatio: string;
+  durationSeconds: number;
+  displayStatus: string;
+  videoUrl: string;
+  videoObjectKey?: string;
+  isImported: boolean;
+  importedVideoId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PipelineHealthStatus {
+  reachable: boolean;
+  status: 'connected' | 'offline';
+  apiUrl: string;
+  totalProjects: number;
+  completedJobsCount: number;
+  lastChecked: string;
+  error?: string;
+}
+
 export interface VideoItem {
   id: string;
   title: string;
@@ -76,10 +120,14 @@ export interface VideoItem {
   height: number;
   aspect_ratio: string;
   thumbnail_path?: string;
+  thumbnailUrl?: string;
+  streamUrl?: string;
   pipeline_job_id?: string;
   category_id?: string;
   category_name?: string;
   category_color?: string;
+  metadata?: any;
+  branded_variants?: BrandedVideo[];
   created_at: string;
 }
 
@@ -98,6 +146,7 @@ export interface PublishingDestination {
   hashtags: string;
   apply_branding: number;
   branded_video_path?: string;
+  selected_variant_id?: string | null;
   status: 'draft' | 'scheduled' | 'preparing' | 'branding' | 'uploading' | 'awaiting_confirmation' | 'published' | 'failed' | 'cancelled';
   progress: number;
   error_message?: string;
@@ -120,6 +169,7 @@ export interface PublishingPost {
   thumbnail_path?: string;
   scheduled_at?: string;
   status: 'draft' | 'scheduled' | 'processing' | 'completed' | 'partial_failure' | 'failed' | 'cancelled';
+  selected_variant_id?: string | null;
   destinations: PublishingDestination[];
   created_at: string;
 }
@@ -197,8 +247,12 @@ export interface ActivityResponse {
 }
 
 export interface PipelineStatusResponse {
-  watchDir: string;
-  files: Array<{
+  health?: PipelineHealthStatus;
+  jobs?: DiscoveredPipelineJob[];
+  jobsCount?: number;
+  apiUrl?: string;
+  watchDir?: string;
+  files?: Array<{
     filename: string;
     fullPath: string;
     sizeBytes: number;
@@ -206,5 +260,5 @@ export interface PipelineStatusResponse {
     isImported: boolean;
     importedVideoId?: string;
   }>;
-  fileCount: number;
+  fileCount?: number;
 }

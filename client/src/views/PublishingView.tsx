@@ -19,8 +19,14 @@ export const PublishingView: React.FC<Props> = () => {
     accounts,
     queue,
     pipelineFiles,
+    pipelineJobs,
+    pipelineHealth,
+    syncingPipeline,
     selectedVideoId,
     setSelectedVideoId,
+    selectedVariantId,
+    setSelectedVariantId,
+    handleSelectVideoVariant,
     postTitle,
     setPostTitle,
     isScheduled,
@@ -37,6 +43,9 @@ export const PublishingView: React.FC<Props> = () => {
     loadData,
     handleFileUpload,
     handleImportPipelineFile,
+    handleImportPipelineJob,
+    handleSyncPipeline,
+    handleDeleteBrandedVariant,
     toggleAccountSelection,
     selectAllAccounts,
     copyFirstCaptionToAll,
@@ -46,6 +55,10 @@ export const PublishingView: React.FC<Props> = () => {
   } = usePublishing();
 
   const activeVideo = videos.find(v => v.id === selectedVideoId);
+  const activeVariant = activeVideo?.branded_variants?.find(b => b.id === selectedVariantId);
+  const previewVideoUrl = activeVariant 
+    ? activeVariant.previewUrl 
+    : (activeVideo ? (activeVideo.streamUrl || `/uploads/${activeVideo.file_path.split(/[/\\]/).pop()}`) : '');
 
   return (
     <div className="space-y-6">
@@ -130,21 +143,71 @@ export const PublishingView: React.FC<Props> = () => {
               </div>
 
               {activeVideo ? (
-                <div className="bg-surface p-4 rounded-xl border border-border flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <h4 className="font-bold text-slate-100 text-sm truncate">{activeVideo.title}</h4>
-                    <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
-                      <span className="font-mono">{activeVideo.aspect_ratio}</span>
-                      <span>•</span>
-                      <span>{activeVideo.duration.toFixed(1)}s duration</span>
-                      <span>•</span>
-                      <span className="uppercase text-[10px] text-terracotta-400 font-bold">{activeVideo.source_type}</span>
-                    </p>
+                <>
+                  <div className="bg-surface p-4 rounded-xl border border-border flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <h4 className="font-bold text-slate-100 text-sm truncate">{activeVideo.title}</h4>
+                      <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                        <span className="font-mono">{activeVideo.aspect_ratio}</span>
+                        <span>•</span>
+                        <span>{activeVideo.duration.toFixed(1)}s duration</span>
+                        <span>•</span>
+                        <span className="uppercase text-[10px] text-terracotta-400 font-bold">{activeVideo.source_type}</span>
+                      </p>
+                    </div>
+                    <span className="text-xs bg-sage-500/10 text-sage-400 border border-sage-500/20 px-2.5 py-1 rounded-md font-semibold shrink-0">
+                      Master Ready
+                    </span>
                   </div>
-                  <span className="text-xs bg-sage-500/10 text-sage-400 border border-sage-500/20 px-2.5 py-1 rounded-md font-semibold shrink-0">
-                    Master Ready
-                  </span>
-                </div>
+
+                  {/* Version Selector (Original vs. Branded Variants) */}
+                  <div className="mt-3.5 p-3.5 bg-surface/70 rounded-xl border border-border space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-terracotta-400" />
+                        <span>Publish Version:</span>
+                      </label>
+                      <span className="text-[10px] text-slate-400">
+                        {activeVariant ? 'Custom Branded Variant' : 'Original Unbranded Master'}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedVariantId('original')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                          selectedVariantId === 'original' || !selectedVariantId
+                            ? 'bg-blue-500/15 border-blue-500 text-blue-300 shadow-xs'
+                            : 'bg-surface border-border text-slate-400 hover:border-slate-600'
+                        }`}
+                      >
+                        <span className="w-2 h-2 rounded-full bg-blue-400" />
+                        <span>Original Master (Unbranded)</span>
+                      </button>
+
+                      {activeVideo.branded_variants?.map((variant) => {
+                        const isChosen = selectedVariantId === variant.id;
+                        return (
+                          <button
+                            key={variant.id}
+                            type="button"
+                            onClick={() => setSelectedVariantId(variant.id)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                              isChosen
+                                ? 'bg-terracotta-500/15 border-terracotta-500 text-terracotta-300 shadow-xs'
+                                : 'bg-surface border-border text-slate-400 hover:border-slate-600'
+                            }`}
+                          >
+                            <span className="w-2 h-2 rounded-full bg-terracotta-400" />
+                            <span className="truncate max-w-[180px]">Branded: {variant.watermark_text}</span>
+                            <span className="text-[10px] text-slate-500 font-mono">({variant.movement_preset})</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
               ) : (
                 <div className="text-center py-6 border border-dashed border-border rounded-xl">
                   <p className="text-xs text-slate-400 mb-2">No video selected yet</p>
@@ -335,19 +398,29 @@ export const PublishingView: React.FC<Props> = () => {
                 <div className="space-y-3">
                   <div className="relative bg-black rounded-xl overflow-hidden border border-border flex items-center justify-center min-h-[340px]">
                     <video
+                      key={previewVideoUrl}
                       controls
-                      src={`/uploads/${activeVideo.file_path.split(/[/\\]/).pop()}`}
+                      src={previewVideoUrl}
                       className="max-h-[460px] w-full object-contain"
                     />
                   </div>
 
-                  <div className="p-3.5 bg-surface rounded-xl border border-border text-xs space-y-1">
-                    <p className="font-bold text-slate-100">{postTitle || activeVideo.title}</p>
+                  <div className="p-3.5 bg-surface rounded-xl border border-border text-xs space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-bold text-slate-100 truncate">{postTitle || activeVideo.title}</p>
+                      <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-md border shrink-0 ${
+                        activeVariant 
+                          ? 'bg-terracotta-500/15 text-terracotta-300 border-terracotta-500/30'
+                          : 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                      }`}>
+                        {activeVariant ? `Branded: ${activeVariant.watermark_text}` : 'Original Unbranded'}
+                      </span>
+                    </div>
                     <p className="text-slate-400 text-[11px]">
                       Selected Destinations: {selectedAccountIds.length} accounts
                     </p>
                     <p className="text-slate-500 text-[10px]">
-                      Video codec: H.264 / AAC • Aspect ratio: {activeVideo.aspect_ratio}
+                      Aspect: {activeVideo.aspect_ratio} • Duration: {activeVideo.duration.toFixed(1)}s • Source: {activeVideo.source_type}
                     </p>
                   </div>
                 </div>
@@ -376,13 +449,21 @@ export const PublishingView: React.FC<Props> = () => {
         <VideoLibraryGrid
           videos={videos}
           pipelineFiles={pipelineFiles}
+          pipelineJobs={pipelineJobs}
+          pipelineHealth={pipelineHealth}
+          syncingPipeline={syncingPipeline}
           selectedVideoId={selectedVideoId}
           onSelectVideo={(id, title) => {
             setSelectedVideoId(id);
+            setSelectedVariantId('original');
             setPostTitle(title);
             setActiveTab('compose');
           }}
+          onSelectVideoVariant={handleSelectVideoVariant}
           onImportPipelineFile={handleImportPipelineFile}
+          onImportPipelineJob={handleImportPipelineJob}
+          onSyncPipeline={handleSyncPipeline}
+          onDeleteBrandedVariant={handleDeleteBrandedVariant}
         />
       )}
     </div>

@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BrandKit } from '../../types';
+import { Sliders, Shield } from 'lucide-react';
 
 export interface WatermarkControlsProps {
   brandKit: BrandKit;
@@ -10,23 +11,41 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
   brandKit,
   setBrandKit,
 }) => {
+  const [showCustomSafeArea, setShowCustomSafeArea] = useState(false);
+
+  const applySafeAreaPreset = (preset: 'tiktok_9_16' | 'facebook_16_9') => {
+    if (preset === 'tiktok_9_16') {
+      setBrandKit(prev => ({
+        ...prev,
+        safeArea: { top: 120, bottom: 280, left: 40, right: 120 },
+      }));
+    } else {
+      setBrandKit(prev => ({
+        ...prev,
+        safeArea: { top: 60, bottom: 80, left: 40, right: 80 },
+      }));
+    }
+  };
+
   return (
     <div className="bg-surface-card border border-border rounded-2xl p-5 space-y-4 text-xs shadow-xs">
       <label className="text-xs font-bold uppercase tracking-wider text-slate-300 block">
         2. Watermark & Movement Preset
       </label>
 
+      {/* Watermark Text */}
       <div>
         <label className="block text-slate-300 font-semibold mb-1">Watermark Handle / Text</label>
         <input
           type="text"
           value={brandKit.text || ''}
           onChange={(e) => setBrandKit(prev => ({ ...prev, text: e.target.value }))}
-          placeholder="@YourAccountHandle"
+          placeholder="@SocialCommandCenter"
           className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-terracotta-500 font-mono"
         />
       </div>
 
+      {/* Movement Presets */}
       <div>
         <label className="block text-slate-300 font-semibold mb-1.5">Movement Animation Preset</label>
         <div className="grid grid-cols-2 gap-2">
@@ -52,6 +71,7 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
         </div>
       </div>
 
+      {/* Speed & Interval */}
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-slate-300 font-semibold mb-1">
@@ -82,6 +102,7 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
         </div>
       </div>
 
+      {/* Opacity & Font Size / Scale */}
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-slate-300 font-semibold mb-1">
@@ -100,17 +121,111 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
 
         <div>
           <label className="block text-slate-300 font-semibold mb-1">
-            Font Size ({brandKit.fontSize || 24}px)
+            Font Scale ({brandKit.fontSize || 26}px)
           </label>
           <input
             type="range"
             min="16"
             max="48"
-            value={brandKit.fontSize || 24}
+            value={brandKit.fontSize || 26}
             onChange={(e) => setBrandKit(prev => ({ ...prev, fontSize: Number(e.target.value) }))}
             className="w-full accent-terracotta-500"
           />
         </div>
+      </div>
+
+      {/* Safe Area Configuration */}
+      <div className="pt-3 border-t border-border space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="text-slate-300 font-semibold flex items-center gap-1.5">
+            <Shield className="w-3.5 h-3.5 text-terracotta-400" /> Safe-Area Boundaries
+          </label>
+          <button
+            type="button"
+            onClick={() => setShowCustomSafeArea(!showCustomSafeArea)}
+            className="text-[11px] text-terracotta-400 hover:text-terracotta-300 font-semibold cursor-pointer"
+          >
+            {showCustomSafeArea ? 'Hide Custom' : 'Adjust Margins →'}
+          </button>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => applySafeAreaPreset('tiktok_9_16')}
+            className={`flex-1 py-1 px-2 rounded-lg border text-[11px] font-bold cursor-pointer transition-colors ${
+              brandKit.safeArea?.top === 120 && brandKit.safeArea?.bottom === 280
+                ? 'border-terracotta-500 bg-terracotta-500/10 text-terracotta-300'
+                : 'border-border bg-surface text-slate-400 hover:border-slate-600'
+            }`}
+          >
+            TikTok 9:16 Preset
+          </button>
+          <button
+            type="button"
+            onClick={() => applySafeAreaPreset('facebook_16_9')}
+            className={`flex-1 py-1 px-2 rounded-lg border text-[11px] font-bold cursor-pointer transition-colors ${
+              brandKit.safeArea?.top === 60 && brandKit.safeArea?.bottom === 80
+                ? 'border-terracotta-500 bg-terracotta-500/10 text-terracotta-300'
+                : 'border-border bg-surface text-slate-400 hover:border-slate-600'
+            }`}
+          >
+            Facebook 16:9 Preset
+          </button>
+        </div>
+
+        {showCustomSafeArea && (
+          <div className="grid grid-cols-4 gap-2 pt-2 bg-surface p-3 rounded-xl border border-border">
+            <div>
+              <label className="text-[10px] text-slate-400 block mb-0.5">Top (px)</label>
+              <input
+                type="number"
+                value={brandKit.safeArea?.top ?? 120}
+                onChange={(e) => setBrandKit(prev => ({
+                  ...prev,
+                  safeArea: { ...prev.safeArea!, top: Number(e.target.value) }
+                }))}
+                className="w-full bg-surface-card border border-border rounded-lg px-2 py-1 text-slate-200 text-xs font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-400 block mb-0.5">Bottom (px)</label>
+              <input
+                type="number"
+                value={brandKit.safeArea?.bottom ?? 280}
+                onChange={(e) => setBrandKit(prev => ({
+                  ...prev,
+                  safeArea: { ...prev.safeArea!, bottom: Number(e.target.value) }
+                }))}
+                className="w-full bg-surface-card border border-border rounded-lg px-2 py-1 text-slate-200 text-xs font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-400 block mb-0.5">Left (px)</label>
+              <input
+                type="number"
+                value={brandKit.safeArea?.left ?? 40}
+                onChange={(e) => setBrandKit(prev => ({
+                  ...prev,
+                  safeArea: { ...prev.safeArea!, left: Number(e.target.value) }
+                }))}
+                className="w-full bg-surface-card border border-border rounded-lg px-2 py-1 text-slate-200 text-xs font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-400 block mb-0.5">Right (px)</label>
+              <input
+                type="number"
+                value={brandKit.safeArea?.right ?? 120}
+                onChange={(e) => setBrandKit(prev => ({
+                  ...prev,
+                  safeArea: { ...prev.safeArea!, right: Number(e.target.value) }
+                }))}
+                className="w-full bg-surface-card border border-border rounded-lg px-2 py-1 text-slate-200 text-xs font-mono"
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Signature option */}

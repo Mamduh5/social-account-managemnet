@@ -54,6 +54,25 @@ export function initializeDatabase() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Branded Video Variants (Preserves master video immutability)
+    CREATE TABLE IF NOT EXISTS branded_videos (
+      id TEXT PRIMARY KEY,
+      video_id TEXT NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+      preset_name TEXT NOT NULL,
+      movement_preset TEXT NOT NULL,
+      watermark_text TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      file_size INTEGER NOT NULL DEFAULT 0,
+      duration REAL DEFAULT 0,
+      width INTEGER DEFAULT 0,
+      height INTEGER DEFAULT 0,
+      aspect_ratio TEXT DEFAULT '9:16',
+      thumbnail_path TEXT,
+      brand_kit_json TEXT NOT NULL DEFAULT '{}',
+      sha256 TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Publishing Posts (Group of multi-destination publishing)
     CREATE TABLE IF NOT EXISTS publishing_posts (
       id TEXT PRIMARY KEY,
@@ -62,6 +81,7 @@ export function initializeDatabase() {
       scheduled_at TEXT,
       timezone TEXT NOT NULL DEFAULT 'Asia/Bangkok',
       status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'scheduled', 'processing', 'completed', 'partial_failure', 'failed', 'cancelled')),
+      selected_variant_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -76,6 +96,7 @@ export function initializeDatabase() {
       apply_branding INTEGER NOT NULL DEFAULT 1,
       branding_override_json TEXT,
       branded_video_path TEXT,
+      selected_variant_id TEXT,
       status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'scheduled', 'preparing', 'branding', 'uploading', 'awaiting_confirmation', 'published', 'failed', 'cancelled')),
       progress INTEGER NOT NULL DEFAULT 0,
       error_message TEXT,
@@ -159,5 +180,10 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_comments_awaiting ON comments(awaiting_reply);
     CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_events(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_analytics_account_date ON analytics_snapshots(account_id, date);
+    CREATE INDEX IF NOT EXISTS idx_branded_videos_vid ON branded_videos(video_id);
   `);
+
+  // Idempotent column migrations for existing SQLite databases
+  try { db.exec('ALTER TABLE publishing_destinations ADD COLUMN selected_variant_id TEXT'); } catch {}
+  try { db.exec('ALTER TABLE publishing_posts ADD COLUMN selected_variant_id TEXT'); } catch {}
 }

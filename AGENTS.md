@@ -64,6 +64,12 @@ npm test
 npx tsx test/e2e/autonomous_acceptance.ts
 ```
 
+### Run Real Pipeline & Branding Studio Acceptance Test
+```powershell
+# Requires backend running on port 3001 and AI Video Pipeline running on port 8080
+npx tsx test/e2e/real_pipeline_acceptance.ts
+```
+
 ---
 
 ## 3. Entry Points

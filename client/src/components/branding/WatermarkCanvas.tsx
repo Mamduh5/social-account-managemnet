@@ -5,15 +5,21 @@ export interface WatermarkCanvasProps {
   brandKit: BrandKit;
   width?: number;
   height?: number;
+  aspectRatio?: '9:16' | '16:9';
 }
 
 export const WatermarkCanvas: React.FC<WatermarkCanvasProps> = ({
   brandKit,
-  width = 320,
-  height = 568,
+  width,
+  height,
+  aspectRatio = '9:16',
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animFrameRef = useRef<number | null>(null);
+
+  const is169 = aspectRatio === '16:9';
+  const canvasW = width || (is169 ? 480 : 320);
+  const canvasH = height || (is169 ? 270 : 568);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -38,10 +44,12 @@ export const WatermarkCanvas: React.FC<WatermarkCanvasProps> = ({
       ctx.fillRect(0, 0, W, H);
 
       // Safe area visual outline
-      const safeTop = (brandKit.safeArea?.top || 120) * (H / 1920);
-      const safeBottom = (brandKit.safeArea?.bottom || 280) * (H / 1920);
-      const safeLeft = (brandKit.safeArea?.left || 40) * (W / 1080);
-      const safeRight = (brandKit.safeArea?.right || 120) * (W / 1080);
+      const refH = is169 ? 1080 : 1920;
+      const refW = is169 ? 1920 : 1080;
+      const safeTop = (brandKit.safeArea?.top || (is169 ? 60 : 120)) * (H / refH);
+      const safeBottom = (brandKit.safeArea?.bottom || (is169 ? 60 : 280)) * (H / refH);
+      const safeLeft = (brandKit.safeArea?.left || (is169 ? 60 : 40)) * (W / refW);
+      const safeRight = (brandKit.safeArea?.right || (is169 ? 60 : 120)) * (W / refW);
 
       ctx.strokeStyle = 'rgba(217, 93, 57, 0.35)';
       ctx.lineWidth = 1;
@@ -52,11 +60,11 @@ export const WatermarkCanvas: React.FC<WatermarkCanvasProps> = ({
       // Safe area label
       ctx.fillStyle = 'rgba(217, 93, 57, 0.6)';
       ctx.font = '10px sans-serif';
-      ctx.fillText('TikTok / Mobile Safe Area', safeLeft + 8, safeTop + 14);
+      ctx.fillText(is169 ? 'Facebook / Landscape Safe Area' : 'TikTok / Mobile Safe Area', safeLeft + 8, safeTop + 14);
 
       // Calculate watermark text width & height
       const text = brandKit.text || '@Handle';
-      const fontSize = (brandKit.fontSize || 24) * (W / 1080) * 1.5;
+      const fontSize = (brandKit.fontSize || 24) * (W / refW) * 1.5;
       ctx.font = `bold ${fontSize}px sans-serif`;
       const textMetrics = ctx.measureText(text);
       const textW = textMetrics.width;
@@ -129,18 +137,18 @@ export const WatermarkCanvas: React.FC<WatermarkCanvasProps> = ({
         cancelAnimationFrame(animFrameRef.current);
       }
     };
-  }, [brandKit]);
+  }, [brandKit, is169]);
 
   return (
     <div className="relative mx-auto w-fit rounded-2xl overflow-hidden border-2 border-border shadow-2xl bg-black">
       <canvas
         ref={canvasRef}
-        width={width}
-        height={height}
+        width={canvasW}
+        height={canvasH}
         className="block"
       />
       <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-md bg-black/60 text-[10px] font-mono text-terracotta-300 border border-terracotta-500/30">
-        9:16 Canvas
+        {is169 ? '16:9 Landscape' : '9:16 Vertical'}
       </div>
     </div>
   );

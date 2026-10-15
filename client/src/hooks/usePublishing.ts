@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api/client';
-import { Account, VideoItem, PublishingPost, PublishingDestination } from '../types';
+import { 
+  Account, 
+  VideoItem, 
+  PublishingPost, 
+  PublishingDestination,
+  DiscoveredPipelineJob,
+  PipelineHealthStatus,
+} from '../types';
 
 export function usePublishing() {
   const [activeTab, setActiveTab] = useState<'compose' | 'queue' | 'library'>('compose');
@@ -9,14 +16,17 @@ export function usePublishing() {
   const [posts, setPosts] = useState<PublishingPost[]>([]);
   const [queue, setQueue] = useState<PublishingDestination[]>([]);
   const [pipelineFiles, setPipelineFiles] = useState<any[]>([]);
+  const [pipelineJobs, setPipelineJobs] = useState<DiscoveredPipelineJob[]>([]);
+  const [pipelineHealth, setPipelineHealth] = useState<PipelineHealthStatus | null>(null);
 
   // Composer Form State
   const [selectedVideoId, setSelectedVideoId] = useState<string>('');
+  const [selectedVariantId, setSelectedVariantId] = useState<string>('original');
   const [postTitle, setPostTitle] = useState('');
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduleTime, setScheduleTime] = useState('');
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
-  const [destinationConfig, setDestinationConfig] = useState<Record<string, { caption: string; hashtags: string; applyBranding: boolean }>>({});
+  const [destinationConfig, setDestinationConfig] = useState<Record<string, { caption: string; hashtags: string; applyBranding: boolean; selectedVariantId?: string | null }>>({});
 
   // Upload state
   const [uploading, setUploading] = useState(false);
@@ -25,6 +35,7 @@ export function usePublishing() {
 
   // Submitting state
   const [submitting, setSubmitting] = useState(false);
+  const [syncingPipeline, setSyncingPipeline] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -40,6 +51,10 @@ export function usePublishing() {
       setPosts(pRes.posts || []);
       setQueue(qRes.queue || []);
       setPipelineFiles(pipeRes.files || []);
+      setPipelineJobs(pipeRes.jobs || []);
+      if (pipeRes.health) {
+        setPipelineHealth(pipeRes.health);
+      }
 
       setSelectedVideoId(prev => prev || vRes.videos?.[0]?.id || '');
     } catch (err) {
@@ -119,6 +134,40 @@ export function usePublishing() {
     }
   };
 
+  const handleImportPipelineJob = async (jobId: string, title?: string) => {
+    try {
+      const res = await api.importPipelineJob(jobId, title);
+      await loadData();
+      if (res.videoId) {
+        setSelectedVideoId(res.videoId);
+        setActiveTab('compose');
+      }
+    } catch (err) {
+      console.error('Error importing pipeline job:', err);
+    }
+  };
+
+  const handleSyncPipeline = async () => {
+    setSyncingPipeline(true);
+    try {
+      await api.syncPipeline();
+      await loadData();
+    } catch (err) {
+      console.error('Error syncing pipeline:', err);
+    } finally {
+      setSyncingPipeline(false);
+    }
+  };
+
+  const handleDeleteBrandedVariant = async (variantId: string) => {
+    try {
+      await api.deleteBrandedVariant(variantId);
+      await loadData();
+    } catch (err) {
+      console.error('Error deleting branded variant:', err);
+    }
+  };
+
   const toggleAccountSelection = (accId: string) => {
     setSelectedAccountIds(prev => 
       prev.includes(accId) ? prev.filter(id => id !== accId) : [...prev, accId]
@@ -139,15 +188,27 @@ export function usePublishing() {
     const sourceConfig = destinationConfig[firstAccId];
     if (!sourceConfig) return;
 
-    const updated = { ...destinationConfig };
-    for (const id of selectedAccountIds) {
-      updated[id] = {
-        ...updated[id],
-        caption: sourceConfig.caption,
-        hashtags: sourceConfig.hashtags,
-      };
-    }
-    setDestinationConfig(updated);
+    setDestinationConfig(prev => {
+      const updated = { ...prev };
+      for (const id of selectedAccountIds) {
+        if (id !== firstAccId) {
+          updated[id] = {
+            ...updated[id],
+            caption: sourceConfig.caption,
+            hashtags: sourceConfig.hashtags,
+            applyBranding: sourceConfig.applyBranding,
+          };
+        }
+      }
+      return updated;
+    });
+  };
+
+  const handleSelectVideoVariant = (videoId: string, variantId: string, title?: string) => {
+    setSelectedVideoId(videoId);
+    setSelectedVariantId(variantId);
+    if (title) setPostTitle(title);
+    setActiveTab('compose');
   };
 
   const handlePublishSubmit = async (e: React.FormEvent) => {
@@ -156,17 +217,27 @@ export function usePublishing() {
 
     setSubmitting(true);
     try {
-      const destinations = selectedAccountIds.map(accId => ({
-        accountId: accId,
-        caption: destinationConfig[accId]?.caption || postTitle,
-        hashtags: destinationConfig[accId]?.hashtags || '',
-        applyBranding: destinationConfig[accId]?.applyBranding ?? true,
-      }));
+      const destinations = selectedAccountIds.map(accountId => {
+        const conf = destinationConfig[accountId] || { caption: postTitle, hashtags: '', applyBranding: true };
+        const destVariantId = conf.selectedVariantId !== undefined 
+          ? conf.selectedVariantId 
+          : selectedVariantId;
+
+        const isBrandedVariant = destVariantId && destVariantId !== 'original';
+        return {
+          accountId,
+          caption: conf.caption,
+          hashtags: conf.hashtags,
+          applyBranding: isBrandedVariant ? 0 : (conf.applyBranding ? 1 : 0),
+          selectedVariantId: destVariantId || null,
+        };
+      });
 
       await api.createPost({
         videoId: selectedVideoId,
         title: postTitle,
         scheduledAt: isScheduled ? scheduleTime : null,
+        selectedVariantId: selectedVariantId || null,
         destinations,
       });
 
@@ -179,18 +250,18 @@ export function usePublishing() {
     }
   };
 
-  const handleRetryDestination = async (destId: string) => {
+  const handleRetryDestination = async (id: string) => {
     try {
-      await api.retryDestination(destId);
+      await api.retryDestination(id);
       await loadData();
     } catch (err) {
       console.error(err);
     }
   };
 
-  const handleCancelDestination = async (destId: string) => {
+  const handleCancelDestination = async (id: string) => {
     try {
-      await api.cancelDestination(destId);
+      await api.cancelDestination(id);
       await loadData();
     } catch (err) {
       console.error(err);
@@ -205,8 +276,14 @@ export function usePublishing() {
     posts,
     queue,
     pipelineFiles,
+    pipelineJobs,
+    pipelineHealth,
+    syncingPipeline,
     selectedVideoId,
     setSelectedVideoId,
+    selectedVariantId,
+    setSelectedVariantId,
+    handleSelectVideoVariant,
     postTitle,
     setPostTitle,
     isScheduled,
@@ -223,6 +300,9 @@ export function usePublishing() {
     loadData,
     handleFileUpload,
     handleImportPipelineFile,
+    handleImportPipelineJob,
+    handleSyncPipeline,
+    handleDeleteBrandedVariant,
     toggleAccountSelection,
     selectAllAccounts,
     copyFirstCaptionToAll,

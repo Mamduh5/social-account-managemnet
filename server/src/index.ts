@@ -68,6 +68,15 @@ if (fs.existsSync(clientDist)) {
   });
 }
 
+// Process error handling
+process.on('uncaughtException', (err) => {
+  console.error('[Server Uncaught Exception]:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Server Unhandled Rejection]:', reason);
+});
+
 // Graceful shutdown handling
 process.on('SIGINT', () => {
   console.log('[Server] Shutting down gracefully...');

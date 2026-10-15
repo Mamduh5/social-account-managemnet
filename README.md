@@ -112,10 +112,17 @@ The SQLite database (`social_command_center.db`), video uploads, and rendered br
 
 ## 5. Integration with AI Video Pipeline
 
-The Social Command Center bridges with your upstream pipeline (`ai-video-pipeline`) using three complementary approaches:
+The Social Command Center bridges with your running upstream pipeline (`ai-video-pipeline`) using decoupled, robust integration methods:
 
-### Option 1: Live Watched Directory Scanner
-The application monitors your pipeline output directory:
+### Option 1: Live HTTP & MinIO Service Integration (Primary / Recommended)
+The Command Center connects directly to your running Go Gin pipeline server and MinIO S3 storage:
+- **Pipeline API URL:** `http://localhost:8080` (configured via `PIPELINE_API_URL` or Settings)
+- **MinIO S3 Gateway:** Streams completed MP4 artifacts from the `ai-video` bucket via `GET /scene-video-jobs/:id/artifacts/video`
+- **1-Click Import:** Open **Publishing** > **Video Library** tab. Click **Import** on any completed project to ingest it into the Command Center.
+- **Auto-Sync:** Real-time polling detects newly finished videos without server restart.
+
+### Option 2: Live Watched Directory Scanner
+The application can also monitor a local output directory for standalone or offline renders:
 ```
 D:\Mamduh\Personal\ai-video-pipeline\.tmp-live-validation
 ```
@@ -123,8 +130,8 @@ D:\Mamduh\Personal\ai-video-pipeline\.tmp-live-validation
 - Click **Import** on any discovered video to ingest it into the Command Center.
 - You can change the watched path at any time in **Settings & Bridge**.
 
-### Option 2: REST / Webhook Ingestion Endpoint
-Upstream pipeline jobs can notify the Command Center automatically on completion by dispatching an HTTP POST:
+### Option 3: REST / Webhook Ingestion Endpoint
+Upstream pipeline jobs can notify the Command Center automatically on completion:
 ```bash
 curl -X POST http://localhost:3001/api/pipeline/webhook \
   -H "Content-Type: application/json" \
@@ -135,8 +142,17 @@ curl -X POST http://localhost:3001/api/pipeline/webhook \
   }'
 ```
 
-### Option 3: Manual Direct Upload
-Drag and drop any MP4 video directly from your desktop in the **Publishing Center**.
+### Option 4: Manual Direct Upload
+Drag and drop any MP4 video directly from your desktop into the **Publishing Center**.
+
+---
+
+## 5.1 Critical Master Video Immutability & Brand Variant Tracking
+
+- **Strict Invariance:** Original master videos in `.data/uploads/` are immutable source artifacts.
+- **Pre/Post-Render SHA256 Assertions:** Before any FFmpeg watermark rendering occurs, the master video's SHA256 is recorded. The output is strictly written to a separate file in `.data/renders/`. Upon completion, the master video's SHA256 is re-verified to ensure zero byte alteration.
+- **Independent Variant Storage:** Each branded version is tracked in the `branded_videos` database table with its own aspect ratio, movement preset, watermark text, and SHA256.
+- **Safe Variant Deletion:** Deleting a branded version only removes the rendered file in `.data/renders/`; the master video is protected and remains untouched.
 
 ---
 

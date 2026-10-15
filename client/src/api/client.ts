@@ -114,11 +114,19 @@ export const api = {
     });
     return res.json();
   },
-  async renderPreview(videoId: string, brandKit: BrandKit): Promise<{ success: boolean; renderedPath: string; previewUrl: string }> {
+  async renderPreview(videoId: string, brandKit: BrandKit, presetName?: string): Promise<{
+    success: boolean;
+    renderedPath: string;
+    previewUrl: string;
+    downloadUrl: string;
+    variantId?: string;
+    sha256?: string;
+    metadata?: any;
+  }> {
     const res = await fetch(`${API_BASE}/branding/render-preview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ videoId, brandKit }),
+      body: JSON.stringify({ videoId, brandKit, presetName }),
     });
     return res.json();
   },
@@ -171,6 +179,22 @@ export const api = {
     const res = await fetch(`${API_BASE}/pipeline/status`);
     return res.json();
   },
+  async getPipelineJobs(): Promise<{ jobs: any[]; count: number }> {
+    const res = await fetch(`${API_BASE}/pipeline/jobs`);
+    return res.json();
+  },
+  async importPipelineJob(jobId: string, title?: string, categoryId?: string): Promise<{ success: boolean; videoId: string; alreadyExisted?: boolean; message?: string }> {
+    const res = await fetch(`${API_BASE}/pipeline/import-job`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId, title, categoryId }),
+    });
+    return res.json();
+  },
+  async syncPipeline(): Promise<{ success: boolean; count: number; jobs: any[] }> {
+    const res = await fetch(`${API_BASE}/pipeline/sync`, { method: 'POST' });
+    return res.json();
+  },
   async importPipelineFile(filePath: string, title?: string, categoryId?: string): Promise<{ success: boolean; videoId: string }> {
     const res = await fetch(`${API_BASE}/pipeline/import-file`, {
       method: 'POST',
@@ -185,6 +209,14 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path }),
     });
+    return res.json();
+  },
+  async getBrandedVariants(videoId: string): Promise<{ variants: any[] }> {
+    const res = await fetch(`${API_BASE}/branding/variants/${videoId}`);
+    return res.json();
+  },
+  async deleteBrandedVariant(variantId: string): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/branding/variants/${variantId}`, { method: 'DELETE' });
     return res.json();
   },
 

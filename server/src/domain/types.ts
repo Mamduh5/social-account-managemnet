@@ -88,6 +88,25 @@ export interface VideoEntity {
   thumbnail_path?: string | null;
   pipeline_job_id?: string | null;
   category_id?: string | null;
+  metadata_json?: string | null;
+  created_at: string;
+}
+
+export interface BrandedVideoEntity {
+  id: string;
+  video_id: string;
+  preset_name: string;
+  movement_preset: WatermarkMovementPreset;
+  watermark_text: string;
+  file_path: string;
+  file_size: number;
+  duration: number;
+  width: number;
+  height: number;
+  aspect_ratio: string;
+  thumbnail_path?: string | null;
+  brand_kit_json: string;
+  sha256?: string | null;
   created_at: string;
 }
 
@@ -97,6 +116,7 @@ export interface PublishingPostEntity {
   title: string;
   scheduled_at?: string | null;
   status: PostStatus;
+  selected_variant_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -110,6 +130,7 @@ export interface PublishingDestinationEntity {
   apply_branding: number;
   branding_override_json?: string | null;
   branded_video_path?: string | null;
+  selected_variant_id?: string | null;
   status: DestinationStatus;
   progress: number;
   remote_post_id?: string | null;
