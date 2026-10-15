@@ -32,12 +32,12 @@ export const CommentFilters: React.FC<CommentFiltersProps> = ({
   onSearchSubmit,
 }) => {
   return (
-    <div className="bg-surface-card border border-border p-4 rounded-xl space-y-3">
+    <div className="bg-surface-card border border-border p-4.5 rounded-2xl space-y-3.5 shadow-xs">
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-        {/* Platform Filter */}
+        {/* Platform Filter - selector div.bg-surface button preserved */}
         <div className="flex items-center gap-2">
           <span className="text-slate-400 font-medium">Platform:</span>
-          <div className="flex rounded-lg border border-slate-800 bg-surface p-0.5">
+          <div className="flex rounded-xl border border-border bg-surface p-0.5">
             {[
               { id: '', label: 'All' },
               { id: 'facebook', label: 'Facebook' },
@@ -46,8 +46,10 @@ export const CommentFilters: React.FC<CommentFiltersProps> = ({
               <button
                 key={p.id}
                 onClick={() => setPlatformFilter(p.id)}
-                className={`px-3 py-1 rounded text-xs font-medium transition-all ${
-                  platformFilter === p.id ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  platformFilter === p.id 
+                    ? 'bg-terracotta-600 text-white shadow-xs' 
+                    : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 {p.label}
@@ -62,7 +64,7 @@ export const CommentFilters: React.FC<CommentFiltersProps> = ({
           <select
             value={accountFilter}
             onChange={(e) => setAccountFilter(e.target.value)}
-            className="bg-surface border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none"
+            className="bg-surface border border-border rounded-xl px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-terracotta-500 cursor-pointer"
           >
             <option value="">All Accounts</option>
             {accounts.map((a) => (
@@ -77,7 +79,7 @@ export const CommentFilters: React.FC<CommentFiltersProps> = ({
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="bg-surface border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none"
+            className="bg-surface border border-border rounded-xl px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-terracotta-500 cursor-pointer"
           >
             <option value="all">All Statuses</option>
             <option value="unread">Unread</option>
@@ -87,12 +89,12 @@ export const CommentFilters: React.FC<CommentFiltersProps> = ({
         </div>
 
         {/* Awaiting Response Toggle */}
-        <label className="flex items-center gap-2 cursor-pointer text-slate-300 font-medium">
+        <label className="flex items-center gap-2 cursor-pointer text-slate-300 font-semibold hover:text-slate-100">
           <input
             type="checkbox"
             checked={awaitingReplyOnly}
             onChange={(e) => setAwaitingReplyOnly(e.target.checked)}
-            className="rounded border-slate-700 text-indigo-600 focus:ring-0"
+            className="rounded border-border text-terracotta-600 focus:ring-0 accent-terracotta-600"
           />
           Needs Response Only
         </label>
@@ -100,13 +102,13 @@ export const CommentFilters: React.FC<CommentFiltersProps> = ({
 
       {/* Search */}
       <form onSubmit={onSearchSubmit} className="relative">
-        <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search comment contents, viewer names, or video titles..."
-          className="w-full bg-surface border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+          className="w-full bg-surface border border-border rounded-xl pl-9.5 pr-4 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-terracotta-500"
         />
       </form>
     </div>

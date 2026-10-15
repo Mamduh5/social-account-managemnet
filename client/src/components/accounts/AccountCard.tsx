@@ -26,22 +26,22 @@ export const AccountCard: React.FC<AccountCardProps> = ({
 
   return (
     <div 
-      className={`bg-surface-card border rounded-xl p-5 transition-all ${
-        isHealthy ? 'border-border' : 'border-amber-500/50 bg-amber-950/10'
+      className={`bg-surface-card border rounded-2xl p-5 transition-all shadow-xs ${
+        isHealthy ? 'border-border' : 'border-honey-500/40 bg-honey-950/10'
       }`}
     >
       {/* Account Header */}
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <img 
             src={acc.avatar_url} 
             alt={acc.name} 
-            className="w-12 h-12 rounded-xl object-cover border border-slate-700" 
+            className="w-12 h-12 rounded-2xl object-cover border border-border shrink-0 shadow-xs" 
           />
-          <div>
-            <h3 className="text-base font-bold text-white">{acc.name}</h3>
-            <p className="text-xs text-slate-400 flex items-center gap-2">
-              <span>{acc.handle}</span>
+          <div className="min-w-0">
+            <h3 className="text-base font-bold text-slate-100 truncate">{acc.name}</h3>
+            <p className="text-xs text-slate-400 flex items-center gap-2 truncate">
+              <span className="font-mono">{acc.handle}</span>
               <span className="text-slate-600">•</span>
               <span className="capitalize">{acc.account_type}</span>
             </p>
@@ -52,20 +52,20 @@ export const AccountCard: React.FC<AccountCardProps> = ({
       </div>
 
       {/* Status and Health */}
-      <div className="mt-4 p-3 bg-surface rounded-lg border border-border/80 flex items-center justify-between text-xs">
+      <div className="mt-4 p-3.5 bg-surface rounded-xl border border-border flex items-center justify-between text-xs">
         <div>
-          <div className="flex items-center gap-1.5 font-medium">
+          <div className="flex items-center gap-1.5 font-semibold">
             {isHealthy ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <CheckCircle2 className="w-4 h-4 text-sage-400" />
             ) : (
-              <AlertCircle className="w-4 h-4 text-amber-400" />
+              <AlertCircle className="w-4 h-4 text-honey-400" />
             )}
-            <span className={isHealthy ? 'text-slate-200' : 'text-amber-300'}>
+            <span className={isHealthy ? 'text-slate-200' : 'text-honey-300'}>
               {acc.health_status}
             </span>
           </div>
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            Category: <span className="text-slate-300 font-medium">{acc.category_name || 'Unassigned'}</span>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            Category: <span className="text-slate-200 font-medium">{acc.category_name || 'Unassigned'}</span>
           </p>
         </div>
 
@@ -73,16 +73,16 @@ export const AccountCard: React.FC<AccountCardProps> = ({
           <button
             onClick={() => onTestHealth(acc.id)}
             disabled={isTestingHealth}
-            className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded text-xs transition-colors"
+            className="p-1.5 hover:bg-surface-hover text-slate-400 hover:text-slate-200 rounded-lg text-xs transition-colors cursor-pointer"
             title="Check Health"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isTestingHealth ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isTestingHealth ? 'animate-spin text-terracotta-400' : ''}`} />
           </button>
 
           {!isHealthy && (
             <button
               onClick={() => onReconnect(acc.id)}
-              className="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded text-xs font-semibold"
+              className="px-2.5 py-1 bg-honey-500/15 hover:bg-honey-500/25 text-honey-300 border border-honey-500/30 rounded-lg text-xs font-bold transition-all cursor-pointer"
             >
               Reconnect
             </button>
@@ -91,12 +91,12 @@ export const AccountCard: React.FC<AccountCardProps> = ({
       </div>
 
       {/* Connector Mode Selector */}
-      <div className="mt-4 flex items-center justify-between text-xs">
+      <div className="mt-3.5 flex items-center justify-between text-xs">
         <span className="text-slate-400 font-medium">Connector Mode:</span>
         <select
           value={acc.connector_mode}
           onChange={(e) => onModeChange(acc, e.target.value)}
-          className="bg-surface text-slate-200 border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-medium focus:outline-none focus:border-indigo-500"
+          className="bg-surface text-slate-200 border border-border rounded-lg px-2.5 py-1 text-xs font-medium focus:outline-none focus:border-terracotta-500 cursor-pointer"
         >
           <option value="simulator">Simulator (High-Fidelity Demo)</option>
           <option value="official_api">Official API (Graph/TikTok API)</option>
@@ -105,33 +105,33 @@ export const AccountCard: React.FC<AccountCardProps> = ({
       </div>
 
       {/* Capabilities Honest Matrix */}
-      <div className="mt-3 pt-3 border-t border-slate-800/80">
-        <p className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold mb-2">
+      <div className="mt-3 pt-3 border-t border-border/80">
+        <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-2">
           Discovered Capabilities
         </p>
         <div className="flex flex-wrap gap-1.5 text-[11px]">
-          <span className={`px-2 py-0.5 rounded font-medium ${
-            acc.capabilities?.canPublish ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'
+          <span className={`px-2 py-0.5 rounded-md font-medium border ${
+            acc.capabilities?.canPublish ? 'bg-sage-500/10 text-sage-400 border-sage-500/20' : 'bg-surface-hover text-slate-500 border-border'
           }`}>
             {acc.capabilities?.canPublish ? '✓ Publish' : '✕ Publish'}
           </span>
-          <span className={`px-2 py-0.5 rounded font-medium ${
-            acc.capabilities?.canSchedule ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'
+          <span className={`px-2 py-0.5 rounded-md font-medium border ${
+            acc.capabilities?.canSchedule ? 'bg-sage-500/10 text-sage-400 border-sage-500/20' : 'bg-surface-hover text-slate-500 border-border'
           }`}>
             {acc.capabilities?.canSchedule ? '✓ Schedule' : '✕ Schedule'}
           </span>
-          <span className={`px-2 py-0.5 rounded font-medium ${
-            acc.capabilities?.canReadComments ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'
+          <span className={`px-2 py-0.5 rounded-md font-medium border ${
+            acc.capabilities?.canReadComments ? 'bg-sage-500/10 text-sage-400 border-sage-500/20' : 'bg-surface-hover text-slate-500 border-border'
           }`}>
             {acc.capabilities?.canReadComments ? '✓ Comments' : '✕ Comments (Handoff)'}
           </span>
-          <span className={`px-2 py-0.5 rounded font-medium ${
-            acc.capabilities?.canReply ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'
+          <span className={`px-2 py-0.5 rounded-md font-medium border ${
+            acc.capabilities?.canReply ? 'bg-sage-500/10 text-sage-400 border-sage-500/20' : 'bg-surface-hover text-slate-500 border-border'
           }`}>
             {acc.capabilities?.canReply ? '✓ Reply' : '✕ Reply (Handoff)'}
           </span>
-          <span className={`px-2 py-0.5 rounded font-medium ${
-            acc.capabilities?.canReadInsights ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'
+          <span className={`px-2 py-0.5 rounded-md font-medium border ${
+            acc.capabilities?.canReadInsights ? 'bg-sage-500/10 text-sage-400 border-sage-500/20' : 'bg-surface-hover text-slate-500 border-border'
           }`}>
             {acc.capabilities?.canReadInsights ? '✓ Insights' : '✕ Insights'}
           </span>
@@ -139,10 +139,10 @@ export const AccountCard: React.FC<AccountCardProps> = ({
       </div>
 
       {/* Footer Links */}
-      <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
+      <div className="mt-4 pt-3 border-t border-border flex items-center justify-between text-xs">
         <button
           onClick={() => onNavigateToBranding(acc.id)}
-          className="text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1"
+          className="text-terracotta-400 hover:text-terracotta-300 font-semibold flex items-center gap-1.5 cursor-pointer"
         >
           <Settings2 className="w-3.5 h-3.5" /> Edit Brand Kit
         </button>

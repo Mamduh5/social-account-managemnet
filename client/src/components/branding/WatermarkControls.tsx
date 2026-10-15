@@ -11,7 +11,7 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
   setBrandKit,
 }) => {
   return (
-    <div className="bg-surface-card border border-border rounded-xl p-5 space-y-4 text-xs">
+    <div className="bg-surface-card border border-border rounded-2xl p-5 space-y-4 text-xs shadow-xs">
       <label className="text-xs font-bold uppercase tracking-wider text-slate-300 block">
         2. Watermark & Movement Preset
       </label>
@@ -23,12 +23,12 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
           value={brandKit.text || ''}
           onChange={(e) => setBrandKit(prev => ({ ...prev, text: e.target.value }))}
           placeholder="@YourAccountHandle"
-          className="w-full bg-surface border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+          className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-terracotta-500 font-mono"
         />
       </div>
 
       <div>
-        <label className="block text-slate-300 font-semibold mb-1">Movement Animation Preset</label>
+        <label className="block text-slate-300 font-semibold mb-1.5">Movement Animation Preset</label>
         <div className="grid grid-cols-2 gap-2">
           {[
             { id: 'smooth_sine', label: 'Smooth Sine Wave' },
@@ -40,10 +40,10 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
               key={preset.id}
               type="button"
               onClick={() => setBrandKit(prev => ({ ...prev, movementPreset: preset.id as any }))}
-              className={`py-2 px-3 rounded-lg border font-semibold text-center ${
+              className={`py-2 px-3 rounded-xl border font-bold text-center transition-all cursor-pointer ${
                 brandKit.movementPreset === preset.id
-                  ? 'border-indigo-500 bg-indigo-500/20 text-indigo-300'
-                  : 'border-slate-800 bg-surface text-slate-400 hover:border-slate-700'
+                  ? 'border-terracotta-500 bg-terracotta-500/15 text-terracotta-300 shadow-xs'
+                  : 'border-border bg-surface text-slate-400 hover:border-slate-600'
               }`}
             >
               {preset.label}
@@ -63,7 +63,7 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
             max="30"
             value={brandKit.speedSeconds || 12}
             onChange={(e) => setBrandKit(prev => ({ ...prev, speedSeconds: Number(e.target.value) }))}
-            className="w-full accent-indigo-500"
+            className="w-full accent-terracotta-500"
           />
         </div>
 
@@ -77,7 +77,7 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
             max="15"
             value={brandKit.intervalSeconds || 6}
             onChange={(e) => setBrandKit(prev => ({ ...prev, intervalSeconds: Number(e.target.value) }))}
-            className="w-full accent-indigo-500"
+            className="w-full accent-terracotta-500"
           />
         </div>
       </div>
@@ -94,7 +94,7 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
             step="0.05"
             value={brandKit.opacity || 0.85}
             onChange={(e) => setBrandKit(prev => ({ ...prev, opacity: Number(e.target.value) }))}
-            className="w-full accent-indigo-500"
+            className="w-full accent-terracotta-500"
           />
         </div>
 
@@ -108,19 +108,19 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
             max="48"
             value={brandKit.fontSize || 24}
             onChange={(e) => setBrandKit(prev => ({ ...prev, fontSize: Number(e.target.value) }))}
-            className="w-full accent-indigo-500"
+            className="w-full accent-terracotta-500"
           />
         </div>
       </div>
 
       {/* Signature option */}
-      <div className="pt-3 border-t border-slate-800">
+      <div className="pt-3 border-t border-border">
         <label className="flex items-center gap-2 font-semibold text-slate-300 cursor-pointer mb-2">
           <input
             type="checkbox"
             checked={brandKit.enableSignature}
             onChange={(e) => setBrandKit(prev => ({ ...prev, enableSignature: e.target.checked }))}
-            className="rounded border-slate-700 text-indigo-600 focus:ring-0"
+            className="rounded border-border text-terracotta-600 focus:ring-0 accent-terracotta-600"
           />
           Include Lower Digital Signature / Copyright
         </label>
@@ -131,7 +131,7 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
             value={brandKit.signatureText || ''}
             onChange={(e) => setBrandKit(prev => ({ ...prev, signatureText: e.target.value }))}
             placeholder="e.g. Crafted with AI Video Engine"
-            className="w-full bg-surface border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+            className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-terracotta-500"
           />
         )}
       </div>

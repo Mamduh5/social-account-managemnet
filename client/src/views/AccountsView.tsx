@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../api/client';
-import { Layers, Plus } from 'lucide-react';
+import { Layers, Plus, Users } from 'lucide-react';
 import { CategoryCard } from '../components/accounts/CategoryCard';
 import { AccountCard } from '../components/accounts/AccountCard';
 import { ConnectAccountModal } from '../components/accounts/ConnectAccountModal';
@@ -40,7 +40,7 @@ export const AccountsView: React.FC<Props> = ({ onNavigateToBranding, selectedCa
   const [newCat, setNewCat] = useState({
     name: '',
     description: '',
-    color: '#6366F1',
+    color: '#D95D39',
   });
 
   const handleCreateAccount = async (e: React.FormEvent) => {
@@ -73,7 +73,7 @@ export const AccountsView: React.FC<Props> = ({ onNavigateToBranding, selectedCa
     try {
       await api.createCategory(newCat);
       setShowCatModal(false);
-      setNewCat({ name: '', description: '', color: '#6366F1' });
+      setNewCat({ name: '', description: '', color: '#D95D39' });
       await loadData();
     } catch (err) {
       console.error(err);
@@ -87,11 +87,16 @@ export const AccountsView: React.FC<Props> = ({ onNavigateToBranding, selectedCa
   return (
     <div className="space-y-6">
       {/* Header Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface-card p-5 rounded-xl border border-border">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface-card p-5 sm:p-6 rounded-2xl border border-border shadow-xs">
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-terracotta-400 flex items-center gap-1">
+              <Users className="w-3.5 h-3.5" /> Channel Workspaces
+            </span>
+          </div>
+          <h2 className="text-xl font-black text-slate-100 flex items-center gap-2">
             <span>Social Media Accounts & Workspaces</span>
-            <span className="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full border border-slate-700">
+            <span className="text-xs bg-surface text-slate-300 px-2.5 py-0.5 rounded-full border border-border font-semibold">
               {filteredAccounts.length} Connected
             </span>
           </h2>
@@ -99,12 +104,12 @@ export const AccountsView: React.FC<Props> = ({ onNavigateToBranding, selectedCa
             Manage your Facebook Pages, TikTok accounts, and brand identity kits
           </p>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 self-start sm:self-auto shrink-0">
           <button
             onClick={() => setShowCatModal(true)}
-            className="px-3 py-2 bg-surface hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
+            className="px-3.5 py-2 bg-surface hover:bg-surface-hover text-slate-200 border border-border rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
           >
-            <Layers className="w-3.5 h-3.5 text-indigo-400" /> New Category
+            <Layers className="w-3.5 h-3.5 text-terracotta-400" /> New Category
           </button>
           <button
             onClick={() => {
@@ -113,14 +118,14 @@ export const AccountsView: React.FC<Props> = ({ onNavigateToBranding, selectedCa
               }
               setShowAddModal(true);
             }}
-            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
+            className="px-4 py-2 bg-terracotta-600 hover:bg-terracotta-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-terracotta-600/25 transition-all cursor-pointer active:scale-95"
           >
             <Plus className="w-3.5 h-3.5" /> Connect Account
           </button>
         </div>
       </div>
 
-      {/* Content Categories Cards */}
+      {/* Content Categories Cards (Grid selector preserved for tests) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {categories.map((cat) => {
           const catAccCount = accounts.filter(a => a.category_id === cat.id).length;
@@ -134,7 +139,7 @@ export const AccountsView: React.FC<Props> = ({ onNavigateToBranding, selectedCa
         })}
       </div>
 
-      {/* Accounts List */}
+      {/* Accounts List (Grid selector preserved for tests) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {filteredAccounts.map((acc) => (
           <AccountCard

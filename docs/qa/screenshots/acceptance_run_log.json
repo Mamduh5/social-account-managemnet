@@ -148,7 +148,7 @@
     {
       "step": "Workflow B: Multi-destination Publishing Execution",
       "status": "PASS",
-      "details": "Detected 24 completed published destinations in queue"
+      "details": "Detected 16 completed published destinations in queue"
     },
     {
       "step": "Workflow C: Save Brand Kit",
@@ -158,7 +158,7 @@
     {
       "step": "Workflow C: FFmpeg Video Rendering",
       "status": "PASS",
-      "details": "Video rendered and loaded: /uploads/renders/branded_d5ff1825cbdcca61.mp4"
+      "details": "Video rendered and loaded: /uploads/renders/branded_f558b5934778aaf4.mp4"
     },
     {
       "step": "Workflow C: Render File Disk Inspection",
@@ -188,7 +188,7 @@
     {
       "step": "Workflow E: Duplicate Prevention",
       "status": "PASS",
-      "details": "Published count stable (24 vs 24)"
+      "details": "Published count stable (16 vs 16)"
     },
     {
       "step": "Workflow E: Crash Recovery Verified",

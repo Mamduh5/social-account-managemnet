@@ -19,12 +19,12 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   return (
     <Card className={`p-10 text-center flex flex-col items-center justify-center ${className}`}>
       {icon && (
-        <div className="w-12 h-12 bg-slate-800/80 text-slate-400 rounded-xl flex items-center justify-center mb-3">
+        <div className="w-12 h-12 bg-surface-hover text-slate-400 rounded-2xl flex items-center justify-center mb-3.5 shadow-xs">
           {icon}
         </div>
       )}
-      <h4 className="text-sm font-bold text-white">{title}</h4>
-      {description && <p className="text-xs text-slate-400 mt-1 max-w-sm">{description}</p>}
+      <h4 className="text-sm font-bold text-slate-100">{title}</h4>
+      {description && <p className="text-xs text-slate-400 mt-1 max-w-sm leading-relaxed">{description}</p>}
       {action && <div className="mt-4">{action}</div>}
     </Card>
   );

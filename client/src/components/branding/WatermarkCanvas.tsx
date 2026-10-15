@@ -30,10 +30,10 @@ export const WatermarkCanvas: React.FC<WatermarkCanvasProps> = ({
       const W = canvas.width;
       const H = canvas.height;
 
-      // Draw background gradient (representing video viewport)
+      // Draw background gradient (representing cozy cinematic video viewport)
       const grad = ctx.createLinearGradient(0, 0, W, H);
-      grad.addColorStop(0, '#0F172A');
-      grad.addColorStop(1, '#020617');
+      grad.addColorStop(0, '#1E1B18');
+      grad.addColorStop(1, '#0C0A09');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, H);
 
@@ -43,14 +43,14 @@ export const WatermarkCanvas: React.FC<WatermarkCanvasProps> = ({
       const safeLeft = (brandKit.safeArea?.left || 40) * (W / 1080);
       const safeRight = (brandKit.safeArea?.right || 120) * (W / 1080);
 
-      ctx.strokeStyle = 'rgba(99, 102, 241, 0.25)';
+      ctx.strokeStyle = 'rgba(217, 93, 57, 0.35)';
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
       ctx.strokeRect(safeLeft, safeTop, W - safeLeft - safeRight, H - safeTop - safeBottom);
       ctx.setLineDash([]);
 
       // Safe area label
-      ctx.fillStyle = 'rgba(99, 102, 241, 0.4)';
+      ctx.fillStyle = 'rgba(217, 93, 57, 0.6)';
       ctx.font = '10px sans-serif';
       ctx.fillText('TikTok / Mobile Safe Area', safeLeft + 8, safeTop + 14);
 
@@ -132,14 +132,14 @@ export const WatermarkCanvas: React.FC<WatermarkCanvasProps> = ({
   }, [brandKit]);
 
   return (
-    <div className="relative mx-auto w-fit rounded-xl overflow-hidden border-2 border-slate-700 shadow-2xl bg-black">
+    <div className="relative mx-auto w-fit rounded-2xl overflow-hidden border-2 border-border shadow-2xl bg-black">
       <canvas
         ref={canvasRef}
         width={width}
         height={height}
         className="block"
       />
-      <div className="absolute top-2 right-2 px-2 py-0.5 rounded bg-black/60 text-[10px] font-mono text-indigo-300 border border-indigo-500/30">
+      <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-md bg-black/60 text-[10px] font-mono text-terracotta-300 border border-terracotta-500/30">
         9:16 Canvas
       </div>
     </div>

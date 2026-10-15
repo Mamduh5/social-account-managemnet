@@ -1,0 +1,176 @@
+[
+  {
+    "viewport": "desktop",
+    "screen": "dashboard",
+    "file": "desktop_01_dashboard.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "desktop",
+    "screen": "accounts",
+    "file": "desktop_02_accounts.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "desktop",
+    "screen": "publishing",
+    "file": "desktop_03_publishing.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ]
+  },
+  {
+    "viewport": "desktop",
+    "screen": "branding",
+    "file": "desktop_04_branding.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "desktop",
+    "screen": "inbox",
+    "file": "desktop_05_inbox.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "desktop",
+    "screen": "activity",
+    "file": "desktop_06_activity.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "desktop",
+    "screen": "analytics",
+    "file": "desktop_07_analytics.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "desktop",
+    "screen": "settings",
+    "file": "desktop_08_settings.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "tablet",
+    "screen": "dashboard",
+    "file": "tablet_01_dashboard.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "tablet",
+    "screen": "accounts",
+    "file": "tablet_02_accounts.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "tablet",
+    "screen": "publishing",
+    "file": "tablet_03_publishing.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ]
+  },
+  {
+    "viewport": "tablet",
+    "screen": "branding",
+    "file": "tablet_04_branding.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "tablet",
+    "screen": "inbox",
+    "file": "tablet_05_inbox.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "tablet",
+    "screen": "activity",
+    "file": "tablet_06_activity.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "tablet",
+    "screen": "analytics",
+    "file": "tablet_07_analytics.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "tablet",
+    "screen": "settings",
+    "file": "tablet_08_settings.png",
+    "horizontalOverflowPx": 0,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "mobile",
+    "screen": "dashboard",
+    "file": "mobile_01_dashboard.png",
+    "horizontalOverflowPx": 35,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "mobile",
+    "screen": "accounts",
+    "file": "mobile_02_accounts.png",
+    "horizontalOverflowPx": 35,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "mobile",
+    "screen": "publishing",
+    "file": "mobile_03_publishing.png",
+    "horizontalOverflowPx": 35,
+    "newConsoleErrors": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ]
+  },
+  {
+    "viewport": "mobile",
+    "screen": "branding",
+    "file": "mobile_04_branding.png",
+    "horizontalOverflowPx": 35,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "mobile",
+    "screen": "inbox",
+    "file": "mobile_05_inbox.png",
+    "horizontalOverflowPx": 35,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "mobile",
+    "screen": "activity",
+    "file": "mobile_06_activity.png",
+    "horizontalOverflowPx": 35,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "mobile",
+    "screen": "analytics",
+    "file": "mobile_07_analytics.png",
+    "horizontalOverflowPx": 35,
+    "newConsoleErrors": []
+  },
+  {
+    "viewport": "mobile",
+    "screen": "settings",
+    "file": "mobile_08_settings.png",
+    "horizontalOverflowPx": 35,
+    "newConsoleErrors": []
+  }
+]

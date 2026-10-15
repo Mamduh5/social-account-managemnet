@@ -36,16 +36,16 @@ export const Modal: React.FC<ModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="modal-title"
-      className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-black/65 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
       onClick={onClose}
     >
       <div
         className={`${themeTokens.surfaces.card} border ${themeTokens.surfaces.border} rounded-2xl w-full ${maxWidth} p-6 shadow-2xl relative my-8`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between pb-3 border-b border-border/80">
+        <div className="flex items-center justify-between pb-3.5 border-b border-border/80">
           <div>
-            <h3 id="modal-title" className="text-lg font-bold text-white">
+            <h3 id="modal-title" className="text-lg font-bold text-slate-100">
               {title}
             </h3>
             {subtitle && (
@@ -55,7 +55,7 @@ export const Modal: React.FC<ModalProps> = ({
           <button
             onClick={onClose}
             aria-label="Close modal"
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-surface-hover transition-colors"
           >
             <X className="w-5 h-5" />
           </button>

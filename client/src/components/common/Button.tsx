@@ -3,7 +3,7 @@ import { themeTokens } from '../../theme/tokens';
 import { Loader2 } from 'lucide-react';
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'warning';
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'warning' | 'success';
   size?: 'sm' | 'md' | 'lg';
   loading?: boolean;
   icon?: React.ReactNode;
@@ -20,9 +20,9 @@ export const Button: React.FC<ButtonProps> = ({
   ...rest
 }) => {
   const sizeClasses = {
-    sm: 'px-2.5 py-1 text-xs',
-    md: 'px-3.5 py-2 text-xs',
-    lg: 'px-4 py-2.5 text-sm',
+    sm: 'px-2.5 py-1 text-xs rounded-lg',
+    md: 'px-3.5 py-2 text-xs rounded-xl font-medium',
+    lg: 'px-4 py-2.5 text-sm rounded-xl font-semibold',
   }[size];
 
   const variantClass = themeTokens.accents[variant] || themeTokens.accents.secondary;
@@ -30,7 +30,7 @@ export const Button: React.FC<ButtonProps> = ({
   return (
     <button
       disabled={disabled || loading}
-      className={`rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${variantClass} ${sizeClasses} ${className}`}
+      className={`font-semibold flex items-center justify-center gap-1.5 transition-all duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${variantClass} ${sizeClasses} ${className}`}
       {...rest}
     >
       {loading ? (

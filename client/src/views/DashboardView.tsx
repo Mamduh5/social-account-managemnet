@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import { Account, PublishingDestination, ActivityEvent, CommentItem } from '../types';
 import { 
   CheckCircle2, AlertTriangle, Clock, Share2, MessageSquare, 
-  Eye, ArrowUpRight, Film, PlusCircle 
+  Eye, ArrowUpRight, Film, PlusCircle, Sparkles 
 } from 'lucide-react';
 import { MetricCard } from '../components/common/MetricCard';
 
@@ -53,6 +53,35 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
 
   return (
     <div className="space-y-6">
+      {/* Studio Hearth Greeting Header */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-surface-card via-surface-card to-surface border border-border p-5 sm:p-6 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-2 h-2 rounded-full bg-sage-400 animate-pulse" />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-terracotta-400">
+                Creative Studio Hub
+              </span>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-black text-slate-100 tracking-tight">
+              Welcome back to your Creative Studio
+            </h2>
+            <p className="text-xs text-slate-400 mt-1 max-w-xl">
+              Monitor multi-account distribution, animated watermarks, and audience conversations across Facebook & TikTok.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+            <button
+              onClick={() => onNavigate('publishing')}
+              className="px-3.5 py-2 bg-terracotta-600 hover:bg-terracotta-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-terracotta-600/25 active:scale-95 transition-all cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" /> Compose New Video
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Top Banner Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
@@ -64,14 +93,14 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
             </>
           }
           subValue={
-            <p className="text-xs text-emerald-400 flex items-center">
-              <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+            <p className="text-xs text-sage-400 flex items-center font-medium">
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1 shrink-0" />
               {accounts.filter(a => a.health_status.includes('Healthy')).length} healthy sessions
             </p>
           }
-          icon={<Share2 className="w-6 h-6" />}
-          iconBg="bg-indigo-500/10"
-          iconColor="text-indigo-400"
+          icon={<Share2 className="w-5 h-5" />}
+          iconBg="bg-sage-500/15"
+          iconColor="text-sage-400"
         />
 
         <MetricCard
@@ -83,56 +112,56 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
             </>
           }
           subValue={
-            <p className="text-xs text-amber-400 flex items-center">
+            <p className="text-xs text-honey-400 flex items-center font-medium">
               {failedQueue.length > 0 ? (
                 <>
-                  <AlertTriangle className="w-3.5 h-3.5 mr-1" />
+                  <AlertTriangle className="w-3.5 h-3.5 mr-1 shrink-0" />
                   {failedQueue.length} requires attention
                 </>
               ) : (
-                <span className="text-slate-400">All tasks nominal</span>
+                <span className="text-slate-400 font-normal">All tasks nominal</span>
               )}
             </p>
           }
-          icon={<Clock className="w-6 h-6" />}
-          iconBg="bg-amber-500/10"
-          iconColor="text-amber-400"
+          icon={<Clock className="w-5 h-5" />}
+          iconBg="bg-honey-500/15"
+          iconColor="text-honey-400"
         />
 
         <MetricCard
           label="Awaiting Response"
           value={comments.length}
           subValue={
-            <p className="text-xs text-blue-400 flex items-center">
-              <MessageSquare className="w-3.5 h-3.5 mr-1" /> Across FB & TikTok
+            <p className="text-xs text-terracotta-400 flex items-center font-medium">
+              <MessageSquare className="w-3.5 h-3.5 mr-1 shrink-0" /> Across FB & TikTok
             </p>
           }
-          icon={<MessageSquare className="w-6 h-6" />}
-          iconBg="bg-blue-500/10"
-          iconColor="text-blue-400"
+          icon={<MessageSquare className="w-5 h-5" />}
+          iconBg="bg-terracotta-500/15"
+          iconColor="text-terracotta-400"
         />
 
         <MetricCard
           label="Total Audience Views"
           value={analytics?.totals?.total_views ? Number(analytics.totals.total_views).toLocaleString() : '36,200'}
           subValue={
-            <p className="text-xs text-emerald-400 flex items-center">
-              <ArrowUpRight className="w-3.5 h-3.5 mr-1" /> +14.2% this week
+            <p className="text-xs text-sage-400 flex items-center font-medium">
+              <ArrowUpRight className="w-3.5 h-3.5 mr-1 shrink-0" /> +14.2% this week
             </p>
           }
-          icon={<Eye className="w-6 h-6" />}
-          iconBg="bg-emerald-500/10"
-          iconColor="text-emerald-400"
+          icon={<Eye className="w-5 h-5" />}
+          iconBg="bg-indigo-500/15"
+          iconColor="text-indigo-400"
         />
       </div>
 
       {/* Accounts Command Matrix */}
-      <div className="bg-surface-card border border-border rounded-xl p-5">
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-surface-card border border-border rounded-2xl p-5 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
           <div>
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
               <span>Connected Social Accounts</span>
-              <span className="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full border border-slate-700">
+              <span className="text-xs bg-surface text-slate-300 px-2 py-0.5 rounded-full border border-border">
                 {filteredAccounts.length}
               </span>
             </h2>
@@ -140,7 +169,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
           </div>
           <button 
             onClick={() => onNavigate('accounts')}
-            className="text-xs text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1"
+            className="text-xs text-terracotta-400 hover:text-terracotta-300 font-semibold flex items-center gap-1 cursor-pointer self-start sm:self-auto"
           >
             Manage Accounts <ArrowUpRight className="w-3.5 h-3.5" />
           </button>
@@ -150,42 +179,42 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
           {filteredAccounts.map((acc) => (
             <div 
               key={acc.id} 
-              className="bg-surface border border-border/80 hover:border-slate-600 rounded-xl p-4 transition-all duration-200"
+              className="bg-surface border border-border hover:border-slate-600 rounded-xl p-4 transition-all duration-200 shadow-xs"
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <img 
                     src={acc.avatar_url} 
                     alt={acc.name} 
-                    className="w-10 h-10 rounded-lg object-cover border border-slate-700" 
+                    className="w-10 h-10 rounded-xl object-cover border border-border shrink-0" 
                   />
-                  <div>
-                    <h4 className="font-semibold text-white text-sm leading-snug">{acc.name}</h4>
-                    <p className="text-xs text-slate-400">{acc.handle}</p>
+                  <div className="min-w-0">
+                    <h4 className="font-bold text-slate-100 text-sm leading-snug truncate">{acc.name}</h4>
+                    <p className="text-xs text-slate-400 truncate">{acc.handle}</p>
                   </div>
                 </div>
-                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border shrink-0 ${
                   acc.platform === 'facebook' 
-                    ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' 
-                    : 'bg-rose-600/20 text-rose-400 border border-rose-500/30'
+                    ? 'bg-blue-600/15 text-blue-400 border-blue-500/25' 
+                    : 'bg-rose-600/15 text-rose-400 border-rose-500/25'
                 }`}>
                   {acc.platform}
                 </span>
               </div>
 
-              <div className="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-1.5">
+              <div className="mt-3 pt-3 border-t border-border/80 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5 min-w-0">
                   <span 
-                    className="w-2 h-2 rounded-full" 
-                    style={{ backgroundColor: acc.category_color || '#6366F1' }}
+                    className="w-2 h-2 rounded-full shrink-0" 
+                    style={{ backgroundColor: acc.category_color || '#D95D39' }}
                   />
-                  <span className="text-slate-300 truncate max-w-[130px]">{acc.category_name || 'Unassigned'}</span>
+                  <span className="text-slate-300 truncate max-w-[130px] font-medium">{acc.category_name || 'Unassigned'}</span>
                 </div>
                 
-                <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-medium border shrink-0 ${
                   acc.status === 'connected' 
-                    ? 'bg-emerald-500/10 text-emerald-400' 
-                    : 'bg-amber-500/10 text-amber-400 animate-pulse'
+                    ? 'bg-sage-500/10 text-sage-400 border-sage-500/20' 
+                    : 'bg-honey-500/10 text-honey-400 border-honey-500/20 animate-pulse'
                 }`}>
                   {acc.status === 'connected' ? 'Connected' : 'Expired'}
                 </span>
@@ -198,13 +227,13 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
       {/* Middle Split: Live Queue & Triage Inbox */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Active Publishing Queue */}
-        <div className="bg-surface-card border border-border rounded-xl p-5">
+        <div className="bg-surface-card border border-border rounded-2xl p-5 shadow-xs">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
                 <span>Active Publishing Queue</span>
                 {activeQueue.length > 0 && (
-                  <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-medium">
+                  <span className="text-xs bg-honey-500/20 text-honey-300 border border-honey-500/30 px-2 py-0.5 rounded-full font-semibold">
                     {activeQueue.length} in progress
                   </span>
                 )}
@@ -213,19 +242,19 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
             </div>
             <button
               onClick={() => onNavigate('publishing')}
-              className="text-xs text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1"
+              className="text-xs text-terracotta-400 hover:text-terracotta-300 font-semibold flex items-center gap-1 cursor-pointer"
             >
               View All <ArrowUpRight className="w-3.5 h-3.5" />
             </button>
           </div>
 
           {activeQueue.length === 0 ? (
-            <div className="text-center py-8 border border-dashed border-slate-800 rounded-lg">
-              <Film className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+            <div className="text-center py-8 border border-dashed border-border rounded-xl">
+              <Film className="w-8 h-8 text-slate-500 mx-auto mb-2 opacity-60" />
               <p className="text-sm text-slate-400 font-medium">Publishing queue is currently empty</p>
               <button
                 onClick={() => onNavigate('publishing')}
-                className="mt-3 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1.5"
+                className="mt-3 px-3.5 py-1.5 bg-terracotta-600 hover:bg-terracotta-500 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-sm shadow-terracotta-600/20"
               >
                 <PlusCircle className="w-3.5 h-3.5" /> Create New Post
               </button>
@@ -233,17 +262,17 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
           ) : (
             <div className="space-y-3">
               {activeQueue.slice(0, 4).map((item) => (
-                <div key={item.id} className="bg-surface p-3.5 rounded-lg border border-border">
+                <div key={item.id} className="bg-surface p-3.5 rounded-xl border border-border">
                   <div className="flex items-center justify-between text-xs mb-1.5">
-                    <span className="font-semibold text-slate-200">{item.account_name}</span>
-                    <span className="uppercase text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-indigo-400">
+                    <span className="font-bold text-slate-200">{item.account_name}</span>
+                    <span className="uppercase text-[10px] font-bold px-2 py-0.5 rounded bg-surface-hover text-terracotta-400 border border-border">
                       {item.status}
                     </span>
                   </div>
                   <p className="text-xs text-slate-400 truncate mb-2">{item.caption}</p>
-                  <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                  <div className="w-full bg-surface-hover rounded-full h-1.5 overflow-hidden">
                     <div 
-                      className="bg-indigo-500 h-1.5 rounded-full transition-all duration-300"
+                      className="bg-gradient-to-r from-terracotta-500 to-honey-500 h-1.5 rounded-full transition-all duration-300"
                       style={{ width: `${item.progress || 10}%` }}
                     />
                   </div>
@@ -254,13 +283,13 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
         </div>
 
         {/* Engagement Inbox Triage */}
-        <div className="bg-surface-card border border-border rounded-xl p-5">
+        <div className="bg-surface-card border border-border rounded-2xl p-5 shadow-xs">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
                 <span>Engagement Inbox</span>
                 {comments.length > 0 && (
-                  <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-medium">
+                  <span className="text-xs bg-terracotta-500/20 text-terracotta-300 border border-terracotta-500/30 px-2 py-0.5 rounded-full font-semibold">
                     {comments.length} awaiting response
                   </span>
                 )}
@@ -269,35 +298,35 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
             </div>
             <button
               onClick={() => onNavigate('inbox')}
-              className="text-xs text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1"
+              className="text-xs text-terracotta-400 hover:text-terracotta-300 font-semibold flex items-center gap-1 cursor-pointer"
             >
               Open Inbox <ArrowUpRight className="w-3.5 h-3.5" />
             </button>
           </div>
 
           {comments.length === 0 ? (
-            <div className="text-center py-8 border border-dashed border-slate-800 rounded-lg">
-              <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+            <div className="text-center py-8 border border-dashed border-border rounded-xl">
+              <CheckCircle2 className="w-8 h-8 text-sage-400 mx-auto mb-2" />
               <p className="text-sm text-slate-300 font-medium">All caught up!</p>
-              <p className="text-xs text-slate-500">No unresolved comments across connected accounts.</p>
+              <p className="text-xs text-slate-500 mt-0.5">No unresolved comments across connected accounts.</p>
             </div>
           ) : (
             <div className="space-y-3">
               {comments.slice(0, 3).map((cmt) => (
-                <div key={cmt.id} className="bg-surface p-3.5 rounded-lg border border-border hover:border-slate-700">
+                <div key={cmt.id} className="bg-surface p-3.5 rounded-xl border border-border hover:border-slate-600 transition-all">
                   <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="font-semibold text-slate-300 flex items-center gap-1.5">
+                    <span className="font-bold text-slate-200 flex items-center gap-1.5">
                       <span className={`w-1.5 h-1.5 rounded-full ${cmt.platform === 'facebook' ? 'bg-blue-400' : 'bg-rose-400'}`} />
                       {cmt.author_name}
                     </span>
-                    <span className="text-[10px] text-slate-500">on {cmt.account_name}</span>
+                    <span className="text-[10px] text-slate-400">on {cmt.account_name}</span>
                   </div>
-                  <p className="text-xs text-slate-200 line-clamp-2 my-1">"{cmt.content}"</p>
-                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-800/80 text-[11px]">
-                    <span className="text-slate-500">{cmt.video_title}</span>
+                  <p className="text-xs text-slate-300 line-clamp-2 my-1 leading-relaxed">"{cmt.content}"</p>
+                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/80 text-[11px]">
+                    <span className="text-slate-500 truncate max-w-[200px]">{cmt.video_title}</span>
                     <button
                       onClick={() => onNavigate('inbox')}
-                      className="text-indigo-400 hover:text-indigo-300 font-medium"
+                      className="text-terracotta-400 hover:text-terracotta-300 font-semibold cursor-pointer shrink-0"
                     >
                       Reply in Inbox →
                     </button>
@@ -310,24 +339,24 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
       </div>
 
       {/* Recent Activity Feed */}
-      <div className="bg-surface-card border border-border rounded-xl p-5">
-        <h3 className="text-base font-bold text-white mb-1">Live Activity Stream</h3>
+      <div className="bg-surface-card border border-border rounded-2xl p-5 shadow-xs">
+        <h3 className="text-base font-bold text-slate-100 mb-1">Live Activity Stream</h3>
         <p className="text-xs text-slate-400 mb-4">Real-time publishing milestones, alerts, and platform events</p>
 
         <div className="space-y-2.5">
           {activities.map((act) => (
-            <div key={act.id} className="flex items-start gap-3 p-3 rounded-lg bg-surface/50 border border-border/50 text-xs">
+            <div key={act.id} className="flex items-start gap-3 p-3 rounded-xl bg-surface border border-border text-xs">
               <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${
-                act.severity === 'success' ? 'bg-emerald-400' :
-                act.severity === 'warning' ? 'bg-amber-400' :
-                act.severity === 'error' ? 'bg-rose-400' : 'bg-blue-400'
+                act.severity === 'success' ? 'bg-sage-400 shadow-xs shadow-sage-400/50' :
+                act.severity === 'warning' ? 'bg-honey-400 shadow-xs shadow-honey-400/50' :
+                act.severity === 'error' ? 'bg-rose-400 shadow-xs shadow-rose-400/50' : 'bg-blue-400'
               }`} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold text-slate-200">{act.title}</span>
-                  <span className="text-[10px] text-slate-500">{act.created_at}</span>
+                  <span className="font-bold text-slate-200">{act.title}</span>
+                  <span className="text-[10px] text-slate-500 whitespace-nowrap">{act.created_at}</span>
                 </div>
-                <p className="text-slate-400 mt-0.5">{act.message}</p>
+                <p className="text-slate-400 mt-0.5 leading-relaxed">{act.message}</p>
               </div>
             </div>
           ))}

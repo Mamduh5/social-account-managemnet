@@ -17,19 +17,19 @@ export const DestinationConfigCard: React.FC<DestinationConfigCardProps> = ({
   onConfigChange,
 }) => {
   return (
-    <div className="bg-surface p-3.5 rounded-lg border border-border text-xs space-y-2">
-      <div className="flex items-center justify-between font-semibold text-slate-200">
-        <span className="flex items-center gap-1.5">
+    <div className="bg-surface p-4 rounded-xl border border-border text-xs space-y-2.5">
+      <div className="flex items-center justify-between font-bold text-slate-200">
+        <span className="flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${acc.platform === 'facebook' ? 'bg-blue-400' : 'bg-rose-400'}`} />
           {acc.name} ({acc.platform})
         </span>
 
-        <label className="flex items-center gap-1.5 text-slate-400 cursor-pointer">
+        <label className="flex items-center gap-1.5 text-slate-400 cursor-pointer font-medium hover:text-slate-200">
           <input
             type="checkbox"
             checked={config.applyBranding}
             onChange={(e) => onConfigChange(acc.id, { applyBranding: e.target.checked })}
-            className="rounded border-slate-700 text-indigo-600 focus:ring-0"
+            className="rounded border-border text-terracotta-600 focus:ring-0 accent-terracotta-600"
           />
           Apply Moving Watermark
         </label>
@@ -40,7 +40,7 @@ export const DestinationConfigCard: React.FC<DestinationConfigCardProps> = ({
         value={config.caption}
         onChange={(e) => onConfigChange(acc.id, { caption: e.target.value })}
         placeholder={`Custom caption for ${acc.name}...`}
-        className="w-full bg-slate-900/80 border border-slate-800 rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500"
+        className="w-full bg-surface-card border border-border rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-terracotta-500 text-xs"
       />
 
       <input
@@ -48,7 +48,7 @@ export const DestinationConfigCard: React.FC<DestinationConfigCardProps> = ({
         value={config.hashtags}
         onChange={(e) => onConfigChange(acc.id, { hashtags: e.target.value })}
         placeholder="#hashtags"
-        className="w-full bg-slate-900/80 border border-slate-800 rounded px-2.5 py-1 text-slate-300 focus:outline-none focus:border-indigo-500"
+        className="w-full bg-surface-card border border-border rounded-xl px-3 py-1.5 text-slate-300 focus:outline-none focus:border-terracotta-500 text-xs font-mono"
       />
     </div>
   );
