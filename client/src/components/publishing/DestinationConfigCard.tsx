@@ -35,6 +35,7 @@ export const DestinationConfigCard: React.FC<DestinationConfigCardProps> = ({
         </label>
       </div>
 
+      <p className="text-slate-400">{acc.is_demo ? 'Demo simulation only' : acc.capabilities?.canPublish ? 'Authorized API dispatch' : 'Prepare MP4 for manual native publishing; confirmation required'}</p>
       <textarea
         rows={2}
         value={config.caption}

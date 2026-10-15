@@ -213,7 +213,7 @@ export class PublishingRepository {
     `).all() as any[];
 
     const getDests = db.prepare(`
-      SELECT pd.*, a.name as account_name, a.handle as account_handle, a.platform, a.avatar_url,
+      SELECT pd.*, a.name as account_name, a.handle as account_handle, a.platform, a.avatar_url, a.is_demo,
              c.name as category_name, c.color as category_color
       FROM publishing_destinations pd
       JOIN accounts a ON pd.account_id = a.id
@@ -231,7 +231,7 @@ export class PublishingRepository {
     return db.prepare(`
       SELECT pd.*, p.title as post_title, p.scheduled_at,
              v.thumbnail_path, v.aspect_ratio,
-             a.name as account_name, a.handle as account_handle, a.platform, a.avatar_url,
+             a.name as account_name, a.handle as account_handle, a.platform, a.avatar_url, a.is_demo,
              c.name as category_name, c.color as category_color
       FROM publishing_destinations pd
       JOIN publishing_posts p ON pd.post_id = p.id
@@ -250,6 +250,10 @@ export class PublishingRepository {
         END ASC,
         pd.updated_at DESC
     `).all();
+  }
+
+  getHandoffDestination(id: string): any {
+    return db.prepare(`SELECT pd.*, v.file_path as original_video_path FROM publishing_destinations pd JOIN publishing_posts p ON pd.post_id=p.id JOIN videos v ON p.video_id=v.id WHERE pd.id=?`).get(id);
   }
 
   getDestinationById(id: string): PublishingDestinationEntity | undefined {
@@ -277,19 +281,25 @@ export class PublishingRepository {
     remotePostId?: string | null;
     remotePostUrl?: string | null;
     verificationStatus?: string | null;
+    confirmationSource?: string | null;
   }): void {
     db.prepare(`
       UPDATE publishing_destinations
       SET status = 'published', progress = 100, remote_post_id = ?,
           remote_post_url = ?, published_at = datetime('now'),
-          verification_status = ?, error_message = NULL, updated_at = datetime('now')
+          verification_status = ?, confirmation_source = ?, error_message = NULL, updated_at = datetime('now')
       WHERE id = ?
     `).run(
       params.remotePostId || null,
       params.remotePostUrl || null,
       params.verificationStatus || 'confirmed',
+      params.confirmationSource || null,
       params.destinationId
     );
+  }
+
+  markAwaitingConfirmation(id: string, remoteId?: string, remoteUrl?: string) {
+    db.prepare("UPDATE publishing_destinations SET status='awaiting_confirmation', progress=90, remote_post_id=?, remote_post_url=?, verification_status='unverified', updated_at=datetime('now') WHERE id=?").run(remoteId || null, remoteUrl || null, id);
   }
 
   markDestinationFailed(destinationId: string, errorMessage: string): void {
@@ -367,6 +377,7 @@ export class PublishingRepository {
       JOIN videos v ON p.video_id = v.id
       JOIN accounts a ON pd.account_id = a.id
       WHERE pd.status IN ('preparing', 'branding')
+      AND (pd.error_message IS NULL OR pd.error_message NOT LIKE 'Interrupted by server restart%')
       LIMIT ?
     `).all(limit) as any[];
   }

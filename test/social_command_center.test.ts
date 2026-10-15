@@ -48,7 +48,7 @@ describe('Social Command Center - Comprehensive Test Suite', () => {
 
     const ttConnector = new TikTokConnector();
     const ttCaps = ttConnector.getCapabilities();
-    assert.strictEqual(ttCaps.canPublish, true);
+    assert.strictEqual(ttCaps.canPublish, false, 'Direct Post remains unavailable until creator privacy UX and status verification exist');
     // Honest: Standard TikTok API does NOT allow remote comment reading or replies without Enterprise partner access
     assert.strictEqual(ttCaps.canReply, false, 'TikTok API must honestly declare canReply = false');
 

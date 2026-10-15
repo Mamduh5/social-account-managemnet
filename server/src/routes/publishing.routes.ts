@@ -206,7 +206,7 @@ publishingRouter.post('/destinations/:id/cancel', (req, res) => {
 publishingRouter.post('/destinations/:id/confirm-assisted', (req, res) => {
   const { remotePostUrl, remotePostId } = req.body;
   try {
-    publishingService.confirmAssistedPublish(req.params.id, remotePostUrl, remotePostId);
+    publishingService.confirmAssistedPublish(req.params.id, remotePostUrl, remotePostId, req.body.confirmAccount === true ? req.body.accountId : undefined);
     res.json({ success: true, message: 'Assisted publishing marked as confirmed.' });
   } catch (err: any) {
     res.status(404).json({ error: err.message });

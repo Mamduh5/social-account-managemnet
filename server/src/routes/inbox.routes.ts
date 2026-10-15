@@ -1,3 +1,4 @@
+import { accountsRepo } from '../repositories/accounts.repo.js';
 import { Router } from 'express';
 import { getConnector } from '../connectors/registry.js';
 import { inboxRepo } from '../repositories/inbox.repo.js';
@@ -10,6 +11,7 @@ inboxRouter.get('/comments', (req, res) => {
   const { platform, categoryId, accountId, status, awaitingReply, search, limit } = req.query;
 
   const comments = inboxRepo.getComments({
+    includeDemos: req.query.includeDemos === 'true',
     platform: platform as string,
     categoryId: categoryId as string,
     accountId: accountId as string,
@@ -19,9 +21,9 @@ inboxRouter.get('/comments', (req, res) => {
     limit: limit as string,
   });
 
-  const stats = inboxRepo.getInboxStats();
+  const stats = inboxRepo.getInboxStats(req.query.includeDemos === 'true');
 
-  res.json({ comments, stats });
+  res.json({ comments, stats, notice: 'Engagement is available only with authorized data. Use Open Native Account in Accounts for native engagement. Demo threads are excluded by default.' });
 });
 
 // REPLY to comment
@@ -32,8 +34,9 @@ inboxRouter.post('/comments/:id/reply', async (req, res) => {
   const comment = inboxRepo.getCommentWithAccount(req.params.id);
   if (!comment) return res.status(404).json({ error: 'Comment not found' });
 
-  const connector = getConnector(comment);
-  const result = await connector.replyComment(comment, comment.external_comment_id, text);
+  const account = accountsRepo.getAccountById(comment.account_id);
+  const connector = getConnector(account);
+  const result = await connector.replyComment(account, comment.external_comment_id, text);
 
   if (result.success) {
     inboxRepo.markReplied(req.params.id, text);
@@ -61,8 +64,9 @@ inboxRouter.post('/comments/:id/react', async (req, res) => {
   const comment = inboxRepo.getCommentWithAccount(req.params.id);
   if (!comment) return res.status(404).json({ error: 'Comment not found' });
 
-  const connector = getConnector(comment);
-  const result = await connector.reactComment(comment, comment.external_comment_id, reaction || 'like');
+  const account = accountsRepo.getAccountById(comment.account_id);
+  const connector = getConnector(account);
+  const result = await connector.reactComment(account, comment.external_comment_id, reaction || 'like');
 
   if (result.success) {
     inboxRepo.incrementLike(req.params.id);

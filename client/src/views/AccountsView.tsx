@@ -1,18 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { api } from '../api/client';
-import { Layers, Plus, Users } from 'lucide-react';
+import { Account } from '../types';
 import { CategoryCard } from '../components/accounts/CategoryCard';
 import { AccountCard } from '../components/accounts/AccountCard';
-import { ConnectAccountModal } from '../components/accounts/ConnectAccountModal';
+import {
+  ConnectAccountModal,
+  emptyAccountForm,
+} from '../components/accounts/ConnectAccountModal';
+import { ConnectionModal } from '../components/accounts/ConnectionModal';
 import { CreateCategoryModal } from '../components/accounts/CreateCategoryModal';
 import { useAccounts } from '../hooks/useAccounts';
-
 interface Props {
-  onNavigateToBranding: (accountId: string) => void;
+  onNavigateToBranding: (id: string) => void;
+  onPreparePublication: (id: string) => void;
   selectedCategory: string;
 }
-
-export const AccountsView: React.FC<Props> = ({ onNavigateToBranding, selectedCategory }) => {
+export const AccountsView: React.FC<Props> = ({
+  onNavigateToBranding,
+  onPreparePublication,
+  selectedCategory,
+}) => {
   const {
     accounts,
     categories,
@@ -20,157 +27,276 @@ export const AccountsView: React.FC<Props> = ({ onNavigateToBranding, selectedCa
     loadData,
     testHealth,
     reconnect,
-    changeMode,
   } = useAccounts();
-
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showCatModal, setShowCatModal] = useState(false);
-
-  // Form states
-  const [newAcc, setNewAcc] = useState({
-    name: '',
-    handle: '',
-    platform: 'facebook',
-    accountType: 'page',
-    categoryId: '',
-    connectorMode: 'simulator',
-    accessToken: '',
-  });
-
+  const [showAdd, setShowAdd] = useState(false);
+  const [showCat, setShowCat] = useState(false);
+  const [editing, setEditing] = useState<Account | null>(null);
+  const [connection, setConnection] = useState<Account | null>(null);
+  const [form, setForm] = useState(emptyAccountForm);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [showDemo, setShowDemo] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
   const [newCat, setNewCat] = useState({
     name: '',
     description: '',
     color: '#D95D39',
   });
-
-  const handleCreateAccount = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newAcc.name || !newAcc.handle) return;
-    try {
-      await api.createAccount({
-        ...newAcc,
-        categoryId: newAcc.categoryId || categories[0]?.id || '',
-      });
-      setShowAddModal(false);
-      setNewAcc({
-        name: '',
-        handle: '',
-        platform: 'facebook',
-        accountType: 'page',
-        categoryId: categories[0]?.id || '',
-        connectorMode: 'simulator',
-        accessToken: '',
-      });
-      await loadData();
-    } catch (err) {
-      console.error(err);
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get(
+      'connectionAccount'
+    );
+    if (id && accounts.length) {
+      setConnection(accounts.find((a) => a.id === id) || null);
+      window.history.replaceState({}, '', '/');
     }
-  };
-
-  const handleCreateCategory = async (e: React.FormEvent) => {
+  }, [accounts]);
+  useEffect(
+    () => setPage(0),
+    [showDemo, showArchived, search, selectedCategory]
+  );
+  function add() {
+    setEditing(null);
+    setForm(emptyAccountForm());
+    setError('');
+    setShowAdd(true);
+  }
+  function edit(a: Account) {
+    setEditing(a);
+    setForm({
+      name: a.name,
+      handle: a.public_url || a.handle,
+      platform: a.platform,
+      accountType: a.account_type,
+      categoryId: a.category_id || '',
+      avatarUrl: a.avatar_url || '',
+      externalId: a.external_id || '',
+      description: a.description || '',
+      notes: a.notes || '',
+      publishingPreferences: {
+        defaultCaption: a.settings?.defaultCaption || '',
+        defaultHashtags: a.settings?.defaultHashtags || '',
+        applyBranding: a.settings?.applyBranding !== false,
+      },
+    });
+    setError('');
+    setShowAdd(true);
+  }
+  async function save(e: React.FormEvent) {
     e.preventDefault();
-    if (!newCat.name) return;
+    setSaving(true);
+    setError('');
     try {
-      await api.createCategory(newCat);
-      setShowCatModal(false);
-      setNewCat({ name: '', description: '', color: '#D95D39' });
+      if (editing) await api.updateAccount(editing.id, form);
+      else await api.createAccount(form);
+      setShowAdd(false);
+      setNotice(
+        'Account saved. Configure Branding, Prepare Publication, or connect later using the account actions below.'
+      );
       await loadData();
-    } catch (err) {
-      console.error(err);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
     }
-  };
-
-  const filteredAccounts = selectedCategory === 'all'
-    ? accounts
-    : accounts.filter(a => a.category_id === selectedCategory || a.category_slug === selectedCategory);
-
+  }
+  async function archive(a: Account) {
+    try {
+      if (a.archived_at) await api.restoreAccount(a.id);
+      else await api.archiveAccount(a.id);
+      await loadData();
+      setNotice(
+        'Account updated. Publication history, branding and original videos are preserved.'
+      );
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }
+  const filtered = accounts.filter(
+    (a) =>
+      (showArchived || !a.archived_at) &&
+      (showDemo || !a.is_demo) &&
+      (selectedCategory === 'all' ||
+        a.category_id === selectedCategory ||
+        a.category_slug === selectedCategory) &&
+      `${a.name} ${a.handle}`.toLowerCase().includes(search.toLowerCase())
+  );
+  const pages = Math.max(1, Math.ceil(filtered.length / 20));
+  const currentPage = Math.min(page, pages - 1);
   return (
     <div className="space-y-6">
-      {/* Header Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface-card p-5 sm:p-6 rounded-2xl border border-border shadow-xs">
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-surface-card p-5 rounded-2xl border border-border shadow-xs">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-terracotta-400 flex items-center gap-1">
-              <Users className="w-3.5 h-3.5" /> Channel Workspaces
-            </span>
-          </div>
-          <h2 className="text-xl font-black text-slate-100 flex items-center gap-2">
-            <span>Social Media Accounts & Workspaces</span>
-            <span className="text-xs bg-surface text-slate-300 px-2.5 py-0.5 rounded-full border border-border font-semibold">
-              {filteredAccounts.length} Connected
-            </span>
+          <h2 className="text-xl font-black">
+            Social Media Accounts & Workspaces
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Manage your Facebook Pages, TikTok accounts, and brand identity kits
+            {accounts.filter((a) => !a.is_demo && !a.archived_at).length} real
+            registered accounts - registration never requires credentials
           </p>
         </div>
-        <div className="flex items-center gap-2.5 self-start sm:self-auto shrink-0">
+        <div className="flex flex-wrap gap-3 text-xs">
           <button
-            onClick={() => setShowCatModal(true)}
-            className="px-3.5 py-2 bg-surface hover:bg-surface-hover text-slate-200 border border-border rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+            onClick={() => setShowCat(true)}
+            className="bg-surface px-3 py-2 rounded-xl"
           >
-            <Layers className="w-3.5 h-3.5 text-terracotta-400" /> New Category
+            New Category
           </button>
           <button
-            onClick={() => {
-              if (!newAcc.categoryId && categories.length > 0) {
-                setNewAcc(prev => ({ ...prev, categoryId: categories[0].id }));
-              }
-              setShowAddModal(true);
-            }}
-            className="px-4 py-2 bg-terracotta-600 hover:bg-terracotta-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-terracotta-600/25 transition-all cursor-pointer active:scale-95"
+            onClick={add}
+            className="bg-terracotta-600 text-white px-3 py-2 rounded-xl font-bold"
           >
-            <Plus className="w-3.5 h-3.5" /> Connect Account
+            Add Social Account
+          </button>
+          <button onClick={add} className="text-terracotta-400">
+            Connect Account
           </button>
         </div>
       </div>
-
-      {/* Content Categories Cards (Grid selector preserved for tests) */}
+      {notice && (
+        <p role="status" className="text-xs text-sage-400">
+          {notice}
+        </p>
+      )}
+      {error && !showAdd && (
+        <p role="alert" className="text-rose-400 text-xs">
+          {error}
+        </p>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {categories.map((cat) => {
-          const catAccCount = accounts.filter(a => a.category_id === cat.id).length;
-          return (
-            <CategoryCard
-              key={cat.id}
-              category={cat}
-              accountCount={catAccCount}
-            />
-          );
-        })}
-      </div>
-
-      {/* Accounts List (Grid selector preserved for tests) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {filteredAccounts.map((acc) => (
-          <AccountCard
-            key={acc.id}
-            account={acc}
-            isTestingHealth={testingHealthId === acc.id}
-            onTestHealth={testHealth}
-            onReconnect={reconnect}
-            onModeChange={changeMode}
-            onNavigateToBranding={onNavigateToBranding}
+        {categories.map((c) => (
+          <CategoryCard
+            key={c.id}
+            category={c}
+            accountCount={
+              accounts.filter(
+                (a) =>
+                  a.category_id === c.id &&
+                  !a.archived_at &&
+                  (showDemo || !a.is_demo)
+              ).length
+            }
           />
         ))}
       </div>
-
-      {/* Modals */}
+      <div className="flex flex-wrap items-center gap-4 text-xs">
+        <label>
+          Find accounts{' '}
+          <input
+            className="bg-surface border border-border rounded-xl p-2"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </label>
+        <label className="flex gap-2">
+          <input
+            type="checkbox"
+            checked={showDemo}
+            onChange={(e) => setShowDemo(e.target.checked)}
+          />
+          Show demo accounts
+        </label>
+        <label className="flex gap-2">
+          <input
+            type="checkbox"
+            checked={showArchived}
+            onChange={(e) => setShowArchived(e.target.checked)}
+          />
+          Show archived accounts
+        </label>
+        <button
+          onClick={async () => {
+            try {
+              await api.archiveDemos();
+              await loadData();
+              setNotice(
+                'Demo accounts archived. History is preserved; restore with the demo and archive filters.'
+              );
+            } catch (e: any) {
+              setError(e.message);
+            }
+          }}
+        >
+          Archive Demo Accounts
+        </button>
+      </div>
+      {!filtered.length && (
+        <p className="text-slate-400 text-sm">
+          No accounts match these filters. Add your first real account or show
+          demo accounts.
+        </p>
+      )}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {filtered.slice(currentPage * 20, (currentPage + 1) * 20).map((a) => (
+          <AccountCard
+            key={a.id}
+            account={a}
+            isTestingHealth={testingHealthId === a.id}
+            onTestHealth={testHealth}
+            onReconnect={reconnect}
+            onNavigateToBranding={onNavigateToBranding}
+            onPrepare={onPreparePublication}
+            onEdit={edit}
+            onConnect={setConnection}
+            onArchive={archive}
+          />
+        ))}
+      </div>
+      <div className="flex gap-4 text-xs items-center">
+        <button
+          disabled={!currentPage}
+          onClick={() => setPage(currentPage - 1)}
+        >
+          Previous accounts
+        </button>
+        <span>
+          Page {currentPage + 1} of {pages} | {filtered.length} accounts
+        </span>
+        <button
+          disabled={currentPage + 1 >= pages}
+          onClick={() => setPage(currentPage + 1)}
+        >
+          Next accounts
+        </button>
+      </div>
       <ConnectAccountModal
-        isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
+        isOpen={showAdd}
+        onClose={() => setShowAdd(false)}
         categories={categories}
-        formData={newAcc}
-        setFormData={setNewAcc}
-        onSubmit={handleCreateAccount}
+        formData={form}
+        setFormData={setForm}
+        onSubmit={save}
+        editing={!!editing}
+        error={error}
+        saving={saving}
       />
-
       <CreateCategoryModal
-        isOpen={showCatModal}
-        onClose={() => setShowCatModal(false)}
+        isOpen={showCat}
+        onClose={() => setShowCat(false)}
         formData={newCat}
         setFormData={setNewCat}
-        onSubmit={handleCreateCategory}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          try {
+            await api.createCategory(newCat);
+            setShowCat(false);
+            setNewCat({ name: '', description: '', color: '#D95D39' });
+            await loadData();
+          } catch (e: any) {
+            setError(e.message);
+          }
+        }}
       />
+      {connection && (
+        <ConnectionModal
+          account={connection}
+          onClose={() => setConnection(null)}
+          onChanged={loadData}
+        />
+      )}
     </div>
   );
 };

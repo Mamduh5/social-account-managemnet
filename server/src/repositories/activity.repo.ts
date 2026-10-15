@@ -22,12 +22,12 @@ export class ActivityRepository {
     }
 
     let query = `
-      SELECT act.*, a.name as account_name, a.platform as account_platform,
+      SELECT act.*, a.name as account_name, a.platform as account_platform, a.is_demo,
              c.name as category_name, c.color as category_color
       FROM activity_events act
       LEFT JOIN accounts a ON act.account_id = a.id
       LEFT JOIN categories c ON a.category_id = c.id
-      WHERE 1=1
+      WHERE (a.id IS NULL OR (a.is_demo=0 AND a.archived_at IS NULL))
     `;
     const params: any[] = [];
 

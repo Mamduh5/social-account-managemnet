@@ -37,6 +37,7 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
       <div>
         <label className="block text-slate-300 font-semibold mb-1">Watermark Handle / Text</label>
         <input
+          aria-label="Watermark Handle / Text"
           type="text"
           value={brandKit.text || ''}
           onChange={(e) => setBrandKit(prev => ({ ...prev, text: e.target.value }))}

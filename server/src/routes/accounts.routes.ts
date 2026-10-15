@@ -1,26 +1,48 @@
+import { accountConnectionsRepo as registry } from '../repositories/account-connections.repo.js';
+import {
+  publicAccount,
+  saveRegisteredAccount,
+  archiveAccount,
+} from '../services/accounts.service.js';
 import { Router } from 'express';
+import multer from 'multer';
+import { saveAvatar } from '../services/avatars.service.js';
 import { getConnector } from '../connectors/registry.js';
 import { accountsRepo } from '../repositories/accounts.repo.js';
 import { activityRepo } from '../repositories/activity.repo.js';
 
 export const accountsRouter = Router();
 
-// GET all accounts
-accountsRouter.get('/', (_req, res) => {
-  const accounts = accountsRepo.getAllAccounts();
+// Public projections never expose server credentials.
+accountsRouter.get('/', (req, res) => {
+  const accounts = accountsRepo.getAllAccounts(
+    req.query.includeArchived === 'true'
+  );
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ accounts: accounts.map(publicAccount) });
+});
+accountsRouter.post('/archive-demos', (_req, res) => {
+  for (const a of accountsRepo.getAllAccounts())
+    if ((a as any).is_demo) archiveAccount(a.id);
+  res.json({ success: true });
+});
 
-  // Attach connector capabilities to each account
-  const enriched = accounts.map((acc) => {
-    const connector = getConnector(acc);
-    return {
-      ...acc,
-      capabilities: connector.getCapabilities(),
-      brandKit: acc.brand_kit_json ? JSON.parse(acc.brand_kit_json) : null,
-      settings: acc.settings_json ? JSON.parse(acc.settings_json) : null,
-    };
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024, files: 1 },
+}).single('avatar');
+accountsRouter.post('/avatar', (req, res) => {
+  avatarUpload(req, res, (error) => {
+    if (error || !req.file)
+      return res
+        .status(400)
+        .json({ error: 'Upload a PNG, JPEG or WebP avatar up to 2 MB' });
+    try {
+      res.json({ avatarUrl: saveAvatar(req.file.buffer) });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
   });
-
-  res.json({ accounts: enriched });
 });
 
 // --- CATEGORIES (Registered before :id to prevent route shadowing) ---
@@ -42,7 +64,12 @@ accountsRouter.post('/categories', (req, res) => {
   // Protect against SQLite UNIQUE constraint failure by checking existing name
   const existingByName = accountsRepo.getCategoryByName(name);
   if (existingByName) {
-    return res.json({ success: true, id: existingByName.id, slug: existingByName.slug, existing: true });
+    return res.json({
+      success: true,
+      id: existingByName.id,
+      slug: existingByName.slug,
+      existing: true,
+    });
   }
 
   const baseSlug = slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -82,124 +109,119 @@ accountsRouter.delete('/categories/:id', (req, res) => {
 });
 
 // --- ACCOUNTS BY ID ---
-
 accountsRouter.get('/:id', (req, res) => {
-  const acc = accountsRepo.getAccountById(req.params.id);
-  if (!acc) return res.status(404).json({ error: 'Account not found' });
-
-  const connector = getConnector(acc);
-  res.json({
-    account: {
-      ...acc,
-      capabilities: connector.getCapabilities(),
-      brandKit: acc.brand_kit_json ? JSON.parse(acc.brand_kit_json) : null,
-      settings: acc.settings_json ? JSON.parse(acc.settings_json) : null,
-    },
-  });
-});
-
-accountsRouter.post('/', (req, res) => {
-  const { name, handle, platform, accountType, categoryId, connectorMode, accessToken, brandKit } = req.body;
-
-  if (!name || !handle || !platform) {
-    return res.status(400).json({ error: 'Name, handle, and platform are required' });
-  }
-
-  const id = `acc-${platform.substring(0, 2)}-${Date.now().toString(36)}`;
-  const avatarUrl =
-    platform === 'facebook'
-      ? 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150'
-      : 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=150';
-
-  try {
-    accountsRepo.createAccount({
-      id,
-      name,
-      handle,
-      platform,
-      account_type: accountType || 'page',
-      category_id: categoryId || null,
-      avatar_url: avatarUrl,
-      connector_mode: connectorMode || 'simulator',
-      access_token: accessToken || null,
-      brand_kit_json: brandKit ? JSON.stringify(brandKit) : null,
-    });
-
-    activityRepo.logEvent({
-      type: 'account_connected',
-      accountId: id,
-      title: 'New Account Connected',
-      message: `Account "${name}" (${handle}) connected under ${platform.toUpperCase()}.`,
-      severity: 'info',
-    });
-
-    res.json({ success: true, id });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-accountsRouter.put('/:id', (req, res) => {
-  const { name, handle, categoryId, connectorMode, accessToken, status, healthStatus } = req.body;
-
-  try {
-    accountsRepo.updateAccount(req.params.id, {
-      name,
-      handle,
-      category_id: categoryId,
-      connector_mode: connectorMode,
-      access_token: accessToken,
-      status,
-      health_status: healthStatus,
-    });
-
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-accountsRouter.delete('/:id', (req, res) => {
-  accountsRepo.deleteAccount(req.params.id);
-  res.json({ success: true });
-});
-
-accountsRouter.post('/:id/reconnect', (req, res) => {
-  const current = accountsRepo.getAccountById(req.params.id);
-  if (!current) return res.status(404).json({ error: 'Account not found' });
-
-  const refreshedExpiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
-  accountsRepo.updateHealthStatus(
-    req.params.id,
-    'connected',
-    'Healthy (Session Reconnected)',
-    refreshedExpiresAt
-  );
-
-  activityRepo.logEvent({
-    type: 'account_alert',
-    accountId: req.params.id,
-    title: 'Account Reconnected',
-    message: `Account ${current.name} was successfully reconnected.`,
-    severity: 'success',
-  });
-
-  res.json({ success: true, message: `Account ${current.name} reconnected.` });
-});
-
-accountsRouter.post('/:id/test-health', async (req, res) => {
   const account = accountsRepo.getAccountById(req.params.id);
   if (!account) return res.status(404).json({ error: 'Account not found' });
-
-  const connector = getConnector(account);
-  const health = await connector.verifyHealth(account);
-
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ account: publicAccount(account) });
+});
+accountsRouter.post('/', (req, res) => {
+  try {
+    const id = saveRegisteredAccount(req.body);
+    activityRepo.logEvent({
+      type: 'account_registered',
+      accountId: id,
+      title: 'Social account registered',
+      message:
+        'Public identity saved; ownership is unverified and API authorization is separate.',
+      severity: 'info',
+    });
+    res.status(201).json({ success: true, id });
+  } catch (e: any) {
+    res
+      .status(e.message.includes('already registered') ? 409 : 400)
+      .json({ error: e.message });
+  }
+});
+accountsRouter.put('/:id', (req, res) => {
+  try {
+    if (!accountsRepo.getAccountById(req.params.id))
+      return res.status(404).json({ error: 'Account not found' });
+    if (
+      [
+        'accessToken',
+        'refreshToken',
+        'connectorMode',
+        'status',
+        'healthStatus',
+        'is_demo',
+        'identity_verified_at',
+      ].some((k) => k in req.body)
+    )
+      throw new Error(
+        'Use the separate official authorization or browser-handoff workflow to manage connections'
+      );
+    saveRegisteredAccount(req.body, req.params.id);
+    res.json({ success: true });
+  } catch (e: any) {
+    res
+      .status(e.message.includes('already registered') ? 409 : 400)
+      .json({ error: e.message });
+  }
+});
+accountsRouter.delete('/:id', (req, res) => {
+  try {
+    archiveAccount(req.params.id);
+    res.json({
+      success: true,
+      message: 'Account archived; history and videos preserved',
+    });
+  } catch (e: any) {
+    res.status(404).json({ error: e.message });
+  }
+});
+accountsRouter.post('/:id/restore', (req, res) => {
+  try {
+    archiveAccount(req.params.id, false);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(404).json({ error: e.message });
+  }
+});
+accountsRouter.post('/:id/reconnect', (req, res) => {
+  const current = accountsRepo.getAccountById(req.params.id) as any;
+  if (!current || current.archived_at)
+    return res.status(404).json({ error: 'Active account not found' });
+  if (!current.is_demo)
+    return res
+      .status(409)
+      .json({
+        error:
+          'Official authorization required. Choose Connect API or Set Up Browser Handoff.',
+      });
   accountsRepo.updateHealthStatus(
-    req.params.id,
+    current.id,
+    'connected',
+    'Demo simulator session reset'
+  );
+  res.json({ success: true, message: 'Demo session reset (simulated only)' });
+});
+accountsRouter.post('/:id/test-health', async (req, res) => {
+  const account = accountsRepo.getAccountById(req.params.id) as any;
+  if (!account) return res.status(404).json({ error: 'Account not found' });
+  const health = await getConnector(account).verifyHealth(account);
+  if (
+    (accountsRepo.getAccountById(account.id) as any)?.connection_revision !==
+    account.connection_revision
+  )
+    return res
+      .status(409)
+      .json({ error: 'Connection changed during health check; check again' });
+  accountsRepo.updateHealthStatus(
+    account.id,
     health.status,
     health.healthStatus,
     health.tokenExpiresAt
   );
-
+  if (!account.is_demo && health.status !== 'connected') {
+    registry.connectionStatus(
+      account.id,
+      health.status === 'expired'
+        ? 'expired'
+        : account.connector_mode === 'browser_bridge'
+          ? 'limited'
+          : 'authorization_required'
+    );
+  }
   res.json({ success: true, health });
 });

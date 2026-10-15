@@ -8,6 +8,7 @@ export interface Category {
 }
 
 export interface ConnectorCapabilities {
+  canReadProfile?: boolean;
   canPublish: boolean;
   canSchedule: boolean;
   canReadComments: boolean;
@@ -56,7 +57,18 @@ export interface Account {
   avatar_url: string;
   status: 'connected' | 'expired' | 'failed' | 'disconnected';
   connector_mode: 'official_api' | 'browser_bridge' | 'simulator';
-  access_token?: string;
+  public_url?: string;
+  external_id?: string | null;
+  description?: string;
+  notes?: string;
+  is_demo?: number;
+  archived_at?: string | null;
+  identity_verified_at?: string | null;
+  connection_status?: string;
+  grantedScopes?: string[];
+  settings?: { defaultCaption?: string; defaultHashtags?: string; applyBranding?: boolean };
+  created_at?: string;
+  updated_at?: string;
   brand_kit_json?: string;
   brandKit?: BrandKit;
   health_status: string;
@@ -136,6 +148,7 @@ export interface PublishingDestination {
   post_id: string;
   post_title?: string;
   account_id: string;
+  is_demo?: number;
   account_name: string;
   account_handle: string;
   platform: 'facebook' | 'tiktok';
@@ -177,6 +190,7 @@ export interface PublishingPost {
 export interface CommentItem {
   id: string;
   account_id: string;
+  is_demo?: number;
   account_name: string;
   account_handle: string;
   account_avatar?: string;

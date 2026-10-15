@@ -12,7 +12,9 @@ import {
 export function usePublishing() {
   const [activeTab, setActiveTab] = useState<'compose' | 'queue' | 'library'>('compose');
   const [videos, setVideos] = useState<VideoItem[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [allAccounts, setAccounts] = useState<Account[]>([]);
+  const [showDemoAccounts, setShowDemoAccounts] = useState(false);
+  const accounts = allAccounts.filter(a => showDemoAccounts || !a.is_demo);
   const [posts, setPosts] = useState<PublishingPost[]>([]);
   const [queue, setQueue] = useState<PublishingDestination[]>([]);
   const [pipelineFiles, setPipelineFiles] = useState<any[]>([]);
@@ -48,6 +50,8 @@ export function usePublishing() {
       ]);
       setVideos(vRes.videos || []);
       setAccounts(aRes.accounts || []);
+      const prepareId = sessionStorage.getItem('prepareAccountId');
+      if (prepareId && aRes.accounts.some(a => a.id === prepareId && !a.is_demo)) { setSelectedAccountIds([prepareId]); sessionStorage.removeItem('prepareAccountId'); }
       setPosts(pRes.posts || []);
       setQueue(qRes.queue || []);
       setPipelineFiles(pipeRes.files || []);
@@ -83,9 +87,9 @@ export function usePublishing() {
           changed = true;
           const platformTag = acc.platform === 'tiktok' ? '#fyp #viral #ai' : '#AIArt #Creative';
           newConfig[acc.id] = {
-            caption: `${activeVideo.title} — created with AI video synthesis`,
-            hashtags: platformTag,
-            applyBranding: true,
+            caption: acc.settings?.defaultCaption || `${activeVideo.title} — created with AI video synthesis`,
+            hashtags: acc.settings?.defaultHashtags || '',
+            applyBranding: acc.settings?.applyBranding !== false,
           };
         }
       }
@@ -271,6 +275,8 @@ export function usePublishing() {
   return {
     activeTab,
     setActiveTab,
+    showDemoAccounts,
+    setShowDemoAccounts,
     videos,
     accounts,
     posts,

@@ -15,6 +15,8 @@ export const PublishingView: React.FC<Props> = () => {
   const {
     activeTab,
     setActiveTab,
+    showDemoAccounts,
+    setShowDemoAccounts,
     videos,
     accounts,
     queue,
@@ -54,6 +56,9 @@ export const PublishingView: React.FC<Props> = () => {
     handleCancelDestination,
   } = usePublishing();
 
+  const targets = accounts.filter(a => selectedAccountIds.includes(a.id));
+  const manualOnly = targets.length > 0 && targets.every(a => !a.is_demo && !a.capabilities?.canPublish);
+  const demoOnly = targets.length > 0 && targets.every(a => a.is_demo);
   const activeVideo = videos.find(v => v.id === selectedVideoId);
   const activeVariant = activeVideo?.branded_variants?.find(b => b.id === selectedVariantId);
   const previewVideoUrl = activeVariant 
@@ -61,7 +66,7 @@ export const PublishingView: React.FC<Props> = () => {
     : (activeVideo ? (activeVideo.streamUrl || `/uploads/${activeVideo.file_path.split(/[/\\]/).pop()}`) : '');
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6"><p className="text-xs text-slate-400">Disconnected accounts prepare a downloadable MP4 and caption for native publishing. Opening a platform never marks a post published.</p>
       {/* Tab Navigation */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-3.5">
         <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
@@ -122,6 +127,7 @@ export const PublishingView: React.FC<Props> = () => {
         </div>
       </div>
 
+      <label className="flex gap-2 text-xs"><input type="checkbox" checked={showDemoAccounts} onChange={e => setShowDemoAccounts(e.target.checked)} />Show demo publishing targets (simulated only)</label>
       {/* TAB 1: COMPOSE & MULTI-DESTINATION PUBLISHING */}
       {activeTab === 'compose' && (
         <form onSubmit={handlePublishSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -224,6 +230,7 @@ export const PublishingView: React.FC<Props> = () => {
               <div className="mt-4">
                 <label className="block text-slate-300 text-xs font-semibold mb-1">Campaign / Post Title</label>
                 <input
+                  aria-label="Campaign / Post Title"
                   type="text"
                   required
                   value={postTitle}
@@ -259,6 +266,11 @@ export const PublishingView: React.FC<Props> = () => {
                   return (
                     <div
                       key={acc.id}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Select destination ${acc.name}`}
+                      aria-pressed={isSelected}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAccountSelection(acc.id); } }}
                       onClick={() => toggleAccountSelection(acc.id)}
                       className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
                         isSelected 
@@ -268,12 +280,12 @@ export const PublishingView: React.FC<Props> = () => {
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <img 
-                          src={acc.avatar_url} 
+                          src={acc.avatar_url || '/avatar.svg'}
                           alt={acc.name} 
                           className="w-8 h-8 rounded-lg object-cover border border-border shrink-0" 
                         />
                         <div className="min-w-0">
-                          <p className="text-xs font-bold text-slate-100 leading-tight truncate">{acc.name}</p>
+                          <p className="text-xs font-bold text-slate-100 leading-tight truncate">{acc.is_demo ? 'DEMO: ' : ''}{acc.name}</p>
                           <span className={`text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded ${
                             acc.platform === 'facebook' ? 'text-blue-400 bg-blue-500/10' : 'text-rose-400 bg-rose-500/10'
                           }`}>
@@ -375,13 +387,14 @@ export const PublishingView: React.FC<Props> = () => {
 
               <button
                 type="submit"
+                aria-label={isScheduled ? 'Schedule Post' : manualOnly ? 'Prepare for Manual Publishing' : demoOnly ? 'Run Demo Publishing' : 'Publish Now'}
                 disabled={submitting || !selectedVideoId || selectedAccountIds.length === 0}
                 className="mt-4 w-full py-3 bg-terracotta-600 hover:bg-terracotta-500 disabled:opacity-50 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-md shadow-terracotta-600/25 text-sm transition-all cursor-pointer active:scale-[0.99]"
               >
                 <Send className="w-4 h-4" />
                 {isScheduled
                   ? `Schedule Post to ${selectedAccountIds.length} Destinations`
-                  : `Enqueue & Publish to ${selectedAccountIds.length} Destinations`}
+                  : `${manualOnly ? 'Prepare for Manual Publishing' : demoOnly ? 'Run Demo Publishing' : 'Publish Now'} (${selectedAccountIds.length} Destinations)`}
               </button>
             </div>
           </div>

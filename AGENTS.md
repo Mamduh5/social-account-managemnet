@@ -54,7 +54,7 @@ npm run dev
 
 ### Run Automated Tests
 ```powershell
-# Unit & Integration Tests (15 tests, runs in < 1 second)
+# Unit & Integration Tests (isolated databases; includes real-account and OAuth fixtures)
 npm test
 ```
 
@@ -155,3 +155,25 @@ The application is structured into clear layers:
   👉 [`server/src/repositories/`](file:///d:/Mamduh/Personal/social-account-managemnet/server/src/repositories/)
 - **Need to change background publishing rules or retry behavior?**
   👉 [`server/src/domain/publishing.ts`](file:///d:/Mamduh/Personal/social-account-managemnet/server/src/domain/publishing.ts), [`server/src/services/queue.service.ts`](file:///d:/Mamduh/Personal/social-account-managemnet/server/src/services/queue.service.ts)
+
+
+## V1.2: Real account registration and connections
+
+Start with `docs/qa/REAL_ACCOUNT_ONBOARDING_ACCEPTANCE.md` for setup, current evidence and pending live-platform gates. Do not infer live verification from older QA reports.
+
+- Forms/cards: `client/src/views/AccountsView.tsx`, `client/src/components/accounts/{ConnectAccountModal,AccountCard,ConnectionModal}.tsx`.
+- Identity rules: `server/src/domain/account-identity.ts`; workflows: `server/src/services/{accounts,connections,avatars}.service.ts`.
+- Persistence: `server/src/repositories/{accounts,account-connections}.repo.ts`; additive migrations: `server/src/db/schema.ts`.
+- OAuth endpoints: `server/src/routes/connections.routes.ts`; encrypted server tokens: `server/src/services/token-protection.ts`.
+- Native prepared packages: `server/src/routes/bridge.routes.ts`, `client/src/components/publishing/HandoffModal.tsx`; exact-destination confirmation: `publishing.service.ts`.
+- Account capabilities: `server/src/connectors/registry.ts`. Unknown/disconnected real accounts NEVER fall back to simulator. Simulator dispatch requires an explicit persisted `is_demo` flag.
+- Register first, authorize separately. Never accept client-supplied connection status, verification, tokens or simulator mode. Preserve TikTok Personal/Business type.
+- DELETE accounts archives; historical publications, video metadata, variants and master files survive. Do not add a destructive account-delete route.
+- Manual preparation and opening a native site never imply publication. Keep `awaiting_confirmation` until an explicit account-confirmed post URL is recorded; retain `confirmation_source=manual` separately from external verification.
+- Interrupted queue jobs reset to `preparing` with a review hold. The worker excludes this hold until explicit Retry Destination after native reconciliation. Do not restore automatic replay.
+- `npm test` creates separate `.data/test-runs` directories for each suite. `npm run test:onboarding` starts its own server on port 3192 and tests browser workflows with isolated data. Never point these tests at the owner's database.
+- `npx tsx test/e2e/run_pipeline_regression.ts` runs the existing real-pipeline acceptance against an isolated Command Center on 3193. It reads/downloads existing pipeline outputs and never modifies or restarts the upstream pipeline.
+- `SCC_DATA_DIR` isolates SQLite and all uploads/renders. `SCC_SEED_DEMOS=false` disables initial demo seeding. Account UI pagination is 20 records per page; no platform-count cap.
+- Keep `.data`, OAuth sessions, tokens, avatar uploads, test artifacts and encryption keys untracked. Tokens require a server-owned base64 32-byte `SCC_TOKEN_ENCRYPTION_KEY`; do not print it.
+- Default server binds loopback and rejects foreign hosts/origins. OAuth callbacks are restricted to loopback. TikTok Web Login needs an accepted HTTPS redirect and a reviewed local HTTPS setup; do not open a tunnel or expose a public callback automatically.
+- Live Facebook/TikTok authorization, publishing and engagement acceptance require owner accounts, approved app products/scopes and deliberate verification. Fixture PASS is not live-platform PASS. TikTok Direct Post and Accounts API integration remain pending.

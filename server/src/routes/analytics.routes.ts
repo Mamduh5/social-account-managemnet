@@ -16,6 +16,6 @@ analyticsRouter.get('/overview', (_req, res) => {
     categoryComparison,
     accountRankings,
     dailyTrends,
-    isSimulatedNotice: 'Note: Metrics currently represent simulated baseline data for connected accounts.',
+    isSimulatedNotice: 'Only retrieved real platform snapshots are shown. Demo metrics are excluded. Analytics ingestion is pending authorized platform integration.',
   });
 });

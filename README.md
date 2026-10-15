@@ -4,17 +4,41 @@
 
 ---
 
+## V1.2: Register first, connect later
+
+Open **Accounts & Categories > Add Social Account**. Choose Facebook Page or TikTok, enter its public profile URL/username and display name, select a category, and save. TikTok Personal is the default and can be changed to Business only to match the account you actually created. No login, token or developer app is required for registration. Optional avatar upload/HTTPS URL, description, notes and per-account caption/hashtag/branding preferences are available.
+
+Use each account's **Edit Account**, **Configure Branding**, **Prepare Publication**, **Connect API**, **Set Up Browser Handoff**, and **Open Native Account** actions. **New Category** organizes any number of accounts in the same workspace. Accounts are searchable and paginated; demo records are hidden by default. **Archive Account** and **Archive Demo Accounts** preserve publication history and media; show archived/demo records to restore them.
+
+For manual publishing, select a real MP4 and account, then enqueue preparation. Disconnected accounts produce **Awaiting Manual Confirmation** packages. In Publishing Queue choose **Open Prepared Package**, download the original/branded MP4, verify the correct native account, and publish it yourself. Record the resulting post URL with the explicit account confirmation checkbox. Opening the website does not change publication status. A recorded manual confirmation is labeled separately from API verification.
+
+Official API setup is separate. Configure app IDs/secrets, approved products/scopes, an exact loopback redirect URI, an explicit supported Meta Graph version, and a base64 32-byte `SCC_TOKEN_ENCRYPTION_KEY` in the server environment or ignored `.env` file. The key must be kept private and backed up to decrypt saved tokens. This milestone does not provision developer apps, approvals, HTTPS certificates or public callbacks. TikTok Web Login requires an accepted HTTPS redirect/local HTTPS setup. Missing configuration produces setup guidance and preserves the account. No passwords are collected.
+
+See [Real Account Onboarding Acceptance](docs/qa/REAL_ACCOUNT_ONBOARDING_ACCEPTANCE.md) for complete environment variables, official references, recovery instructions, test evidence, and the live-platform operations still pending your first accounts. Restart Command Center after updating the backend so the additive migration and routes load; the AI Video Pipeline does not need a restart.
+
+```powershell
+npm test                             # Each suite uses isolated data, never the owner's DB
+npm run build:client
+npx tsc --noEmit
+npm run test:onboarding              # Isolated Edge browser acceptance, port 3192
+npx tsx test/e2e/run_pipeline_regression.ts # Isolated SCC 3193; read/download existing pipeline outputs
+```
+
+The default V1.2 service is loopback-only. Docker/LAN/public exposure instructions elsewhere in this older README do not establish a reviewed network configuration for OAuth; do not expose the service or callback without a separate authentication/TLS/proxy review.
+
+---
+
 ## 1. Overview & Architecture
 
 The **Social Command Center** is purpose-built for AI video producers managing multiple branded channels. It links directly with your upstream AI video production pipeline (Flow, Gemini, FFmpeg) to ingest finished MP4s, apply account-specific moving watermarks and digital signatures, schedule multi-destination publishing, triage incoming viewer comments, and evaluate genre performance.
 
 ### Key Capabilities
 
-- **Multi-Account & Category Workspaces**: Manage 6+ accounts organized into content production themes (*Object to Life*, *Screen to Life*, *Cinematic AI / Commercials*).
+- **Multi-Account & Category Workspaces**: Register a dynamic number of accounts without credentials organized into content production themes (*Object to Life*, *Screen to Life*, *Cinematic AI / Commercials*).
 - **Flexible Connector Architecture**:
   1. **High-Fidelity Simulator**: Full offline testing of 6 accounts with realistic publishing, comment threads, and latency.
-  2. **Official Meta Graph API (v20.0)**: Direct Page video publishing, comments, and insights.
-  3. **Official TikTok Content Posting API**: Creator video publishing.
+  2. **Official Meta Pages API**: Separate authorization, Page selection, encrypted tokens and scope-gated adapter operations; live acceptance pending.
+  3. **Official TikTok Web Login**: Separate profile authorization and token renewal; Direct Post, Accounts API, engagement and analytics remain pending.
   4. **Browser Bridge (Playwright/Chromium)**: Authorized browser-assisted publishing fallback when official API permissions are restricted.
 - **Branding Studio**:
   - Pre-renders dynamic moving watermarks using FFmpeg trigonometric expressions (`smooth_sine`, `corner_jump`, `diagonal_bounce`, `static_corner`).
@@ -24,7 +48,7 @@ The **Social Command Center** is purpose-built for AI video producers managing m
 - **Durable Multi-Destination Publishing Queue**:
   - Independent per-account publishing records, error states, and retries.
   - If 5 destinations succeed and 1 fails, **Retry Failed** re-queues *only* the failed account without duplicating successful posts.
-  - Automatic restart recovery: interrupted publishing jobs reset safely to `preparing` on server reboot.
+  - Automatic restart recovery: interrupted publishing jobs reset to `preparing` with an explicit review/retry hold on server reboot.
 - **Unified Engagement Inbox**: Cross-network comment stream with threaded replies, reaction toggles, and 1-click **Native Platform Handoff** for platforms restricting third-party comment replies.
 - **Comparative Analytics**: Discovers which AI video genre performs best (views, likes, comments, shares, engagement rate, retention), with honest labeling of simulated vs verified platform data.
 - **Timezone Native**: Configured for `Asia/Bangkok` (UTC+7).
@@ -156,25 +180,19 @@ Drag and drop any MP4 video directly from your desktop into the **Publishing Cen
 
 ---
 
-## 6. Social Media Accounts & Connector Modes
+## 6. Social Media Accounts & Connections
 
-Each connected account can be toggled between three connector modes in **Accounts & Categories**:
+Registration and connection are separate. Add a public account without credentials, then use its **Connect API** or **Set Up Browser Handoff** action when ready. Connection status and supported operations are resolved independently for each account.
 
-| Mode | Use Case | Behavior |
-| :--- | :--- | :--- |
-| **Simulator (Demo)** | Offline testing & demoing | Simulates realistic upload latency, comment interactions, and analytics. Pre-loaded with 6 sample accounts across 3 categories. |
-| **Official API** | Production publishing via Meta / TikTok | Requires Page Access Token (Meta) or Creator Access Token (TikTok). Directly publishes via official endpoints. |
-| **Browser Bridge** | Fallback when API permissions are restricted | Uses persistent Chromium profiles (`.data/browser-profiles/{account_id}`). Launches authenticated session with prefilled video & caption for 1-click confirmation. |
+| Path | Current behavior |
+| :--- | :--- |
+| Registered / Not Connected | Local branding and MP4 preparation available; no automatic API dispatch |
+| Demo simulator | Explicitly labeled demo records/targets; simulated outcomes never presented as real account results |
+| Meta Pages API | Official OAuth, manageable-Page selection, identity binding and scope/task-gated adapter; live acceptance pending |
+| TikTok Web Login | Official profile authorization and token renewal; Personal/Business type preserved; live acceptance pending |
+| Browser handoff | Downloadable MP4/caption, native links, explicit account/post-URL confirmation; no automatic upload or publication claim |
 
-### Connecting Real Meta Facebook Pages
-1. Obtain a Page Access Token with `pages_manage_posts`, `pages_read_engagement`, and `pages_manage_engagement`.
-2. In **Accounts**, click **Edit** on your Facebook Page.
-3. Switch Connector Mode to **Official API** and paste your Page Access Token.
-4. Click **Check Health** to verify connection.
-
-### Connecting TikTok Accounts
-1. Switch Connector Mode to **Official API** and paste your Creator OAuth token.
-2. If API app review is pending, switch to **Browser Bridge** mode to publish through authenticated Creator Center web sessions.
+Manual token pasting and a generic connector-mode selector are no longer connection workflows. See [the V1.2 setup and acceptance guide](docs/qa/REAL_ACCOUNT_ONBOARDING_ACCEPTANCE.md) for developer-app variables, least-scope consent, pending TikTok Direct Post/Accounts API work and reconnect procedures.
 
 ---
 
@@ -205,7 +223,7 @@ Every account maintains an independent, persistent **Brand Kit**.
 
 ## 8. Running Automated Tests
 
-The application includes an automated test suite covering all 10 core architectural requirements:
+The application includes an automated test suite covering registry, OAuth, queue, media and existing domain requirements using isolated per-suite storage:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\run_tests.ps1
@@ -242,7 +260,7 @@ Copy-Item -Path .data\social_command_center.db -Destination .data\backup_$(Get-D
 ### Restoring from Backup:
 1. Stop the application or Docker container.
 2. Replace `.data/social_command_center.db` with your backup copy.
-3. Restart the application. Crash recovery will automatically re-verify all active queue states.
+3. Restart the application. Interrupted destinations return with a review hold; reconcile native publication before explicit retry. Restore the matching private encryption key separately when restoring OAuth credentials.
 
 ---
 
@@ -251,9 +269,9 @@ Copy-Item -Path .data\social_command_center.db -Destination .data\backup_$(Get-D
 | Symptom | Cause | Solution |
 | :--- | :--- | :--- |
 | `Fontconfig error` in FFmpeg | Missing Windows font escape | Built-in FFmpeg service escapes drive letter syntax (e.g. `C\:/Windows/Fonts/arial.ttf`) automatically. |
-| `Token Expired` badge on Account | Remote OAuth token reached expiry | Click **Reconnect** on the account card or update token in Account Settings. |
+| `Token Expired` badge on Account | Remote OAuth token reached expiry | Use **Reconnect** for official consent, or **Renew API Token** for an eligible TikTok connection. |
 | TikTok comment reply disabled | Platform policy restriction | Standard TikTok Content Posting API restricts comments. Use the **Native Platform Handoff** button to open the exact thread on TikTok. |
-| Destination failed during publishing | Network failure or session disconnect | Click **Retry Destination**. Only the failed destination will be re-attempted; previously published destinations are protected. |
+| Destination failed during publishing | Network failure or session disconnect | Reconcile any uncertain native publication first, then explicitly retry only that destination; successful siblings remain protected. |
 
 ---
 

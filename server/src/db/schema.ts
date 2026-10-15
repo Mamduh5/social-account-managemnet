@@ -183,6 +183,34 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_branded_videos_vid ON branded_videos(video_id);
   `);
 
+  // Additive V1.2 migration: never rebuild accounts or cascade historical records.
+  const columns = new Set((db.prepare('PRAGMA table_info(accounts)').all() as any[]).map(c => c.name));
+  const additions: Record<string, string> = {
+    public_url: "TEXT NOT NULL DEFAULT ''", description: "TEXT NOT NULL DEFAULT ''",
+    notes: "TEXT NOT NULL DEFAULT ''", is_demo: 'INTEGER NOT NULL DEFAULT 0', archived_at: 'TEXT',
+    identity_verified_at: 'TEXT', connection_status: "TEXT NOT NULL DEFAULT 'registered'",
+    granted_scopes_json: "TEXT NOT NULL DEFAULT '[]'", connection_revision: 'INTEGER NOT NULL DEFAULT 0',
+    refresh_expires_at: 'TEXT'
+  };
+  for (const [name, definition] of Object.entries(additions)) {
+    if (!columns.has(name)) db.exec(`ALTER TABLE accounts ADD COLUMN ${name} ${definition}`);
+  }
+  if (!columns.has('is_demo')) db.exec("UPDATE accounts SET is_demo = 1 WHERE connector_mode = 'simulator'");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS account_identities (
+      platform TEXT NOT NULL, identity_key TEXT NOT NULL,
+      account_id TEXT NOT NULL REFERENCES accounts(id), PRIMARY KEY(platform, identity_key)
+    );
+    CREATE TABLE IF NOT EXISTS oauth_sessions (
+      state_hash TEXT PRIMARY KEY, browser_hash TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id),
+      revision INTEGER NOT NULL, expires_at INTEGER NOT NULL, payload TEXT, phase TEXT NOT NULL DEFAULT 'started'
+    );
+    CREATE INDEX IF NOT EXISTS idx_accounts_active ON accounts(archived_at, is_demo, category_id);
+  `);
+
+  const destinationColumns = new Set((db.prepare('PRAGMA table_info(publishing_destinations)').all() as any[]).map(c => c.name));
+  if (!destinationColumns.has('confirmation_source')) db.exec('ALTER TABLE publishing_destinations ADD COLUMN confirmation_source TEXT');
+
   // Idempotent column migrations for existing SQLite databases
   try { db.exec('ALTER TABLE publishing_destinations ADD COLUMN selected_variant_id TEXT'); } catch {}
   try { db.exec('ALTER TABLE publishing_posts ADD COLUMN selected_variant_id TEXT'); } catch {}

@@ -54,6 +54,17 @@ export interface AccountEntity {
   avatar_url: string;
   status: AccountStatus;
   connector_mode: ConnectorMode;
+  is_demo?: number;
+  archived_at?: string | null;
+  public_url?: string;
+  description?: string;
+  notes?: string;
+  identity_verified_at?: string | null;
+  connection_status?: string;
+  connection_revision?: number;
+  granted_scopes_json?: string;
+  token_expires_at?: string | null;
+  refresh_token?: string | null;
   access_token?: string | null;
   external_id?: string | null;
   brand_kit_json?: string | null;

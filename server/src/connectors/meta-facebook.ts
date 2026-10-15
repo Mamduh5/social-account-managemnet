@@ -2,7 +2,7 @@ import fs from 'fs';
 import { AccountConnector, ConnectorCapabilities, ConnectionHealth, PublishDestinationPayload, PublishResult, CommentFetchResult } from './types.js';
 
 export class MetaFacebookConnector implements AccountConnector {
-  private apiVersion = 'v20.0';
+  private apiVersion = process.env.META_GRAPH_VERSION || 'unconfigured';
   private baseUrl = 'https://graph.facebook.com';
 
   getCapabilities(): ConnectorCapabilities {
@@ -12,8 +12,8 @@ export class MetaFacebookConnector implements AccountConnector {
       canReadComments: true,
       canReply: true,
       canReact: true,
-      canReadInsights: true,
-      canReceiveEvents: true,
+      canReadInsights: false,
+      canReceiveEvents: false,
       requiresManualConfirmation: false,
       supportedVideoFormats: ['mp4', 'mov'],
       maxVideoSizeMb: 1024,
@@ -32,18 +32,19 @@ export class MetaFacebookConnector implements AccountConnector {
     }
 
     try {
-      const res = await fetch(`${this.baseUrl}/${this.apiVersion}/me?access_token=${account.access_token}`);
+      const res = await fetch(`${this.baseUrl}/${this.apiVersion}/me?fields=id,name`, { headers: { Authorization: `Bearer ${account.access_token}` }, signal: AbortSignal.timeout(20000) });
       const data = await res.json() as any;
 
       if (data.error) {
         return {
           status: 'expired',
-          healthStatus: `Meta API Error: ${data.error.message}`,
+          healthStatus: 'Meta authorization expired or required permissions are unavailable',
           lastCheckedAt: new Date().toISOString(),
-          warnings: [data.error.message],
+          warnings: ['Reconnect through official Meta authorization'],
         };
       }
 
+      if (!data.id || data.id !== account.external_id) throw new Error('Authorized Meta Page identity mismatch');
       return {
         status: 'connected',
         healthStatus: `Connected as Page: ${data.name || account.name}`,
@@ -52,9 +53,9 @@ export class MetaFacebookConnector implements AccountConnector {
     } catch (err: any) {
       return {
         status: 'failed',
-        healthStatus: `Connection error: ${err.message}`,
+        healthStatus: 'Meta connection check failed; review identity, permissions and connectivity',
         lastCheckedAt: new Date().toISOString(),
-        warnings: [err.message],
+        warnings: ['Reconnect through official Meta authorization'],
       };
     }
   }
@@ -106,14 +107,15 @@ export class MetaFacebookConnector implements AccountConnector {
       throw new Error(`[Meta Graph API Error ${result.error.code}]: ${result.error.message}`);
     }
 
-    if (onProgress) onProgress(100, 'published');
+    if (!res.ok || !result.id) throw new Error('Meta did not return a published video ID; reconcile before retry');
+    if (onProgress) onProgress(100, 'awaiting_confirmation');
 
     const videoId = result.id;
     return {
       success: true,
       remotePostId: videoId,
       remotePostUrl: `https://facebook.com/${videoId}`,
-      verificationStatus: 'confirmed',
+      verificationStatus: 'unverified',
       publishedAt: new Date().toISOString(),
     };
   }

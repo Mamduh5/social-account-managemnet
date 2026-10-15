@@ -11,7 +11,7 @@ export function useAccounts() {
   const loadData = useCallback(async () => {
     try {
       const [accRes, catRes] = await Promise.all([
-        api.getAccounts(),
+        api.getAccounts(true),
         api.getCategories(),
       ]);
       setAccounts(accRes.accounts || []);

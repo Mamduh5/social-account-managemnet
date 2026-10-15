@@ -10,7 +10,8 @@
     "build:client": "npm --prefix client run build",
     "build": "npm run build:client",
     "start": "tsx server/src/index.ts",
-    "test": "tsx --test test/**/*.test.ts"
+    "test": "tsx test/run-tests.ts",
+    "test:onboarding": "tsx test/e2e/real_account_onboarding.ts"
   },
   "repository": {
     "type": "git",

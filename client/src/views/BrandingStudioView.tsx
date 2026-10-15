@@ -219,12 +219,12 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
                     }`}
                   >
                     <img 
-                      src={acc.avatar_url} 
+                      src={acc.avatar_url || '/avatar.svg'}
                       alt={acc.name} 
                       className="w-8 h-8 rounded-lg object-cover border border-border shrink-0" 
                     />
                     <div className="min-w-0">
-                      <p className="text-xs font-bold text-slate-100 truncate">{acc.name}</p>
+                      <p className="text-xs font-bold text-slate-100 truncate">{acc.is_demo ? 'DEMO: ' : ''}{acc.name}</p>
                       <span className={`text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded ${
                         acc.platform === 'facebook' ? 'text-blue-400 bg-blue-500/10' : 'text-rose-400 bg-rose-500/10'
                       }`}>

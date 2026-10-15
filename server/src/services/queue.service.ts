@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { ffmpegService, BrandKitOptions } from './ffmpeg.service.js';
-import { getConnector } from '../connectors/registry.js';
+import { accountsRepo } from '../repositories/accounts.repo.js';
+import { bridgeConnector, getConnector } from '../connectors/registry.js';
 import { eventService } from './events.service.js';
 import { publishingRepo } from '../repositories/publishing.repo.js';
 import { activityRepo } from '../repositories/activity.repo.js';
@@ -9,6 +10,7 @@ import { DestinationStatus } from '../domain/types.js';
 
 export class QueueService {
   private isRunning = false;
+  private inFlight = new Set<string>();
   private intervalTimer: NodeJS.Timeout | null = null;
 
   start() {
@@ -41,7 +43,7 @@ export class QueueService {
     if (stuckJobs.length > 0) {
       console.log(`[QueueService] Recovering ${stuckJobs.length} interrupted publishing destinations...`);
       for (const job of stuckJobs) {
-        publishingRepo.resetStuckJob(job.id, 'Interrupted by server restart, auto-resuming...');
+        publishingRepo.resetStuckJob(job.id, 'Interrupted by server restart; review native publication before explicit retry.');
       }
     }
   }
@@ -66,7 +68,11 @@ export class QueueService {
   }
 
   private async executeDestinationJob(job: any) {
+    if (this.inFlight.has(job.id)) return;
+    this.inFlight.add(job.id);
     try {
+      const initialAccount = accountsRepo.getAccountById(job.account_id) as any;
+      if (!initialAccount || initialAccount.archived_at) throw new Error('Account is archived or unavailable');
       // Step A: Video Version & Branding Resolution
       let finalVideoPath = job.original_video_path;
 
@@ -88,6 +94,7 @@ export class QueueService {
           brandKit = JSON.parse(job.brand_kit_json || '{}');
         }
 
+        brandKit = { ...brandKit, watermarkType: brandKit.watermarkType || 'moving_text', text: brandKit.text || job.account_handle, movementPreset: brandKit.movementPreset || 'smooth_sine' };
         finalVideoPath = await ffmpegService.renderBrandedVideo(
           job.original_video_path,
           brandKit,
@@ -106,23 +113,12 @@ export class QueueService {
       // Step B: Uploading via Account Connector
       this.updateDestinationStatus(job.id, 'uploading', 45);
 
-      const connector = getConnector({
-        connector_mode: job.connector_mode,
-        platform: job.platform,
-        access_token: job.access_token,
-      });
-
+      const account = accountsRepo.getAccountById(job.account_id) as any;
+      if (!account || account.archived_at) throw new Error('Account is archived or unavailable');
+      const resolved = getConnector(account);
+      const connector = !account.is_demo && !resolved.getCapabilities().canPublish ? bridgeConnector : resolved;
       const result = await connector.publishVideo(
-        {
-          id: job.account_id,
-          name: job.account_name,
-          handle: job.account_handle,
-          platform: job.platform,
-          access_token: job.access_token,
-          external_id: job.external_id,
-          status: job.account_status,
-          connector_mode: job.connector_mode,
-        },
+        account,
         {
           destinationId: job.id,
           postId: job.post_id,
@@ -137,26 +133,34 @@ export class QueueService {
         (pct, stage) => {
           this.updateDestinationStatus(
             job.id,
-            stage === 'published' ? 'published' : 'uploading',
+            stage === 'awaiting_confirmation' ? 'awaiting_confirmation' : 'uploading',
             45 + Math.round(pct * 0.55)
           );
         }
       );
 
+      if (!result.success) throw new Error(result.errorMessage || 'Connector did not confirm success');
+      if (!account.is_demo && result.verificationStatus !== 'confirmed') {
+        publishingRepo.markAwaitingConfirmation(job.id, result.remotePostId, result.remotePostUrl);
+        eventService.broadcast('destination_updated', { destinationId: job.id, status: 'awaiting_confirmation', progress: 90 });
+        this.syncParentPostStatus(job.post_id);
+        return;
+      }
       // Step C: Success Confirmation
       publishingRepo.markDestinationPublished({
         destinationId: job.id,
         remotePostId: result.remotePostId,
         remotePostUrl: result.remotePostUrl,
         verificationStatus: result.verificationStatus,
+        confirmationSource: account.is_demo ? 'simulator' : 'api',
       });
 
       // Log activity event
       activityRepo.logEvent({
         type: 'publish_success',
         accountId: job.account_id,
-        title: `Published to ${job.account_name}`,
-        message: `Video "${job.title}" successfully published to ${job.account_name} (${job.platform}).`,
+        title: `${account.is_demo ? 'Demo simulated publication' : 'Published'} to ${job.account_name}`,
+        message: `${account.is_demo ? "SIMULATED: " : ""}Video "${job.title}" successfully published to ${job.account_name} (${job.platform}).`,
         severity: 'success',
       });
 
@@ -172,7 +176,8 @@ export class QueueService {
       console.error(`[QueueService] Publishing failed for destination ${job.id}:`, err.message);
 
       const retryCount = (job.retry_count || 0) + 1;
-      const canRetry = retryCount <= (job.max_retries || 3);
+      const account = accountsRepo.getAccountById(job.account_id) as any;
+      const canRetry = !!account?.is_demo && retryCount <= (job.max_retries || 3);
 
       if (canRetry) {
         publishingRepo.retryDestination(
@@ -199,6 +204,8 @@ export class QueueService {
       });
 
       this.syncParentPostStatus(job.post_id);
+    } finally {
+      this.inFlight.delete(job.id);
     }
   }
 

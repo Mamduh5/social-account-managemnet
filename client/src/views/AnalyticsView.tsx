@@ -29,10 +29,10 @@ export const AnalyticsView: React.FC = () => {
       <div className="p-4 bg-terracotta-500/10 border border-terracotta-500/25 rounded-2xl text-xs text-terracotta-300 flex items-center justify-between gap-3 shadow-xs">
         <div className="flex items-center gap-2.5">
           <HelpCircle className="w-4 h-4 text-terracotta-400 shrink-0" />
-          <span>{isSimulatedNotice} When real API tokens are connected, native insights are synchronized automatically.</span>
+          <span>{isSimulatedNotice}</span>
         </div>
         <span className="text-[10px] bg-terracotta-500/20 text-terracotta-300 px-2.5 py-0.5 rounded-md font-mono uppercase font-bold shrink-0">
-          Simulated Baseline
+          Real data only
         </span>
       </div>
 
@@ -43,7 +43,7 @@ export const AnalyticsView: React.FC = () => {
           <h3 className="text-xl font-black text-slate-100 mt-1">
             {Number(totals?.total_views || 0).toLocaleString()}
           </h3>
-          <p className="text-[10px] text-sage-400 mt-1 font-medium">Across 6 accounts</p>
+          <p className="text-[10px] text-sage-400 mt-1 font-medium">Across authorized data sources</p>
         </div>
 
         <div className="bg-surface-card border border-border p-4 rounded-2xl shadow-xs">
@@ -51,7 +51,7 @@ export const AnalyticsView: React.FC = () => {
           <h3 className="text-xl font-black text-slate-100 mt-1">
             {Number(totals?.total_likes || 0).toLocaleString()}
           </h3>
-          <p className="text-[10px] text-slate-400 mt-1">8.2% avg like rate</p>
+          <p className="text-[10px] text-slate-400 mt-1">From retrieved snapshots</p>
         </div>
 
         <div className="bg-surface-card border border-border p-4 rounded-2xl shadow-xs">
@@ -75,15 +75,15 @@ export const AnalyticsView: React.FC = () => {
           <h3 className="text-xl font-black text-slate-100 mt-1">
             +{Number(totals?.total_followers_gained || 0).toLocaleString()}
           </h3>
-          <p className="text-[10px] text-sage-400 mt-1 font-medium">+8.4% growth</p>
+          <p className="text-[10px] text-sage-400 mt-1 font-medium">From retrieved snapshots</p>
         </div>
 
         <div className="bg-surface-card border border-border p-4 rounded-2xl shadow-xs">
           <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Engagement Rate</p>
           <h3 className="text-xl font-black text-slate-100 mt-1">
-            {totals?.avg_engagement_rate || '9.8'}%
+            {totals?.avg_engagement_rate ?? '0'}%
           </h3>
-          <p className="text-[10px] text-sage-400 mt-1 font-medium">Above benchmark</p>
+          <p className="text-[10px] text-sage-400 mt-1 font-medium">From retrieved snapshots</p>
         </div>
       </div>
 
@@ -184,7 +184,7 @@ export const AnalyticsView: React.FC = () => {
       {/* Account Rankings Table */}
       <div className="bg-surface-card border border-border rounded-2xl p-5 shadow-xs">
         <h3 className="text-base font-bold text-slate-100 mb-1">Account Performance Leaderboard</h3>
-        <p className="text-xs text-slate-400 mb-4">Detailed view and follower engagement across all 6 accounts</p>
+        <p className="text-xs text-slate-400 mb-4">Detailed view and follower engagement across accounts with retrieved platform data</p>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">

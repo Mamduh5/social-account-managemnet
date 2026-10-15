@@ -1,161 +1,148 @@
 import React from 'react';
 import { Account } from '../../types';
 import { PlatformBadge } from '../common/Badge';
-import { 
-  CheckCircle2, AlertCircle, RefreshCw, Settings2, ExternalLink 
-} from 'lucide-react';
-
-export interface AccountCardProps {
+interface Props {
   account: Account;
   isTestingHealth: boolean;
   onTestHealth: (id: string) => void;
   onReconnect: (id: string) => void;
-  onModeChange: (account: Account, newMode: string) => void;
+  onModeChange?: (a: Account, m: string) => void;
   onNavigateToBranding: (id: string) => void;
+  onPrepare: (id: string) => void;
+  onEdit: (a: Account) => void;
+  onConnect: (a: Account) => void;
+  onArchive: (a: Account) => void;
 }
-
-export const AccountCard: React.FC<AccountCardProps> = ({
-  account: acc,
+export const AccountCard: React.FC<Props> = ({
+  account: a,
   isTestingHealth,
   onTestHealth,
   onReconnect,
-  onModeChange,
   onNavigateToBranding,
-}) => {
-  const isHealthy = acc.status === 'connected';
-
-  return (
-    <div 
-      className={`bg-surface-card border rounded-2xl p-5 transition-all shadow-xs ${
-        isHealthy ? 'border-border' : 'border-honey-500/40 bg-honey-950/10'
-      }`}
-    >
-      {/* Account Header */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <img 
-            src={acc.avatar_url} 
-            alt={acc.name} 
-            className="w-12 h-12 rounded-2xl object-cover border border-border shrink-0 shadow-xs" 
+  onPrepare,
+  onEdit,
+  onConnect,
+  onArchive,
+}) => (
+  <article
+    data-account-id={a.id}
+    className="bg-surface-card border border-border rounded-2xl p-5 shadow-xs space-y-4"
+  >
+    <div className="flex items-start justify-between gap-3">
+      <div className="flex gap-3 min-w-0">
+        {a.avatar_url ? (
+          <img
+            src={a.avatar_url}
+            alt={a.name}
+            className="w-12 h-12 rounded-2xl object-cover"
           />
-          <div className="min-w-0">
-            <h3 className="text-base font-bold text-slate-100 truncate">{acc.name}</h3>
-            <p className="text-xs text-slate-400 flex items-center gap-2 truncate">
-              <span className="font-mono">{acc.handle}</span>
-              <span className="text-slate-600">•</span>
-              <span className="capitalize">{acc.account_type}</span>
-            </p>
-          </div>
-        </div>
-
-        <PlatformBadge platform={acc.platform} />
-      </div>
-
-      {/* Status and Health */}
-      <div className="mt-4 p-3.5 bg-surface rounded-xl border border-border flex items-center justify-between text-xs">
-        <div>
-          <div className="flex items-center gap-1.5 font-semibold">
-            {isHealthy ? (
-              <CheckCircle2 className="w-4 h-4 text-sage-400" />
-            ) : (
-              <AlertCircle className="w-4 h-4 text-honey-400" />
-            )}
-            <span className={isHealthy ? 'text-slate-200' : 'text-honey-300'}>
-              {acc.health_status}
-            </span>
-          </div>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            Category: <span className="text-slate-200 font-medium">{acc.category_name || 'Unassigned'}</span>
+        ) : (
+          <span
+            aria-label="Default avatar"
+            className="w-12 h-12 rounded-2xl bg-surface flex items-center justify-center text-lg"
+          >
+            {a.name[0]}
+          </span>
+        )}
+        <div className="min-w-0">
+          <h3 className="font-bold truncate">{a.name}</h3>
+          <p className="text-xs text-slate-400">
+            {a.handle} | {a.account_type}
           </p>
         </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => onTestHealth(acc.id)}
-            disabled={isTestingHealth}
-            className="p-1.5 hover:bg-surface-hover text-slate-400 hover:text-slate-200 rounded-lg text-xs transition-colors cursor-pointer"
-            title="Check Health"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isTestingHealth ? 'animate-spin text-terracotta-400' : ''}`} />
-          </button>
-
-          {!isHealthy && (
-            <button
-              onClick={() => onReconnect(acc.id)}
-              className="px-2.5 py-1 bg-honey-500/15 hover:bg-honey-500/25 text-honey-300 border border-honey-500/30 rounded-lg text-xs font-bold transition-all cursor-pointer"
-            >
-              Reconnect
-            </button>
-          )}
-        </div>
       </div>
-
-      {/* Connector Mode Selector */}
-      <div className="mt-3.5 flex items-center justify-between text-xs">
-        <span className="text-slate-400 font-medium">Connector Mode:</span>
-        <select
-          value={acc.connector_mode}
-          onChange={(e) => onModeChange(acc, e.target.value)}
-          className="bg-surface text-slate-200 border border-border rounded-lg px-2.5 py-1 text-xs font-medium focus:outline-none focus:border-terracotta-500 cursor-pointer"
-        >
-          <option value="simulator">Simulator (High-Fidelity Demo)</option>
-          <option value="official_api">Official API (Graph/TikTok API)</option>
-          <option value="browser_bridge">Browser Bridge (Playwright)</option>
-        </select>
-      </div>
-
-      {/* Capabilities Honest Matrix */}
-      <div className="mt-3 pt-3 border-t border-border/80">
-        <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-2">
-          Discovered Capabilities
-        </p>
-        <div className="flex flex-wrap gap-1.5 text-[11px]">
-          <span className={`px-2 py-0.5 rounded-md font-medium border ${
-            acc.capabilities?.canPublish ? 'bg-sage-500/10 text-sage-400 border-sage-500/20' : 'bg-surface-hover text-slate-500 border-border'
-          }`}>
-            {acc.capabilities?.canPublish ? '✓ Publish' : '✕ Publish'}
-          </span>
-          <span className={`px-2 py-0.5 rounded-md font-medium border ${
-            acc.capabilities?.canSchedule ? 'bg-sage-500/10 text-sage-400 border-sage-500/20' : 'bg-surface-hover text-slate-500 border-border'
-          }`}>
-            {acc.capabilities?.canSchedule ? '✓ Schedule' : '✕ Schedule'}
-          </span>
-          <span className={`px-2 py-0.5 rounded-md font-medium border ${
-            acc.capabilities?.canReadComments ? 'bg-sage-500/10 text-sage-400 border-sage-500/20' : 'bg-surface-hover text-slate-500 border-border'
-          }`}>
-            {acc.capabilities?.canReadComments ? '✓ Comments' : '✕ Comments (Handoff)'}
-          </span>
-          <span className={`px-2 py-0.5 rounded-md font-medium border ${
-            acc.capabilities?.canReply ? 'bg-sage-500/10 text-sage-400 border-sage-500/20' : 'bg-surface-hover text-slate-500 border-border'
-          }`}>
-            {acc.capabilities?.canReply ? '✓ Reply' : '✕ Reply (Handoff)'}
-          </span>
-          <span className={`px-2 py-0.5 rounded-md font-medium border ${
-            acc.capabilities?.canReadInsights ? 'bg-sage-500/10 text-sage-400 border-sage-500/20' : 'bg-surface-hover text-slate-500 border-border'
-          }`}>
-            {acc.capabilities?.canReadInsights ? '✓ Insights' : '✕ Insights'}
-          </span>
-        </div>
-      </div>
-
-      {/* Footer Links */}
-      <div className="mt-4 pt-3 border-t border-border flex items-center justify-between text-xs">
-        <button
-          onClick={() => onNavigateToBranding(acc.id)}
-          className="text-terracotta-400 hover:text-terracotta-300 font-semibold flex items-center gap-1.5 cursor-pointer"
-        >
-          <Settings2 className="w-3.5 h-3.5" /> Edit Brand Kit
-        </button>
-
-        <a 
-          href={acc.platform === 'facebook' ? `https://facebook.com/${acc.handle.replace('@', '')}` : `https://tiktok.com/${acc.handle}`}
-          target="_blank" 
-          rel="noreferrer"
-          className="text-slate-400 hover:text-slate-200 flex items-center gap-1 text-[11px]"
-        >
-          View Native <ExternalLink className="w-3 h-3" />
-        </a>
-      </div>
+      <PlatformBadge platform={a.platform} />
     </div>
-  );
-};
+    <div className="bg-surface rounded-xl p-3 text-xs space-y-2">
+      <p className="font-bold">
+        {a.is_demo
+          ? 'DEMO / SIMULATOR - no live connection'
+          : a.archived_at
+            ? 'Archived'
+            : {
+                registered: 'Registered / Not Connected',
+                authorization_required: 'Authorization Required',
+                connecting: 'Connecting',
+                connected: 'Connected',
+                limited: 'Limited Capabilities',
+                expired: 'Expired',
+                connection_error: 'Connection Error',
+                disconnected: 'Disconnected',
+              }[a.connection_status || 'registered']}
+      </p>
+      <p>{a.health_status}</p>
+      <p>Category: {a.category_name || 'Unassigned'}</p>
+      <p>
+        {a.identity_verified_at
+          ? 'Identity externally verified through authorization'
+          : 'Public identity entered manually - unverified'}
+      </p>
+    </div>
+    <p className="text-xs text-slate-400">
+      Connection method:{' '}
+      {a.is_demo
+        ? 'Simulator'
+        : a.connector_mode === 'browser_bridge'
+          ? 'Browser-assisted manual workflow'
+          : a.identity_verified_at
+            ? 'Official API'
+            : 'Not connected'}
+    </p>
+    <div className="flex flex-wrap gap-2 text-[11px]">
+      {[
+        ['Profile', a.capabilities?.canReadProfile],
+        ['Publish', a.capabilities?.canPublish],
+        ['Comments', a.capabilities?.canReadComments],
+        ['Reply', a.capabilities?.canReply],
+        ['Insights', a.capabilities?.canReadInsights],
+      ].map(([name, enabled]) => (
+        <span key={String(name)} className="bg-surface rounded-md px-2 py-1">
+          {enabled ? 'Available:' : 'Unavailable:'} {name}
+          {a.is_demo && enabled ? ' (simulated)' : ''}
+        </span>
+      ))}
+    </div>
+    <div className="flex flex-wrap gap-3 text-xs text-terracotta-400 font-semibold">
+      {!a.archived_at && (
+        <>
+          <button onClick={() => onNavigateToBranding(a.id)}>
+            Configure Branding
+          </button>
+          <button onClick={() => onPrepare(a.id)}>Prepare Publication</button>
+          {!a.is_demo && (
+            <>
+              <button onClick={() => onEdit(a)}>Edit Account</button>
+              <button onClick={() => onConnect(a)}>Connect API</button>
+              <button onClick={() => onConnect(a)}>
+                Set Up Browser Handoff
+              </button>
+            </>
+          )}
+          <button disabled={isTestingHealth} onClick={() => onTestHealth(a.id)}>
+            Check Health
+          </button>
+          <button
+            onClick={() => (a.is_demo ? onReconnect(a.id) : onConnect(a))}
+          >
+            Reconnect
+          </button>
+        </>
+      )}
+      <button onClick={() => onArchive(a)}>
+        {a.archived_at ? 'Restore Account' : 'Archive Account'}
+      </button>
+      <a
+        href={
+          a.public_url ||
+          (a.platform === 'facebook'
+            ? `https://www.facebook.com/${a.handle.replace('@', '')}`
+            : `https://www.tiktok.com/${a.handle}`)
+        }
+        target="_blank"
+        rel="noreferrer"
+      >
+        Open Native Account
+      </a>
+    </div>
+  </article>
+);

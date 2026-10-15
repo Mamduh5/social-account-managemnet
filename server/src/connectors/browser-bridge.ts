@@ -15,8 +15,8 @@ export class BrowserBridgeConnector implements AccountConnector {
 
   getCapabilities(): ConnectorCapabilities {
     return {
-      canPublish: true,
-      canSchedule: true,
+      canPublish: false,
+      canSchedule: false,
       canReadComments: false,
       canReply: false,
       canReact: false,
@@ -30,17 +30,7 @@ export class BrowserBridgeConnector implements AccountConnector {
   }
 
   async verifyHealth(account: any): Promise<ConnectionHealth> {
-    const profilePath = path.resolve(this.profilesDir, account.id);
-    const hasProfile = fs.existsSync(profilePath) && fs.readdirSync(profilePath).length > 0;
-
-    return {
-      status: hasProfile ? 'connected' : 'disconnected',
-      healthStatus: hasProfile
-        ? 'Browser Profile Ready (Session stored)'
-        : 'Session Not Initialized (Click "Launch Browser Session" to sign in)',
-      lastCheckedAt: new Date().toISOString(),
-      warnings: hasProfile ? [] : ['No authenticated browser session found for this account.'],
-    };
+    return { status: 'disconnected', healthStatus: 'Manual browser handoff; native sign-in is not verified by this app', lastCheckedAt: new Date().toISOString() };
   }
 
   async launchBrowserSession(account: any): Promise<{ success: boolean; message: string }> {
@@ -126,13 +116,13 @@ export class BrowserBridgeConnector implements AccountConnector {
     );
 
     // Launch browser window for user to inspect & post
-    await this.launchBrowserSession(account);
+    // Opening the native site is an explicit operator action in the prepared package UI.
 
     return {
       success: true,
-      remotePostId: `bridge-${Date.now()}`,
+
       verificationStatus: 'unverified', // Marked honest: awaiting operator confirmation
-      publishedAt: new Date().toISOString(),
+
     };
   }
 

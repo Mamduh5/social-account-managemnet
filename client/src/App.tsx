@@ -16,7 +16,7 @@ import { AnalyticsView } from './views/AnalyticsView';
 import { SettingsView } from './views/SettingsView';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activeTab, setActiveTab] = useState<string>(new URLSearchParams(window.location.search).has('connectionAccount') ? 'accounts' : 'dashboard');
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [targetBrandingAccountId, setTargetBrandingAccountId] = useState<string | undefined>(undefined);
@@ -230,7 +230,8 @@ export function App() {
           )}
           {activeTab === 'accounts' && (
             <AccountsView 
-              onNavigateToBranding={handleNavigateToBranding} 
+              onNavigateToBranding={handleNavigateToBranding}
+              onPreparePublication={(id) => { sessionStorage.setItem('prepareAccountId', id); setActiveTab('publishing'); }}
               selectedCategory={selectedCategory} 
             />
           )}

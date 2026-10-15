@@ -1,156 +1,255 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { api } from '../../api/client';
 import { Category } from '../../types';
-
-export interface ConnectAccountModalProps {
+import { Modal } from '../common/Modal';
+export interface AccountFormState {
+  name: string;
+  handle: string;
+  platform: string;
+  accountType: string;
+  categoryId: string;
+  avatarUrl: string;
+  externalId: string;
+  description: string;
+  notes: string;
+  publishingPreferences: {
+    defaultCaption: string;
+    defaultHashtags: string;
+    applyBranding: boolean;
+  };
+}
+export const emptyAccountForm = (): AccountFormState => ({
+  name: '',
+  handle: '',
+  platform: 'facebook',
+  accountType: 'page',
+  categoryId: '',
+  avatarUrl: '',
+  externalId: '',
+  description: '',
+  notes: '',
+  publishingPreferences: {
+    defaultCaption: '',
+    defaultHashtags: '',
+    applyBranding: true,
+  },
+});
+interface Props {
   isOpen: boolean;
   onClose: () => void;
   categories: Category[];
-  formData: {
-    name: string;
-    handle: string;
-    platform: string;
-    accountType: string;
-    categoryId: string;
-    connectorMode: string;
-    accessToken: string;
-  };
-  setFormData: React.Dispatch<React.SetStateAction<{
-    name: string;
-    handle: string;
-    platform: string;
-    accountType: string;
-    categoryId: string;
-    connectorMode: string;
-    accessToken: string;
-  }>>;
+  formData: AccountFormState;
+  setFormData: React.Dispatch<React.SetStateAction<AccountFormState>>;
   onSubmit: (e: React.FormEvent) => void;
+  editing?: boolean;
+  error?: string;
+  saving?: boolean;
 }
-
-export const ConnectAccountModal: React.FC<ConnectAccountModalProps> = ({
+export const ConnectAccountModal: React.FC<Props> = ({
   isOpen,
   onClose,
   categories,
-  formData: newAcc,
-  setFormData: setNewAcc,
+  formData: f,
+  setFormData,
   onSubmit,
+  editing,
+  error,
+  saving,
 }) => {
-  if (!isOpen) return null;
-
+  const [avatarError, setAvatarError] = useState('');
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const inputClass =
+    'w-full bg-surface border border-border rounded-xl px-3 py-2 text-slate-100';
+  const field = (
+    key:
+      | 'name'
+      | 'handle'
+      | 'avatarUrl'
+      | 'externalId'
+      | 'description'
+      | 'notes',
+    label: string,
+    required = false
+  ) => (
+    <label className="block text-slate-300 font-semibold">
+      {label}
+      <input
+        className={inputClass}
+        value={f[key]}
+        required={required}
+        onChange={(e) => setFormData((p) => ({ ...p, [key]: e.target.value }))}
+      />
+    </label>
+  );
   return (
-    <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-surface-card border border-border w-full max-w-md rounded-2xl p-6 shadow-2xl">
-        <h3 className="text-lg font-black text-slate-100 mb-1">Connect Social Media Account</h3>
-        <p className="text-xs text-slate-400 mb-4">Add a new Facebook Page or TikTok account to manage</p>
-
-        <form onSubmit={onSubmit} className="space-y-4 text-xs">
-          <div>
-            <label className="block text-slate-300 font-semibold mb-1.5">Platform</label>
-            <div className="grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                onClick={() => setNewAcc(prev => ({ ...prev, platform: 'facebook', accountType: 'page' }))}
-                className={`py-2.5 px-3 rounded-xl border font-bold flex items-center justify-center gap-2 cursor-pointer transition-all ${
-                  newAcc.platform === 'facebook' 
-                    ? 'border-blue-500 bg-blue-500/15 text-blue-300' 
-                    : 'border-border bg-surface text-slate-400 hover:border-slate-600'
-                }`}
-              >
-                Facebook Page
-              </button>
-              <button
-                type="button"
-                onClick={() => setNewAcc(prev => ({ ...prev, platform: 'tiktok', accountType: 'business' }))}
-                className={`py-2.5 px-3 rounded-xl border font-bold flex items-center justify-center gap-2 cursor-pointer transition-all ${
-                  newAcc.platform === 'tiktok' 
-                    ? 'border-rose-500 bg-rose-500/15 text-rose-300' 
-                    : 'border-border bg-surface text-slate-400 hover:border-slate-600'
-                }`}
-              >
-                TikTok Account
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-slate-300 font-semibold mb-1">Account Display Name</label>
-            <input
-              type="text"
-              required
-              placeholder="e.g. ObjectToLife Studio"
-              value={newAcc.name}
-              onChange={(e) => setNewAcc(prev => ({ ...prev, name: e.target.value }))}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-terracotta-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-300 font-semibold mb-1">Handle / Username</label>
-            <input
-              type="text"
-              required
-              placeholder="e.g. @object.to.life"
-              value={newAcc.handle}
-              onChange={(e) => setNewAcc(prev => ({ ...prev, handle: e.target.value }))}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-terracotta-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-300 font-semibold mb-1">Category Workspace</label>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={editing ? 'Edit Social Account' : 'Add Social Account'}
+    >
+      <form
+        onSubmit={onSubmit}
+        className="space-y-3 text-xs max-h-[70vh] overflow-y-auto p-1"
+      >
+        <p className="text-slate-400">
+          Save a public identity without logging in. Ownership and profile
+          information remain unverified until an authorized platform check.
+        </p>
+        <label className="block">
+          Platform
+          <select
+            aria-label="Platform"
+            className={inputClass}
+            disabled={editing}
+            value={f.platform}
+            onChange={(e) =>
+              setFormData((p) => ({
+                ...p,
+                platform: e.target.value,
+                accountType:
+                  e.target.value === 'facebook' ? 'page' : 'personal',
+              }))
+            }
+          >
+            <option value="facebook">Facebook Page</option>
+            <option value="tiktok">TikTok Account</option>
+          </select>
+        </label>
+        {f.platform === 'tiktok' && (
+          <label className="block">
+            TikTok account type
             <select
-              value={newAcc.categoryId}
-              onChange={(e) => setNewAcc(prev => ({ ...prev, categoryId: e.target.value }))}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-terracotta-500 cursor-pointer"
+              className={inputClass}
+              value={f.accountType}
+              onChange={(e) =>
+                setFormData((p) => ({ ...p, accountType: e.target.value }))
+              }
             >
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
+              <option value="personal">Personal</option>
+              <option value="business">Business</option>
             </select>
-          </div>
+          </label>
+        )}
+        {field('handle', 'Public profile URL or username', true)}
+        {field('name', 'Account Display Name', true)}
+        <label className="block">
+          Category Workspace
+          <select
+            className={inputClass}
+            value={f.categoryId}
+            onChange={(e) =>
+              setFormData((p) => ({ ...p, categoryId: e.target.value }))
+            }
+          >
+            <option value="">Unassigned</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {field('avatarUrl', 'Avatar image URL (optional HTTPS)')}
+        <label className="block">
+          Upload avatar (optional PNG, JPEG, WebP, up to 2 MB)
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            disabled={uploadingAvatar}
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              setUploadingAvatar(true);
+              setAvatarError('');
+              try {
+                const result = await api.uploadAvatar(file);
+                setFormData((p) => ({ ...p, avatarUrl: result.avatarUrl }));
+              } catch (e: any) {
+                setAvatarError(e.message);
+              } finally {
+                setUploadingAvatar(false);
+              }
+            }}
+          />
+        </label>
+        {avatarError && (
+          <p role="alert" className="text-rose-400">
+            {avatarError}
+          </p>
+        )}
 
-          <div>
-            <label className="block text-slate-300 font-semibold mb-1">Connection Mode</label>
-            <select
-              value={newAcc.connectorMode}
-              onChange={(e) => setNewAcc(prev => ({ ...prev, connectorMode: e.target.value }))}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-terracotta-500 cursor-pointer"
-            >
-              <option value="simulator">Simulator (High-Fidelity Demo)</option>
-              <option value="official_api">Official API (Requires Access Token)</option>
-              <option value="browser_bridge">Browser Bridge (Playwright Assisted)</option>
-            </select>
-          </div>
-
-          {newAcc.connectorMode === 'official_api' && (
-            <div>
-              <label className="block text-slate-300 font-semibold mb-1">OAuth Access Token</label>
-              <input
-                type="password"
-                placeholder="EAA..."
-                value={newAcc.accessToken}
-                onChange={(e) => setNewAcc(prev => ({ ...prev, accessToken: e.target.value }))}
-                className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-terracotta-500"
-              />
-            </div>
-          )}
-
-          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-surface hover:bg-surface-hover text-slate-300 rounded-xl font-medium border border-border transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-4.5 py-2 bg-terracotta-600 hover:bg-terracotta-500 text-white rounded-xl font-bold shadow-md shadow-terracotta-600/25 transition-all cursor-pointer active:scale-95"
-            >
-              Save Account
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        {field('externalId', 'Platform account ID (optional, unverified)')}
+        {field('description', 'Description (optional)')}
+        {field('notes', 'Private local notes (optional)')}
+        <label className="block">
+          Default caption
+          <textarea
+            className={inputClass}
+            value={f.publishingPreferences.defaultCaption}
+            onChange={(e) =>
+              setFormData((p) => ({
+                ...p,
+                publishingPreferences: {
+                  ...p.publishingPreferences,
+                  defaultCaption: e.target.value,
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="block">
+          Default hashtags
+          <input
+            className={inputClass}
+            value={f.publishingPreferences.defaultHashtags}
+            onChange={(e) =>
+              setFormData((p) => ({
+                ...p,
+                publishingPreferences: {
+                  ...p.publishingPreferences,
+                  defaultHashtags: e.target.value,
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="flex gap-2">
+          <input
+            type="checkbox"
+            checked={f.publishingPreferences.applyBranding}
+            onChange={(e) =>
+              setFormData((p) => ({
+                ...p,
+                publishingPreferences: {
+                  ...p.publishingPreferences,
+                  applyBranding: e.target.checked,
+                },
+              }))
+            }
+          />
+          Apply branding by default
+        </label>
+        {error && (
+          <p role="alert" className="text-rose-400">
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-3 pt-3 border-t border-border">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 bg-surface rounded-xl"
+          >
+            Cancel
+          </button>
+          <button
+            disabled={saving || uploadingAvatar}
+            className="px-4 py-2 bg-terracotta-600 text-white rounded-xl font-bold"
+          >
+            {saving ? 'Saving...' : 'Save Account'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };

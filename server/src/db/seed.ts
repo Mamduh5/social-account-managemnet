@@ -115,8 +115,8 @@ export function seedInitialData() {
 
   // 3. Accounts (3 Facebook Pages, 3 TikTok Accounts)
   const insertAccount = db.prepare(`
-    INSERT INTO accounts (id, category_id, platform, account_type, name, handle, avatar_url, status, connector_mode, brand_kit_json, health_status, last_health_check)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO accounts (id, category_id, platform, account_type, name, handle, avatar_url, status, connector_mode, brand_kit_json, health_status, is_demo, last_health_check)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))
   `);
 
   insertAccount.run('acc-fb-1', cat1Id, 'facebook', 'page', 'ObjectToLife Official', '@ObjectToLifeOfficial', 'https://images.unsplash.com/photo-1546776310-eef45dd6d63c?w=150', 'connected', 'simulator', brandKit1, 'Healthy');

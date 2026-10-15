@@ -9,6 +9,7 @@ export interface CommentFilters {
   awaitingReply?: string;
   search?: string;
   limit?: string | number;
+  includeDemos?: boolean;
 }
 
 export class InboxRepository {
@@ -19,9 +20,10 @@ export class InboxRepository {
       FROM comments c
       JOIN accounts a ON c.account_id = a.id
       LEFT JOIN categories cat ON a.category_id = cat.id
-      WHERE 1=1
+      WHERE a.archived_at IS NULL
     `;
     const params: any[] = [];
+    if (!filters.includeDemos) query += ' AND a.is_demo=0';
 
     if (filters.platform) {
       query += ' AND c.platform = ?';
@@ -58,14 +60,14 @@ export class InboxRepository {
     return db.prepare(query).all(...params);
   }
 
-  getInboxStats(): { total: number; unread_count: number; awaiting_reply_count: number } {
+  getInboxStats(includeDemos = false): { total: number; unread_count: number; awaiting_reply_count: number } {
     return db.prepare(`
       SELECT 
         count(*) as total,
-        sum(case when status = 'unread' then 1 else 0 end) as unread_count,
-        sum(case when awaiting_reply = 1 then 1 else 0 end) as awaiting_reply_count
-      FROM comments
-    `).get() as any;
+        sum(case when c.status = 'unread' then 1 else 0 end) as unread_count,
+        sum(case when c.awaiting_reply = 1 then 1 else 0 end) as awaiting_reply_count
+      FROM comments c JOIN accounts a ON c.account_id=a.id WHERE a.archived_at IS NULL AND (?=1 OR a.is_demo=0)
+    `).get(includeDemos ? 1 : 0) as any;
   }
 
   getCommentWithAccount(commentId: string): any | undefined {

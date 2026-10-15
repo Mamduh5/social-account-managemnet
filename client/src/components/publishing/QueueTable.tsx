@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { HandoffModal } from './HandoffModal';
 import { PublishingDestination } from '../../types';
 import { RotateCcw, ExternalLink, AlertCircle } from 'lucide-react';
 
@@ -15,6 +16,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
   onCancel,
   onRefresh,
 }) => {
+  const [handoffId, setHandoffId] = useState<string | null>(null);
   return (
     <div className="space-y-4">
       <div className="bg-surface-card border border-border rounded-2xl p-5 shadow-xs">
@@ -40,12 +42,14 @@ export const QueueTable: React.FC<QueueTableProps> = ({
         ) : (
           <div className="space-y-3">
             {queue.map((item) => {
-              const isFailed = item.status === 'failed';
+              const isInterrupted = item.status === 'preparing' && item.error_message?.startsWith('Interrupted by server restart');
+              const isFailed = item.status === 'failed' || isInterrupted;
               const isPublished = item.status === 'published';
-              const isProcessing = ['preparing', 'branding', 'uploading', 'awaiting_confirmation'].includes(item.status);
+              const isProcessing = ['preparing', 'branding', 'uploading'].includes(item.status);
 
               return (
                 <div 
+                  data-destination-id={item.id}
                   key={item.id} 
                   className={`bg-surface p-4 rounded-2xl border transition-all shadow-xs ${
                     isFailed ? 'border-rose-500/40 bg-rose-950/10' :
@@ -80,9 +84,10 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                         isProcessing ? 'bg-honey-500/15 text-honey-300 border-honey-500/30 animate-pulse' :
                         'bg-surface-hover text-slate-300 border-border'
                       }`}>
-                        {item.status}
+                        {item.is_demo ? 'DEMO: ' : ''}{item.status === 'awaiting_confirmation' ? 'Awaiting Manual Confirmation' : item.status}
                       </span>
 
+                      {item.status === 'awaiting_confirmation' && <button className="text-terracotta-400 font-bold" onClick={() => setHandoffId(item.id)}>Open Prepared Package</button>}
                       {/* Retries only this destination! */}
                       {isFailed && (
                         <button
@@ -119,7 +124,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                   {isProcessing && (
                     <div className="mt-3">
                       <div className="flex justify-between text-[11px] text-slate-400 mb-1 font-medium">
-                        <span>Stage: {item.status}...</span>
+                        <span>Stage: {item.is_demo ? 'DEMO: ' : ''}{item.status === 'awaiting_confirmation' ? 'Awaiting Manual Confirmation' : item.status}...</span>
                         <span>{item.progress}%</span>
                       </div>
                       <div className="w-full bg-surface-hover rounded-full h-1.5 overflow-hidden">
@@ -147,6 +152,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
           </div>
         )}
       </div>
+      {handoffId && <HandoffModal destinationId={handoffId} onClose={() => setHandoffId(null)} onConfirmed={onRefresh} />}
     </div>
   );
 };

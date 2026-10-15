@@ -1,4 +1,5 @@
 export interface ConnectorCapabilities {
+  canReadProfile?: boolean;
   canPublish: boolean;
   canSchedule: boolean;
   canReadComments: boolean;

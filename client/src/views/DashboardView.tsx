@@ -28,8 +28,8 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
         api.getActivity(6),
         api.getAnalyticsOverview(),
       ]);
-      setAccounts(accRes.accounts || []);
-      setQueue(qRes.queue || []);
+      setAccounts((accRes.accounts || []).filter(a => !a.is_demo));
+      setQueue((qRes.queue || []).filter(q => !q.is_demo));
       setComments(cmtRes.comments || []);
       setActivities(actRes.events || []);
       setAnalytics(anaRes);
@@ -143,10 +143,10 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
 
         <MetricCard
           label="Total Audience Views"
-          value={analytics?.totals?.total_views ? Number(analytics.totals.total_views).toLocaleString() : '36,200'}
+          value={analytics?.totals?.total_views ? Number(analytics.totals.total_views).toLocaleString() : 'No platform data'}
           subValue={
             <p className="text-xs text-sage-400 flex items-center font-medium">
-              <ArrowUpRight className="w-3.5 h-3.5 mr-1 shrink-0" /> +14.2% this week
+              <ArrowUpRight className="w-3.5 h-3.5 mr-1 shrink-0" /> Retrieved real platform data only
             </p>
           }
           icon={<Eye className="w-5 h-5" />}
@@ -184,7 +184,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <img 
-                    src={acc.avatar_url} 
+                    src={acc.avatar_url || '/avatar.svg'}
                     alt={acc.name} 
                     className="w-10 h-10 rounded-xl object-cover border border-border shrink-0" 
                   />
@@ -216,7 +216,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
                     ? 'bg-sage-500/10 text-sage-400 border-sage-500/20' 
                     : 'bg-honey-500/10 text-honey-400 border-honey-500/20 animate-pulse'
                 }`}>
-                  {acc.status === 'connected' ? 'Connected' : 'Expired'}
+                  {acc.connection_status === 'limited' ? 'Limited Capabilities' : acc.connection_status === 'registered' ? 'Registered / Not Connected' : acc.connection_status?.replaceAll('_', ' ') || 'Not Connected'}
                 </span>
               </div>
             </div>

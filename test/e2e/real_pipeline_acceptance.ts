@@ -3,9 +3,9 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 
-const BASE_URL = 'http://localhost:3001';
+const BASE_URL = process.env.SCC_BASE_URL || 'http://localhost:3001';
 const PIPELINE_API_URL = 'http://localhost:8080';
-const SCREENSHOT_DIR = path.resolve(process.cwd(), 'docs/qa/screenshots');
+const SCREENSHOT_DIR = path.resolve(process.env.SCC_SCREENSHOT_DIR || path.resolve(process.cwd(), 'docs/qa/screenshots'));
 
 function computeSha256(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {

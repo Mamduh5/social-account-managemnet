@@ -42,7 +42,7 @@ export const InboxView: React.FC<Props> = ({ selectedCategory }) => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6"><p className="text-xs text-slate-400">Engagement requires authorized platform data. Open Native Account from Accounts to manage comments when API access is unavailable. Demo threads are excluded.</p>
       {/* Header and Stats */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface-card p-5 sm:p-6 rounded-2xl border border-border shadow-xs">
         <div>
