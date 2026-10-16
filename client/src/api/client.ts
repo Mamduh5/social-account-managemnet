@@ -8,6 +8,8 @@ import {
   ActivityResponse,
   PipelineStatusResponse,
   BrandKit,
+  AnalyticsOverviewResponse,
+  VideoPerformanceItem,
 } from '../types';
 
 const API_BASE = '/api';
@@ -182,6 +184,15 @@ export const api = {
     return checked(res);
   },
 
+  async syncInbox(accountId?: string): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await fetch(`${API_BASE}/inbox/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accountId }),
+    });
+    return res.json();
+  },
+
   // Activity
   async getActivity(limit = 50): Promise<ActivityResponse> {
     const res = await fetch(`${API_BASE}/activity?limit=${limit}`);
@@ -189,8 +200,42 @@ export const api = {
   },
 
   // Analytics
-  async getAnalyticsOverview(): Promise<any> {
-    const res = await fetch(`${API_BASE}/analytics/overview`);
+  async getAnalyticsOverview(filter?: { platform?: string; accountId?: string; categoryId?: string }): Promise<AnalyticsOverviewResponse> {
+    const q = filter ? new URLSearchParams(Object.entries(filter).filter(([_, v]) => Boolean(v)) as [string, string][]).toString() : '';
+    const res = await fetch(`${API_BASE}/analytics/overview${q ? `?${q}` : ''}`);
+    return checked(res);
+  },
+  async getVideoPerformance(filter?: { platform?: string; accountId?: string; categoryId?: string }): Promise<{ videos: VideoPerformanceItem[] }> {
+    const q = filter ? new URLSearchParams(Object.entries(filter).filter(([_, v]) => Boolean(v)) as [string, string][]).toString() : '';
+    const res = await fetch(`${API_BASE}/analytics/videos${q ? `?${q}` : ''}`);
+    return checked(res);
+  },
+  async getVideoHistory(destinationId: string): Promise<{ history: any[] }> {
+    const res = await fetch(`${API_BASE}/analytics/videos/${destinationId}/history`);
+    return checked(res);
+  },
+  async syncAnalytics(accountId?: string): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await fetch(`${API_BASE}/analytics/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accountId }),
+    });
+    return res.json();
+  },
+  async recordObservation(payload: {
+    destinationId: string;
+    viewCount?: number | null;
+    likeCount?: number | null;
+    commentCount?: number | null;
+    shareCount?: number | null;
+    source?: string;
+    notes?: string;
+  }): Promise<{ success: boolean; snapshot: any }> {
+    const res = await fetch(`${API_BASE}/analytics/observe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
     return checked(res);
   },
 

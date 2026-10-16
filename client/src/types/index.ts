@@ -199,6 +199,8 @@ export interface CommentItem {
   category_color?: string;
   platform: 'facebook' | 'tiktok';
   external_comment_id: string;
+  parent_comment_id?: string;
+  replies?: CommentItem[];
   author_name: string;
   author_avatar?: string;
   content: string;
@@ -208,13 +210,77 @@ export interface CommentItem {
   awaiting_reply: number;
   has_replied: number;
   reply_text?: string;
+  reply_id?: string;
   video_title?: string;
   native_url?: string;
+  source?: string;
+}
+
+export interface VideoPerformanceItem {
+  destination_id: string;
+  post_id: string;
+  video_id: string;
+  video_title: string;
+  thumbnail_path?: string | null;
+  account_id: string;
+  account_name: string;
+  account_handle: string;
+  account_avatar?: string | null;
+  category_id?: string | null;
+  category_name?: string | null;
+  category_color?: string | null;
+  platform: 'facebook' | 'tiktok';
+  remote_post_id: string;
+  remote_post_url: string;
+  published_at?: string | null;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  observed_at?: string | null;
+  source: string;
+  provenance_status: string;
+  status_detail?: string | null;
+}
+
+export interface SyncState {
+  id: string;
+  account_id: string;
+  target: string;
+  last_attempt_at?: string;
+  last_success_at?: string;
+  status: string;
+  error_message?: string;
+  records_synced: number;
+  updated_at: string;
+}
+
+export interface AnalyticsOverviewResponse {
+  totals: {
+    total_views: number;
+    total_likes: number;
+    total_comments: number;
+    total_shares: number;
+    total_followers?: number;
+    total_followers_gained?: number;
+    total_accounts?: number;
+    total_synced_videos?: number;
+    avg_engagement_rate?: number;
+    last_sync_time?: string | null;
+  };
+  platformComparison: any[];
+  categoryComparison: any[];
+  accountRankings: any[];
+  dailyTrends: any[];
+  videoPerformance: VideoPerformanceItem[];
+  syncStates: SyncState[];
+  isSimulatedNotice: string;
 }
 
 export interface ActivityEvent {
   id: string;
-  type: 'publish_success' | 'publish_failure' | 'comment_received' | 'comment_replied' | 'account_alert' | 'viral_spike' | 'system';
+  type: 'publish_success' | 'publish_failure' | 'comment_received' | 'comment_replied' | 'account_alert' | 'viral_spike' | 'system' | string;
+
   account_id?: string;
   account_name?: string;
   account_platform?: string;

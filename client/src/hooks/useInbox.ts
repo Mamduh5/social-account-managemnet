@@ -95,6 +95,38 @@ export function useInbox(selectedCategory: string) {
     }
   };
 
+  const [syncing, setSyncing] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<{ text: string; isError: boolean } | null>(null);
+
+  const syncComments = async () => {
+    setSyncing(true);
+    setSyncNotice(null);
+    try {
+      const res = await api.syncInbox(accountFilter || undefined);
+      if (res.success && res.result?.status === 'success') {
+        setSyncNotice({
+          text: res.result.message || 'Comments synchronized successfully.',
+          isError: false,
+        });
+      } else {
+        const msg = res.message || res.result?.message || 'Official API authorization required for automated comment synchronization. Use Open Native Account for native moderation.';
+        setSyncNotice({
+          text: msg,
+          isError: true,
+        });
+      }
+      await loadData();
+    } catch (err: any) {
+      setSyncNotice({
+        text: `Sync failed: ${err.message}`,
+        isError: true,
+      });
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setSyncNotice(null), 8000);
+    }
+  };
+
   return {
     comments,
     accounts,
@@ -121,5 +153,8 @@ export function useInbox(selectedCategory: string) {
     handleSendReply,
     handleReact,
     handleStatusChange,
+    syncComments,
+    syncing,
+    syncNotice,
   };
 }

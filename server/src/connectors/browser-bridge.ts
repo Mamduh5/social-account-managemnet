@@ -17,6 +17,7 @@ export class BrowserBridgeConnector implements AccountConnector {
     return {
       canPublish: false,
       canSchedule: false,
+      canReadPostMetrics: false,
       canReadComments: false,
       canReply: false,
       canReact: false,
@@ -225,4 +226,37 @@ export class BrowserBridgeConnector implements AccountConnector {
   async fetchInsights(_account: any): Promise<any> {
     return null;
   }
+
+  getNativeAnalyticsUrl(account: any): string {
+    if (account.platform === 'facebook') {
+      return account.external_id
+        ? `https://business.facebook.com/latest/insights?asset_id=${account.external_id}`
+        : 'https://business.facebook.com/latest/insights';
+    }
+    return 'https://www.tiktok.com/tiktokstudio/analytics';
+  }
+
+  async fetchPostMetrics(_account: any, remotePostId: string, remotePostUrl?: string): Promise<any> {
+    return {
+      remotePostId,
+      remotePostUrl,
+      viewCount: null,
+      likeCount: null,
+      commentCount: null,
+      shareCount: null,
+      source: 'browser_verified',
+      status: 'unsupported',
+      errorMessage: 'Automated background synchronization requires official API authorization. Use Open Native Analytics or record a verified observation.',
+    };
+  }
+
+  async fetchAccountMetrics(account: any): Promise<any> {
+    return {
+      followersTotal: null,
+      source: 'browser_verified',
+      status: 'unsupported',
+      errorMessage: 'Account insights require official API authorization. Use native analytics in Meta Business Suite or TikTok Studio.',
+    };
+  }
 }
+

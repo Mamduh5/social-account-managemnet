@@ -28,8 +28,8 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
         api.getActivity(6),
         api.getAnalyticsOverview(),
       ]);
-      setAccounts((accRes.accounts || []).filter(a => !a.is_demo));
-      setQueue((qRes.queue || []).filter(q => !q.is_demo));
+      setAccounts((accRes.accounts || []).filter((a: Account) => !a.is_demo));
+      setQueue((qRes.queue || []).filter((q: PublishingDestination) => !q.is_demo));
       setComments(cmtRes.comments || []);
       setActivities(actRes.events || []);
       setAnalytics(anaRes);

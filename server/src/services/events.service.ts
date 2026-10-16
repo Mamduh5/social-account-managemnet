@@ -30,3 +30,4 @@ class EventService {
 }
 
 export const eventService = new EventService();
+export const eventsService = eventService;

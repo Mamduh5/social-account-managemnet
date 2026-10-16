@@ -13,6 +13,7 @@ Depending on your role and task, choose the designated entry point:
 | **Frontend UI/UX Redesign** | [`docs/UI_REDESIGN_HANDOFF.md`](file:///d:/Mamduh/Personal/social-account-managemnet/docs/UI_REDESIGN_HANDOFF.md) | [`docs/PROJECT_MAP.md`](file:///d:/Mamduh/Personal/social-account-managemnet/docs/PROJECT_MAP.md) |
 | **Backend / Queue / Database** | [`docs/PROJECT_MAP.md`](file:///d:/Mamduh/Personal/social-account-managemnet/docs/PROJECT_MAP.md) | [`docs/qa/REFACTOR_REPORT.md`](file:///d:/Mamduh/Personal/social-account-managemnet/docs/qa/REFACTOR_REPORT.md) |
 | **Branding / FFmpeg / Canvas** | [`server/src/domain/branding.ts`](file:///d:/Mamduh/Personal/social-account-managemnet/server/src/domain/branding.ts) | [`client/src/components/branding/WatermarkCanvas.tsx`](file:///d:/Mamduh/Personal/social-account-managemnet/client/src/components/branding/WatermarkCanvas.tsx) |
+| **Engagement & Analytics (V1.5)** | [`docs/qa/REAL_ENGAGEMENT_ANALYTICS_ACCEPTANCE.md`](file:///d:/Mamduh/Personal/social-account-managemnet/docs/qa/REAL_ENGAGEMENT_ANALYTICS_ACCEPTANCE.md) | [`server/src/services/sync.service.ts`](file:///d:/Mamduh/Personal/social-account-managemnet/server/src/services/sync.service.ts) |
 | **Testing & QA Verification** | [`docs/qa/REFACTOR_REPORT.md`](file:///d:/Mamduh/Personal/social-account-managemnet/docs/qa/REFACTOR_REPORT.md) | [`test/social_command_center.test.ts`](file:///d:/Mamduh/Personal/social-account-managemnet/test/social_command_center.test.ts) |
 
 ---
@@ -175,5 +176,27 @@ Start with `docs/qa/REAL_ACCOUNT_ONBOARDING_ACCEPTANCE.md` for setup, current ev
 - `npx tsx test/e2e/run_pipeline_regression.ts` runs the existing real-pipeline acceptance against an isolated Command Center on 3193. It reads/downloads existing pipeline outputs and never modifies or restarts the upstream pipeline.
 - `SCC_DATA_DIR` isolates SQLite and all uploads/renders. `SCC_SEED_DEMOS=false` disables initial demo seeding. Account UI pagination is 20 records per page; no platform-count cap.
 - Keep `.data`, OAuth sessions, tokens, avatar uploads, test artifacts and encryption keys untracked. Tokens require a server-owned base64 32-byte `SCC_TOKEN_ENCRYPTION_KEY`; do not print it.
-- Default server binds loopback and rejects foreign hosts/origins. OAuth callbacks are restricted to loopback. TikTok Web Login needs an accepted HTTPS redirect and a reviewed local HTTPS setup; do not open a tunnel or expose a public callback automatically.
 - Live Facebook/TikTok authorization, publishing and engagement acceptance require owner accounts, approved app products/scopes and deliberate verification. Fixture PASS is not live-platform PASS. TikTok Direct Post and Accounts API integration remain pending.
+
+## V1.5: Genuine Engagement & Social Analytics Integration
+
+Start with [`docs/qa/REAL_ENGAGEMENT_ANALYTICS_ACCEPTANCE.md`](file:///d:/Mamduh/Personal/social-account-managemnet/docs/qa/REAL_ENGAGEMENT_ANALYTICS_ACCEPTANCE.md) for live baselines, capability matrices, and verification evidence.
+
+- **Zero Engagement Honesty**: Zero engagement on newly published posts or newly registered accounts is a valid result. Never invent synthetic counters or fabricate simulated metrics for real accounts. Missing data must be rendered as `Unavailable (Authorization Required)`, not converted to zero.
+- **Provenance Transparency**: Every metric value (post-level or account-level) carries an explicit source badge (`meta_graph_api`, `tiktok_api`, `browser_verified`, `manual`) and status (`confirmed`, `estimated`, `unavailable`, `auth_required`, `stale`).
+- **Meta June 2026 Deprecations**: Meta Graph API has deprecated legacy page-level insights (`page_video_views`). The Facebook connector strictly queries post-level summaries (`views`, `likes.summary(true)`, `comments.summary(true)`, `shares`) and Video Insights (`total_video_views`).
+- **TikTok API Segregation**:
+  - TikTok Display API (`video.list`, `video.query`): video metadata and metrics counters.
+  - TikTok Accounts API: comment moderation and remote replies.
+  - Personal account type is strictly preserved. Remote replies are restricted on Personal accounts without partner approval; render direct native platform links.
+- **Comment Deduplication & Threading**:
+  - `inboxRepo.upsertComment`: stable deduplication on `(account_id, external_comment_id)`.
+  - Replies are nested under `parent_comment_id` in top-level comment threads.
+  - Replying requires an explicit user action ("Send Reply") and displays sending account identity ("Replying as ...").
+- **Background Synchronization**:
+  - `SyncService` runs on a conservative 15-minute background polling cadence with rate-limit compliance, change detection, and activity event logging (`engagement_increased`, `observation_recorded`).
+  - Broadcasts live updates via SSE (`analytics:synced`).
+- **Testing & Storage Isolation**:
+  - `npm test` runs 4 test suites in isolated temporary directories: `test/analytics.test.ts`, `test/domain.test.ts`, `test/real_accounts.test.ts`, `test/social_command_center.test.ts`. All 37 tests must remain 100% green.
+  - Baseline real snapshots are persisted in SQLite (`post_metrics_snapshots` and `analytics_snapshots`) and never overwritten.
+

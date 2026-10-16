@@ -1,5 +1,6 @@
 import { db } from '../db/database.js';
 import { CommentEntity } from '../domain/types.js';
+import { randomUUID } from 'node:crypto';
 
 export interface CommentFilters {
   platform?: string;
@@ -57,7 +58,83 @@ export class InboxRepository {
       params.push(Number(filters.limit));
     }
 
-    return db.prepare(query).all(...params);
+    const rows = db.prepare(query).all(...params) as any[];
+
+    // Structure threading: group replies under parents if parent_comment_id exists
+    const commentMap = new Map<string, any>();
+    const topLevel: any[] = [];
+
+    for (const r of rows) {
+      r.replies = [];
+      commentMap.set(r.external_comment_id, r);
+    }
+
+    for (const r of rows) {
+      if (r.parent_comment_id && commentMap.has(r.parent_comment_id)) {
+        commentMap.get(r.parent_comment_id).replies.push(r);
+      } else {
+        topLevel.push(r);
+      }
+    }
+
+    return topLevel;
+  }
+
+  upsertComment(c: Omit<CommentEntity, 'id' | 'created_at'> & { id?: string }): { id: string; isNew: boolean } {
+    const existing = db.prepare(`
+      SELECT id, status, awaiting_reply, has_replied FROM comments
+      WHERE account_id = ? AND external_comment_id = ?
+    `).get(c.account_id, c.external_comment_id) as any;
+
+    const now = new Date().toISOString();
+
+    if (existing) {
+      db.prepare(`
+        UPDATE comments SET
+          like_count = ?,
+          content = ?,
+          last_synced_at = ?
+        WHERE id = ?
+      `).run(c.like_count, c.content, now, existing.id);
+
+      return { id: existing.id, isNew: false };
+    }
+
+    const id = c.id || `cmt-${randomUUID()}`;
+    db.prepare(`
+      INSERT INTO comments (
+        id, account_id, destination_id, platform, external_comment_id,
+        parent_comment_id, author_name, author_avatar, author_id,
+        content, created_time, like_count, status, awaiting_reply,
+        has_replied, reply_text, reply_id, video_title, native_url,
+        source, last_synced_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      c.account_id,
+      c.destination_id || null,
+      c.platform,
+      c.external_comment_id,
+      c.parent_comment_id || null,
+      c.author_name,
+      c.author_avatar || null,
+      c.author_id || null,
+      c.content,
+      c.created_time,
+      c.like_count || 0,
+      c.status || 'unread',
+      c.awaiting_reply ?? 1,
+      c.has_replied ?? 0,
+      c.reply_text || null,
+      c.reply_id || null,
+      c.video_title || null,
+      c.native_url || null,
+      c.source || 'api',
+      now,
+      now
+    );
+
+    return { id, isNew: true };
   }
 
   getInboxStats(includeDemos = false): { total: number; unread_count: number; awaiting_reply_count: number } {
@@ -79,12 +156,12 @@ export class InboxRepository {
     `).get(commentId);
   }
 
-  markReplied(commentId: string, replyText: string): void {
+  markReplied(commentId: string, replyText: string, replyId?: string): void {
     db.prepare(`
       UPDATE comments
-      SET has_replied = 1, awaiting_reply = 0, reply_text = ?, status = 'handled'
+      SET has_replied = 1, awaiting_reply = 0, reply_text = ?, reply_id = ?, status = 'handled'
       WHERE id = ?
-    `).run(replyText, commentId);
+    `).run(replyText, replyId || null, commentId);
   }
 
   incrementLike(commentId: string): void {

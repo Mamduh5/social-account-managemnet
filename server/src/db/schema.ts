@@ -210,8 +210,68 @@ export function initializeDatabase() {
 
   const destinationColumns = new Set((db.prepare('PRAGMA table_info(publishing_destinations)').all() as any[]).map(c => c.name));
   if (!destinationColumns.has('confirmation_source')) db.exec('ALTER TABLE publishing_destinations ADD COLUMN confirmation_source TEXT');
+  if (!destinationColumns.has('last_synced_at')) db.exec('ALTER TABLE publishing_destinations ADD COLUMN last_synced_at TEXT');
+  if (!destinationColumns.has('sync_status')) db.exec("ALTER TABLE publishing_destinations ADD COLUMN sync_status TEXT DEFAULT 'idle'");
 
   // Idempotent column migrations for existing SQLite databases
   try { db.exec('ALTER TABLE publishing_destinations ADD COLUMN selected_variant_id TEXT'); } catch {}
   try { db.exec('ALTER TABLE publishing_posts ADD COLUMN selected_variant_id TEXT'); } catch {}
+
+  // Additive V1.5 migrations: Post metric snapshots, sync checkpoints, comment deduplication & threading
+  const accountCols = new Set((db.prepare('PRAGMA table_info(accounts)').all() as any[]).map(c => c.name));
+  if (!accountCols.has('last_synced_at')) db.exec('ALTER TABLE accounts ADD COLUMN last_synced_at TEXT');
+  if (!accountCols.has('sync_status')) db.exec("ALTER TABLE accounts ADD COLUMN sync_status TEXT DEFAULT 'idle'");
+  if (!accountCols.has('sync_error')) db.exec('ALTER TABLE accounts ADD COLUMN sync_error TEXT');
+  if (!accountCols.has('followers_count')) db.exec('ALTER TABLE accounts ADD COLUMN followers_count INTEGER DEFAULT 0');
+  if (!accountCols.has('following_count')) db.exec('ALTER TABLE accounts ADD COLUMN following_count INTEGER DEFAULT 0');
+
+  const commentCols = new Set((db.prepare('PRAGMA table_info(comments)').all() as any[]).map(c => c.name));
+  if (!commentCols.has('source')) db.exec("ALTER TABLE comments ADD COLUMN source TEXT DEFAULT 'api'");
+  if (!commentCols.has('last_synced_at')) db.exec('ALTER TABLE comments ADD COLUMN last_synced_at TEXT');
+  if (!commentCols.has('reply_id')) db.exec('ALTER TABLE comments ADD COLUMN reply_id TEXT');
+
+  const analyticsCols = new Set((db.prepare('PRAGMA table_info(analytics_snapshots)').all() as any[]).map(c => c.name));
+  if (!analyticsCols.has('observed_at')) db.exec('ALTER TABLE analytics_snapshots ADD COLUMN observed_at TEXT');
+  if (!analyticsCols.has('source')) db.exec("ALTER TABLE analytics_snapshots ADD COLUMN source TEXT DEFAULT 'api'");
+  if (!analyticsCols.has('provenance_status')) db.exec("ALTER TABLE analytics_snapshots ADD COLUMN provenance_status TEXT DEFAULT 'confirmed'");
+  if (!analyticsCols.has('notes')) db.exec('ALTER TABLE analytics_snapshots ADD COLUMN notes TEXT');
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS post_metrics_snapshots (
+      id TEXT PRIMARY KEY,
+      destination_id TEXT REFERENCES publishing_destinations(id) ON DELETE CASCADE,
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      platform TEXT NOT NULL CHECK(platform IN ('facebook', 'tiktok')),
+      remote_post_id TEXT NOT NULL,
+      observed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      view_count INTEGER,
+      like_count INTEGER,
+      comment_count INTEGER,
+      share_count INTEGER,
+      extra_metrics_json TEXT DEFAULT '{}',
+      source TEXT NOT NULL,
+      provenance_status TEXT NOT NULL DEFAULT 'confirmed' CHECK(provenance_status IN ('confirmed', 'estimated', 'unavailable', 'auth_required', 'stale')),
+      status_detail TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_states (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      target TEXT NOT NULL CHECK(target IN ('metrics', 'comments', 'all')),
+      last_attempt_at TEXT,
+      last_success_at TEXT,
+      status TEXT NOT NULL DEFAULT 'idle' CHECK(status IN ('idle', 'syncing', 'success', 'failed', 'auth_required')),
+      error_message TEXT,
+      records_synced INTEGER NOT NULL DEFAULT 0,
+      cursor_data TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_post_metrics_dest ON post_metrics_snapshots(destination_id, observed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_post_metrics_account ON post_metrics_snapshots(account_id, observed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_post_metrics_remote ON post_metrics_snapshots(remote_post_id);
+    CREATE INDEX IF NOT EXISTS idx_sync_states_acc ON sync_states(account_id);
+  `);
 }
+

@@ -3,10 +3,11 @@ import { Router } from 'express';
 import { getConnector } from '../connectors/registry.js';
 import { inboxRepo } from '../repositories/inbox.repo.js';
 import { activityRepo } from '../repositories/activity.repo.js';
+import { syncService } from '../services/sync.service.js';
 
 export const inboxRouter = Router();
 
-// GET comments with rich filtering
+// GET comments with rich filtering and threading
 inboxRouter.get('/comments', (req, res) => {
   const { platform, categoryId, accountId, status, awaitingReply, search, limit } = req.query;
 
@@ -23,7 +24,23 @@ inboxRouter.get('/comments', (req, res) => {
 
   const stats = inboxRepo.getInboxStats(req.query.includeDemos === 'true');
 
-  res.json({ comments, stats, notice: 'Engagement is available only with authorized data. Use Open Native Account in Accounts for native engagement. Demo threads are excluded by default.' });
+  res.json({
+    comments,
+    stats,
+    notice: 'Engagement is available only with authorized data. Use Open Native Account in Accounts for native engagement when official comment reply API is not authorized.',
+  });
+});
+
+// SYNC comments on demand
+inboxRouter.post('/sync', async (req, res) => {
+  const { accountId } = req.body;
+  if (accountId) {
+    const result = await syncService.syncAccount(accountId);
+    return res.json({ success: result.success, result, message: result.message });
+  }
+
+  const result = await syncService.syncAllAccounts();
+  return res.json({ success: result.success, result, message: result.message });
 });
 
 // REPLY to comment
@@ -35,11 +52,13 @@ inboxRouter.post('/comments/:id/reply', async (req, res) => {
   if (!comment) return res.status(404).json({ error: 'Comment not found' });
 
   const account = accountsRepo.getAccountById(comment.account_id);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
+
   const connector = getConnector(account);
   const result = await connector.replyComment(account, comment.external_comment_id, text);
 
   if (result.success) {
-    inboxRepo.markReplied(req.params.id, text);
+    inboxRepo.markReplied(req.params.id, text, result.replyId);
 
     activityRepo.logEvent({
       type: 'comment_replied',
@@ -65,6 +84,8 @@ inboxRouter.post('/comments/:id/react', async (req, res) => {
   if (!comment) return res.status(404).json({ error: 'Comment not found' });
 
   const account = accountsRepo.getAccountById(comment.account_id);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
+
   const connector = getConnector(account);
   const result = await connector.reactComment(account, comment.external_comment_id, reaction || 'like');
 

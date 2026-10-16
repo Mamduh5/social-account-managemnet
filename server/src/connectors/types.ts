@@ -2,6 +2,7 @@ export interface ConnectorCapabilities {
   canReadProfile?: boolean;
   canPublish: boolean;
   canSchedule: boolean;
+  canReadPostMetrics: boolean;
   canReadComments: boolean;
   canReply: boolean;
   canReact: boolean;
@@ -46,10 +47,36 @@ export interface CommentFetchResult {
   externalCommentId: string;
   authorName: string;
   authorAvatar?: string;
+  authorId?: string;
+  parentCommentId?: string;
   content: string;
   createdTime: string;
   likeCount: number;
   nativeUrl?: string;
+}
+
+export interface PostMetricsResult {
+  remotePostId: string;
+  viewCount: number | null;
+  likeCount: number | null;
+  commentCount: number | null;
+  shareCount: number | null;
+  extraMetrics?: Record<string, any>;
+  source: string;
+  status: 'confirmed' | 'auth_required' | 'unsupported' | 'failed';
+  errorMessage?: string;
+}
+
+export interface AccountMetricsResult {
+  followersTotal: number | null;
+  followersGain?: number;
+  viewsTotal?: number | null;
+  likesTotal?: number | null;
+  commentsTotal?: number | null;
+  sharesTotal?: number | null;
+  source: string;
+  status: 'confirmed' | 'auth_required' | 'unsupported' | 'failed';
+  errorMessage?: string;
 }
 
 export interface AccountConnector {
@@ -60,4 +87,7 @@ export interface AccountConnector {
   replyComment(account: any, commentId: string, text: string): Promise<{ success: boolean; replyId?: string; errorMessage?: string }>;
   reactComment(account: any, commentId: string, reaction: string): Promise<{ success: boolean; errorMessage?: string }>;
   fetchInsights(account: any, timeframe?: string): Promise<any>;
+  fetchPostMetrics?(account: any, remotePostId: string, remotePostUrl?: string): Promise<PostMetricsResult | null>;
+  fetchAccountMetrics?(account: any): Promise<AccountMetricsResult | null>;
 }
+

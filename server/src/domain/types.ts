@@ -151,27 +151,125 @@ export interface PublishingDestinationEntity {
   max_retries: number;
   published_at?: string | null;
   verification_status?: 'confirmed' | 'unverified' | 'failed' | null;
+  last_synced_at?: string | null;
+  sync_status?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type ProvenanceSource = 
+  | 'meta_graph_api'
+  | 'tiktok_display_api'
+  | 'tiktok_accounts_api'
+  | 'browser_verified'
+  | 'manual_observation'
+  | 'simulated';
+
+export type ProvenanceStatus =
+  | 'confirmed'
+  | 'estimated'
+  | 'unavailable'
+  | 'auth_required'
+  | 'stale';
+
+export interface PostMetricsSnapshot {
+  id: string;
+  destination_id: string;
+  account_id: string;
+  platform: PlatformType;
+  remote_post_id: string;
+  observed_at: string;
+  view_count: number | null;
+  like_count: number | null;
+  comment_count: number | null;
+  share_count: number | null;
+  extra_metrics_json?: string | null;
+  source: ProvenanceSource;
+  provenance_status: ProvenanceStatus;
+  status_detail?: string | null;
+  created_at: string;
+}
+
+export interface AccountMetricsSnapshot {
+  id: string;
+  account_id: string;
+  observed_at: string;
+  date: string;
+  followers_total: number | null;
+  followers_gain: number;
+  views_total: number | null;
+  likes_total: number | null;
+  comments_total: number | null;
+  shares_total: number | null;
+  engagement_rate: number;
+  source: ProvenanceSource;
+  provenance_status: ProvenanceStatus;
+  is_simulated: number;
+  notes?: string | null;
+}
+
+export interface SyncStateEntity {
+  id: string;
+  account_id: string;
+  target: 'metrics' | 'comments' | 'all';
+  last_attempt_at?: string | null;
+  last_success_at?: string | null;
+  status: 'idle' | 'syncing' | 'success' | 'failed' | 'auth_required';
+  error_message?: string | null;
+  records_synced: number;
+  cursor_data?: string | null;
+  updated_at: string;
+}
+
+export interface VideoPerformanceItem {
+  destination_id: string;
+  post_id: string;
+  video_id: string;
+  video_title: string;
+  thumbnail_path?: string | null;
+  account_id: string;
+  account_name: string;
+  account_handle: string;
+  account_avatar?: string | null;
+  category_id?: string | null;
+  category_name?: string | null;
+  category_color?: string | null;
+  platform: PlatformType;
+  remote_post_id: string;
+  remote_post_url: string;
+  published_at?: string | null;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  observed_at?: string | null;
+  source: ProvenanceSource;
+  provenance_status: ProvenanceStatus;
+  status_detail?: string | null;
 }
 
 export interface CommentEntity {
   id: string;
   account_id: string;
-  post_id?: string | null;
+  destination_id?: string | null;
   platform: PlatformType;
   video_title?: string | null;
   author_name: string;
   author_avatar?: string | null;
+  author_id?: string | null;
   content: string;
   status: 'unread' | 'pending' | 'handled' | 'hidden';
   awaiting_reply: number;
   reply_text?: string | null;
+  reply_id?: string | null;
   has_replied: number;
   like_count: number;
   created_time: string;
   external_comment_id: string;
+  parent_comment_id?: string | null;
   native_url?: string | null;
+  source?: ProvenanceSource;
+  last_synced_at?: string | null;
   created_at: string;
 }
 
@@ -179,9 +277,11 @@ export interface ActivityEventEntity {
   id: string;
   type: string;
   account_id?: string | null;
+  category_id?: string | null;
   title: string;
   message: string;
   severity: 'info' | 'success' | 'warning' | 'error';
   metadata_json?: string | null;
   created_at: string;
 }
+

@@ -13,6 +13,7 @@ export const emptyCapabilities: ConnectorCapabilities = {
   canReadProfile: false,
   canPublish: false,
   canSchedule: false,
+  canReadPostMetrics: false,
   canReadComments: false,
   canReply: false,
   canReact: false,
@@ -63,6 +64,7 @@ export function getConnector(account: any): AccountConnector {
       ? has('pages_show_list')
       : has('user.info.basic'));
   if (valid && account.platform === 'facebook') {
+    capabilities.canReadPostMetrics = has('pages_read_engagement');
     capabilities.canReadComments =
       has('pages_read_engagement') && has('pages_read_user_content');
     capabilities.canPublish =
@@ -71,6 +73,13 @@ export function getConnector(account: any): AccountConnector {
     capabilities.canReply =
       has('pages_manage_engagement') && has('pages_read_engagement');
     capabilities.canReact = capabilities.canReply;
+    capabilities.canReadInsights = has('read_insights') || has('pages_read_engagement');
+  }
+  if (valid && account.platform === 'tiktok') {
+    capabilities.canReadPostMetrics = has('video.list') || has('video.query');
+    capabilities.canReadComments = has('comment.list');
+    capabilities.canReply = has('comment.list.manage');
+    capabilities.canReadInsights = has('data.insights');
   }
   // TikTok Direct Post stays disabled until creator-info, privacy UX and status reconciliation are implemented.
   const adapter =
@@ -113,16 +122,49 @@ export function getConnector(account: any): AccountConnector {
     fetchComments: async (_a, opts) =>
       capabilities.canReadComments
         ? adapter.fetchComments(authorized, opts)
-        : [],
+        : (account.connector_mode === 'browser_bridge' ? bridgeConnector.fetchComments(account, opts) : []),
     replyComment: async (_a, id, text) =>
       capabilities.canReply
         ? adapter.replyComment(authorized, id, text)
-        : blocked(),
+        : (account.connector_mode === 'browser_bridge' ? bridgeConnector.replyComment(account, id, text) : blocked()),
     reactComment: async (_a, id, reaction) =>
       capabilities.canReact
         ? adapter.reactComment(authorized, id, reaction)
-        : blocked(),
-    fetchInsights: async () => null,
+        : (account.connector_mode === 'browser_bridge' ? bridgeConnector.reactComment(account, id, reaction) : blocked()),
+    fetchInsights: async () => (capabilities.canReadInsights ? adapter.fetchInsights(authorized) : null),
+    fetchPostMetrics: async (_a, remotePostId, remotePostUrl) => {
+      if (account.connector_mode === 'browser_bridge') {
+        return bridgeConnector.fetchPostMetrics?.(account, remotePostId, remotePostUrl) || null;
+      }
+      if (!capabilities.canReadPostMetrics) {
+        return {
+          remotePostId,
+          viewCount: null,
+          likeCount: null,
+          commentCount: null,
+          shareCount: null,
+          source: account.platform === 'facebook' ? 'meta_graph_api' : 'tiktok_display_api',
+          status: 'auth_required',
+          errorMessage: 'Official API authorization required (missing required scopes).',
+        };
+      }
+      return adapter.fetchPostMetrics?.(authorized, remotePostId, remotePostUrl) || null;
+    },
+    fetchAccountMetrics: async (_a) => {
+      if (account.connector_mode === 'browser_bridge') {
+        return bridgeConnector.fetchAccountMetrics?.(account) || null;
+      }
+      if (!capabilities.canReadInsights && !capabilities.canReadProfile) {
+        return {
+          followersTotal: null,
+          source: account.platform === 'facebook' ? 'meta_graph_api' : 'tiktok_display_api',
+          status: 'auth_required',
+          errorMessage: 'Official API authorization required.',
+        };
+      }
+      return adapter.fetchAccountMetrics?.(authorized) || null;
+    },
   };
 }
+
 export { simulator, metaConnector, tiktokConnector, bridgeConnector };

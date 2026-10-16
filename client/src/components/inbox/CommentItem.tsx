@@ -73,6 +73,27 @@ export const CommentCard: React.FC<CommentItemProps> = ({
                 <p className="text-slate-200 leading-relaxed">"{cmt.reply_text}"</p>
               </div>
             )}
+
+            {/* Nested Platform Replies */}
+            {cmt.replies && cmt.replies.length > 0 && (
+              <div className="mt-3 space-y-2 border-l-2 border-border pl-3">
+                {cmt.replies.map((reply) => (
+                  <div key={reply.id} className="p-2.5 bg-surface/70 rounded-xl border border-border text-xs space-y-1">
+                    <div className="flex items-center gap-2">
+                      <img
+                        src={reply.author_avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60'}
+                        alt={reply.author_name}
+                        className="w-5 h-5 rounded-full object-cover border border-border shrink-0"
+                      />
+                      <span className="font-bold text-slate-200 text-[11px]">{reply.author_name}</span>
+                      <span className="text-slate-500 text-[10px]">•</span>
+                      <span className="text-slate-500 text-[10px]">{reply.created_time}</span>
+                    </div>
+                    <p className="text-slate-300 text-[11px] pl-7">"{reply.content}"</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

@@ -10,6 +10,7 @@ import fs from 'fs';
 import { initializeDatabase } from './db/schema.js';
 import { seedInitialData } from './db/seed.js';
 import { queueService } from './services/queue.service.js';
+import { syncService } from './services/sync.service.js';
 import { uploadsDir, rendersDir } from './db/database.js';
 
 import { accountsRouter } from './routes/accounts.routes.js';
@@ -35,8 +36,9 @@ initializeDatabase();
 if (process.env.SCC_SEED_DEMOS !== 'false') seedInitialData();
 indexExistingIdentities();
 
-// Start persistent background queue worker
+// Start persistent background queue worker & sync service
 queueService.start();
+syncService.start();
 
 // Static video serving with HTTP Range header support for seeking
 app.use('/uploads/renders', express.static(rendersDir, { acceptRanges: true }));
@@ -60,7 +62,7 @@ app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     app: 'Social Command Center',
-    version: '1.2.0',
+    version: '1.5.0',
     timestamp: new Date().toISOString(),
     timezone: 'Asia/Bangkok',
   });
@@ -91,12 +93,14 @@ process.on('unhandledRejection', (reason) => {
 process.on('SIGINT', () => {
   console.log('[Server] Shutting down gracefully...');
   queueService.stop();
+  syncService.stop();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('[Server] Terminating...');
   queueService.stop();
+  syncService.stop();
   process.exit(0);
 });
 

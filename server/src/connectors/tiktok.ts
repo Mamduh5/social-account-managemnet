@@ -8,8 +8,9 @@ export class TikTokConnector implements AccountConnector {
     return {
       canPublish: false,
       canSchedule: false, // Standard TikTok Creator API does not support remote scheduled queueing
-      canReadComments: false, // Requires special TikTok Enterprise Partner access
-      canReply: false, // Native platform handoff required
+      canReadPostMetrics: true, // Supported via TikTok Display API (video.list, video.query)
+      canReadComments: false, // Requires TikTok Accounts API access approval
+      canReply: false, // Requires TikTok Accounts API comment moderation access
       canReact: false,
       canReadInsights: false,
       canReceiveEvents: false,
@@ -35,6 +36,7 @@ export class TikTokConnector implements AccountConnector {
         headers: {
           Authorization: `Bearer ${account.access_token}`,
         },
+        signal: AbortSignal.timeout(15000),
       });
       const data = await res.json() as any;
 
@@ -71,16 +73,73 @@ export class TikTokConnector implements AccountConnector {
     throw new Error('TikTok API publishing is pending creator privacy controls, app approval and status verification. Use browser-assisted manual publishing.');
   }
 
-  async fetchComments(_account: any): Promise<CommentFetchResult[]> {
-    // Honest: Standard TikTok Content Posting API does not expose read_comments for creators.
-    return [];
+  async fetchComments(account: any, options?: { postId?: string; limit?: number }): Promise<CommentFetchResult[]> {
+    // If access token and comment moderation scope are present via TikTok Accounts API:
+    if (!account.access_token) return [];
+    try {
+      const res = await fetch(`${this.baseUrl}/comment/list/`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${account.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          video_id: options?.postId,
+          max_count: options?.limit || 20,
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const json = await res.json() as any;
+      if (json.data?.comments) {
+        return json.data.comments.map((c: any) => ({
+          externalCommentId: c.id,
+          authorName: c.user?.display_name || 'TikTok User',
+          authorId: c.user?.open_id,
+          parentCommentId: c.parent_comment_id || undefined,
+          content: c.text || '',
+          createdTime: c.create_time ? new Date(c.create_time * 1000).toISOString() : new Date().toISOString(),
+          likeCount: c.digg_count || 0,
+          nativeUrl: `https://www.tiktok.com/@${account.handle.replace(/^@/, '')}/video/${options?.postId}`,
+        }));
+      }
+      return [];
+    } catch {
+      return [];
+    }
   }
 
-  async replyComment(_account: any, _commentId: string, _text: string): Promise<{ success: boolean; errorMessage?: string }> {
-    return {
-      success: false,
-      errorMessage: 'TikTok official API restricts comment replies to verified enterprise partners. Use the Native Platform Handoff button to reply on TikTok.',
-    };
+  async replyComment(account: any, commentId: string, text: string): Promise<{ success: boolean; replyId?: string; errorMessage?: string }> {
+    if (!account.access_token) {
+      return {
+        success: false,
+        errorMessage: 'TikTok comment replies require approved Accounts API access (comment.list.manage scope). Use the Native Platform Handoff button to reply on TikTok.',
+      };
+    }
+
+    try {
+      const res = await fetch(`${this.baseUrl}/comment/reply/`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${account.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          comment_id: commentId,
+          text,
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const json = await res.json() as any;
+      if (json.data?.reply_id) {
+        return { success: true, replyId: json.data.reply_id };
+      }
+      return {
+        success: false,
+        errorMessage: json.error?.message || 'TikTok Accounts API reply denied. Check app review status.',
+      };
+    } catch (err: any) {
+      return { success: false, errorMessage: err.message };
+    }
   }
 
   async reactComment(_account: any, _commentId: string, _reaction: string): Promise<{ success: boolean; errorMessage?: string }> {
@@ -95,6 +154,7 @@ export class TikTokConnector implements AccountConnector {
     try {
       const res = await fetch(`${this.baseUrl}/user/info/?fields=open_id,display_name`, {
         headers: { Authorization: `Bearer ${account.access_token}` },
+        signal: AbortSignal.timeout(15000),
       });
       const data = await res.json() as any;
       return data.data?.user || null;
@@ -102,4 +162,136 @@ export class TikTokConnector implements AccountConnector {
       return null;
     }
   }
+
+  async fetchPostMetrics(account: any, remotePostId: string, remotePostUrl?: string): Promise<any> {
+    if (!account.access_token) {
+      return {
+        remotePostId,
+        remotePostUrl,
+        viewCount: null,
+        likeCount: null,
+        commentCount: null,
+        shareCount: null,
+        source: 'tiktok_display_api',
+        status: 'auth_required',
+        errorMessage: 'TikTok Display API requires OAuth authorization with video.list scope.',
+      };
+    }
+
+    try {
+      const res = await fetch(`${this.baseUrl}/video/query/?fields=id,title,view_count,like_count,comment_count,share_count`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${account.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          filters: {
+            video_ids: [remotePostId],
+          },
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const json = await res.json() as any;
+
+      if (json.error && json.error.code !== 'ok') {
+        return {
+          remotePostId,
+          remotePostUrl,
+          viewCount: null,
+          likeCount: null,
+          commentCount: null,
+          shareCount: null,
+          source: 'tiktok_display_api',
+          status: 'failed',
+          errorMessage: json.error.message || 'TikTok Display API error',
+        };
+      }
+
+      const video = json.data?.videos?.[0];
+      if (!video) {
+        return {
+          remotePostId,
+          remotePostUrl,
+          viewCount: null,
+          likeCount: null,
+          commentCount: null,
+          shareCount: null,
+          source: 'tiktok_display_api',
+          status: 'failed',
+          errorMessage: 'Video not found in TikTok account library',
+        };
+      }
+
+      return {
+        remotePostId,
+        remotePostUrl,
+        viewCount: video.view_count ?? null,
+        likeCount: video.like_count ?? null,
+        commentCount: video.comment_count ?? null,
+        shareCount: video.share_count ?? null,
+        source: 'tiktok_display_api',
+        status: 'confirmed',
+        extraMetrics: {
+          title: video.title || '',
+        },
+      };
+    } catch (err: any) {
+      return {
+        remotePostId,
+        remotePostUrl,
+        viewCount: null,
+        likeCount: null,
+        commentCount: null,
+        shareCount: null,
+        source: 'tiktok_display_api',
+        status: 'failed',
+        errorMessage: err.message,
+      };
+    }
+  }
+
+  async fetchAccountMetrics(account: any): Promise<any> {
+    if (!account.access_token) {
+      return {
+        followersTotal: null,
+        source: 'tiktok_display_api',
+        status: 'auth_required',
+        errorMessage: 'TikTok access token required for account statistics.',
+      };
+    }
+
+    try {
+      const res = await fetch(`${this.baseUrl}/user/info/?fields=open_id,display_name,follower_count,following_count,likes_count`, {
+        headers: { Authorization: `Bearer ${account.access_token}` },
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await res.json() as any;
+      if (data.error && data.error.code !== 'ok') {
+        return {
+          followersTotal: null,
+          source: 'tiktok_display_api',
+          status: 'failed',
+          errorMessage: data.error.message,
+        };
+      }
+
+      const u = data.data?.user;
+      return {
+        followersTotal: u?.follower_count ?? null,
+        followingTotal: u?.following_count ?? null,
+        likesTotal: u?.likes_count ?? null,
+        source: 'tiktok_display_api',
+        status: 'confirmed',
+      };
+    } catch (err: any) {
+      return {
+        followersTotal: null,
+        source: 'tiktok_display_api',
+        status: 'failed',
+        errorMessage: err.message,
+      };
+    }
+  }
+
 }

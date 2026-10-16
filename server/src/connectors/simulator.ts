@@ -5,6 +5,7 @@ export class SimulatorConnector implements AccountConnector {
     return {
       canPublish: true,
       canSchedule: true,
+      canReadPostMetrics: true,
       canReadComments: true,
       canReply: true,
       canReact: true,
@@ -114,4 +115,30 @@ export class SimulatorConnector implements AccountConnector {
       isSimulated: true,
     };
   }
+
+  async fetchPostMetrics(_account: any, remotePostId: string): Promise<any> {
+    return {
+      remotePostId,
+      viewCount: Math.floor(1000 + Math.random() * 500),
+      likeCount: Math.floor(50 + Math.random() * 30),
+      commentCount: Math.floor(10 + Math.random() * 8),
+      shareCount: Math.floor(5 + Math.random() * 4),
+      source: 'simulated',
+      status: 'confirmed',
+    };
+  }
+
+  async fetchAccountMetrics(_account: any): Promise<any> {
+    return {
+      followersTotal: 1250,
+      followersGain: 25,
+      viewsTotal: 15400,
+      likesTotal: 890,
+      commentsTotal: 140,
+      sharesTotal: 65,
+      source: 'simulated',
+      status: 'confirmed',
+    };
+  }
 }
+

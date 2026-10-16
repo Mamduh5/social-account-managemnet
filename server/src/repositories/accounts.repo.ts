@@ -12,6 +12,17 @@ export class AccountsRepository {
     `).all(includeArchived ? 1 : 0) as any[];
   }
 
+  getActiveRealAccounts(): (AccountEntity & { category_name?: string })[] {
+    return db.prepare(`
+      SELECT a.*, c.name as category_name
+      FROM accounts a
+      LEFT JOIN categories c ON a.category_id = c.id
+      WHERE a.is_demo = 0 AND a.archived_at IS NULL
+      ORDER BY a.created_at ASC
+    `).all() as any[];
+  }
+
+
   getAccountById(id: string): (AccountEntity & { category_name?: string }) | undefined {
     return db.prepare(`
       SELECT a.*, c.name as category_name
