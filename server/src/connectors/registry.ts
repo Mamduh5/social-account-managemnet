@@ -91,12 +91,7 @@ export function getConnector(account: any): AccountConnector {
           lastCheckedAt: new Date().toISOString(),
         };
       if (account.connector_mode === 'browser_bridge')
-        return {
-          status: 'disconnected',
-          healthStatus:
-            'Browser-assisted setup; verify destination in the native interface',
-          lastCheckedAt: new Date().toISOString(),
-        };
+        return bridgeConnector.verifyHealth(account);
       if (!valid)
         return {
           status:

@@ -30,7 +30,81 @@ export class BrowserBridgeConnector implements AccountConnector {
   }
 
   async verifyHealth(account: any): Promise<ConnectionHealth> {
-    return { status: 'disconnected', healthStatus: 'Manual browser handoff; native sign-in is not verified by this app', lastCheckedAt: new Date().toISOString() };
+    const profilePath = path.resolve(this.profilesDir, account.id);
+    const now = new Date().toISOString();
+
+    if (!fs.existsSync(profilePath)) {
+      return {
+        status: 'disconnected',
+        healthStatus: 'Browser profile uninitialized; launch browser session to sign in',
+        lastCheckedAt: now,
+      };
+    }
+
+    const lockFile = path.join(profilePath, 'SingletonLock');
+    if (fs.existsSync(lockFile)) {
+      return {
+        status: 'connected',
+        healthStatus: 'Browser session active (window open in native platform)',
+        lastCheckedAt: now,
+      };
+    }
+
+    try {
+      const { chromium } = await import('playwright');
+      const context = await chromium.launchPersistentContext(profilePath, {
+        headless: true,
+        channel: 'chrome',
+        args: ['--no-first-run'],
+      });
+
+      const urls =
+        account.platform === 'facebook'
+          ? ['https://www.facebook.com', 'https://business.facebook.com']
+          : ['https://www.tiktok.com'];
+
+      const cookies = await context.cookies(urls);
+      await context.close();
+
+      if (account.platform === 'facebook') {
+        const cUser = cookies.find((c) => c.name === 'c_user');
+        const xs = cookies.find((c) => c.name === 'xs');
+        if (cUser && xs) {
+          return {
+            status: 'connected',
+            healthStatus: `Authenticated Facebook session detected (User ID: ${cUser.value})`,
+            lastCheckedAt: now,
+          };
+        }
+        return {
+          status: 'disconnected',
+          healthStatus: 'Browser profile lacks active Facebook session; launch session to log in',
+          lastCheckedAt: now,
+        };
+      } else {
+        const sessionId = cookies.find(
+          (c) => c.name === 'sessionid' || c.name === 'sessionid_ss'
+        );
+        if (sessionId) {
+          return {
+            status: 'connected',
+            healthStatus: 'Authenticated TikTok session detected in profile',
+            lastCheckedAt: now,
+          };
+        }
+        return {
+          status: 'disconnected',
+          healthStatus: 'Browser profile lacks active TikTok session; launch session to log in',
+          lastCheckedAt: now,
+        };
+      }
+    } catch {
+      return {
+        status: 'disconnected',
+        healthStatus: 'Manual browser handoff; verify destination in native interface',
+        lastCheckedAt: now,
+      };
+    }
   }
 
   async launchBrowserSession(account: any): Promise<{ success: boolean; message: string }> {
@@ -41,14 +115,18 @@ export class BrowserBridgeConnector implements AccountConnector {
 
     const targetUrl =
       account.platform === 'facebook'
-        ? 'https://business.facebook.com/latest/home'
-        : 'https://www.tiktok.com/creator-center/upload';
+        ? (account.external_id
+            ? `https://business.facebook.com/latest/composer?page_id=${account.external_id}`
+            : 'https://business.facebook.com/latest/home')
+        : 'https://www.tiktok.com/tiktokstudio/upload';
 
     // Launch Chrome or default browser with isolated user data dir
     const chromePaths = [
       'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
       'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
       'C:\\Users\\mamdu\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+      'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
     ];
 
     const exe = chromePaths.find((p) => fs.existsSync(p)) || 'chrome';
@@ -89,7 +167,7 @@ export class BrowserBridgeConnector implements AccountConnector {
     const targetUrl =
       account.platform === 'facebook'
         ? `https://business.facebook.com/latest/composer?page_id=${account.external_id || ''}`
-        : 'https://www.tiktok.com/creator-center/upload';
+        : 'https://www.tiktok.com/tiktokstudio/upload';
 
     if (onProgress) onProgress(60, 'awaiting_confirmation');
 
