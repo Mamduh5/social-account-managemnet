@@ -195,18 +195,28 @@ export class FFmpegService {
       yExpr = `'${effSafeTop}'`;
     }
 
+    let fontFile = this.fontPath;
+    if (/[ก-๙]/.test(brandKit.text || '') && fs.existsSync('C:\\Windows\\Fonts\\tahoma.ttf')) {
+      fontFile = 'C\\:/Windows/Fonts/tahoma.ttf';
+    }
+
     const filters: string[] = [];
+    const fontColor = brandKit.fontColor || 'white';
 
     // Main moving watermark
     filters.push(
-      `drawtext=fontfile='${this.fontPath}':text='${text}':fontsize=${fontSize}:fontcolor=white@${opacity}:box=1:boxcolor=black@${boxOpacity}:boxborderw=${boxBorder}:x=${xExpr}:y=${yExpr}`
+      `drawtext=fontfile='${fontFile}':text='${text}':fontsize=${fontSize}:fontcolor=${fontColor}@${opacity}:box=1:boxcolor=black@${boxOpacity}:boxborderw=${boxBorder}:x=${xExpr}:y=${yExpr}`
     );
 
     // Optional digital signature / footer text (bottom safe zone)
     if (brandKit.enableSignature && brandKit.signatureText) {
       const sigText = escapeText(brandKit.signatureText);
+      let sigFont = fontFile;
+      if (/[ก-๙]/.test(brandKit.signatureText) && fs.existsSync('C:\\Windows\\Fonts\\tahoma.ttf')) {
+        sigFont = 'C\\:/Windows/Fonts/tahoma.ttf';
+      }
       filters.push(
-        `drawtext=fontfile='${this.fontPath}':text='${sigText}':fontsize=${Math.max(14, fontSize - 10)}:fontcolor=white@0.6:box=1:boxcolor=black@0.3:boxborderw=4:x=(w-tw)/2:y=h-th-${Math.max(20, safeBottom / 4)}`
+        `drawtext=fontfile='${sigFont}':text='${sigText}':fontsize=${Math.max(14, fontSize - 10)}:fontcolor=white@0.6:box=1:boxcolor=black@0.3:boxborderw=4:x=(w-tw)/2:y=h-th-${Math.max(20, safeBottom / 4)}`
       );
     }
 
