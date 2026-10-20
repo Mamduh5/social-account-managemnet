@@ -11,6 +11,8 @@ export interface ConnectorCapabilities {
   canReadProfile?: boolean;
   canPublish: boolean;
   canSchedule: boolean;
+  canReadPostMetrics?: boolean;
+  canUploadDraft?: boolean;
   canReadComments: boolean;
   canReply: boolean;
   canReact: boolean;

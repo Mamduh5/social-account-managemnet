@@ -4,7 +4,7 @@
 
 ---
 
-## V1.6 milestone status and operational hold (20 October 2026)
+## V1.7 milestone status: TikTok Integration & Facebook Scheduling Verification (20 October 2026)
 
 Read `docs/qa/OFFICIAL_API_AUTHORIZATION_ACCEPTANCE.md` for current evidence. Facebook OAuth, existing-Page reauthorization, official Reels upload, remote processing/permalink verification and automatic queue completion have **passed live acceptance**. Scheduling has automated lifecycle coverage and a saved real job; its actual public publication remains **PENDING OWNER VERIFICATION**. Browser schedule-form submission is not live-verified. Historical manual/browser or fixture PASS must not be relabeled as official API PASS.
 
@@ -19,8 +19,8 @@ Current implementation map:
 - Reels: `connectors/meta-facebook.ts` performs start -> persist remote ID -> HTTPS rupload binary -> finish -> bounded read-only processing/permalink polling. Require ready video, complete publishing phase and a valid permalink before confirmed success. No standard-video fallback or real-account automatic replay after an uncertain submission. `onRemoteCreated` persists the ID through the queue/repository before upload/finish.
 - Queue: `services/queue.service.ts` sets confirmed API results to `published` with `confirmation_source=api`; manual packages keep `awaiting_confirmation` until an explicit exact-account receipt (`confirmation_source=manual`). The legacy capability-level `requiresManualConfirmation` flag is conservative; actual API completion uses the verified result, not that flag.
 - Scheduling: composer input is Bangkok wall time -> UTC ISO; server requires explicit timezone/future validity. SQLite `julianday` comparisons release due jobs on a two-second local loop. Do not re-send an elapsed schedule to Meta: due dispatch uses immediate `PUBLISHED`. Future jobs, terminal jobs and restart holds are excluded; retry must not bypass the due time. PC/server availability is required; no cloud scheduler exists.
-- Tests: `npm test` runs **66 tests across eight isolated suites** at this milestone. `npx tsc --noEmit` and `npm run build:client` are required checks. Do not run tests or legacy E2E scripts against the owner's data or pending queue. Fixtures do not authorize live publishing.
-- TikTok: preserve the Personal Account and manual history. Official live authorization, Direct Post and synchronization acceptance are the next milestone, not authorized implementation work now. Login/renewal/Display API fixtures do not prove live TikTok access. The registry still disables Direct Post pending creator/privacy/status workflows and product approvals.
+- Tests: `npm test` runs **76 tests across nine isolated suites** at this milestone. `npx tsc --noEmit` and `npm run build:client` are required checks. Do not run tests or legacy E2E scripts against the owner's data or pending queue. Fixtures do not authorize live publishing.
+- TikTok V1.7: Personal Account preserved. Display API real analytics query, video list pagination, confirmed 0 vs missing data, rate limiting, and scope fallback implemented and verified across 76 tests; live OAuth and public publication remain unverified pending owner developer credentials. Content Posting API Direct Post is blocked by TikTok Developer Policy for internal utilities managing personal/team accounts, and application watermarks are prohibited on API uploads. TikTok's separate Accounts API for Business explicitly supports both Personal and Business Accounts for owned account publishing, insights, and comment moderation, but requires business partner application and review. Secure OAuth callback design restricts exposure strictly to `/api/connections/callback/tiktok`, prohibiting open public tunnels to `localhost:3001`.
 
 ## 1. Quick Navigation: Read This First!
 

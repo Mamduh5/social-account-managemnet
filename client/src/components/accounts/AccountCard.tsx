@@ -91,6 +91,7 @@ export const AccountCard: React.FC<Props> = ({
     <div className="flex flex-wrap gap-2 text-[11px]">
       {[
         ['Profile', a.capabilities?.canReadProfile],
+        ['Analytics', a.capabilities?.canReadPostMetrics],
         ['Publish', a.capabilities?.canPublish],
         ['Comments', a.capabilities?.canReadComments],
         ['Reply', a.capabilities?.canReply],

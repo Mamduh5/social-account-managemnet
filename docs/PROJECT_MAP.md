@@ -155,8 +155,10 @@ sequenceDiagram
 | Meta OAuth | Consent, actual granted scopes, Page discovery/tasks, explicit selection onto the existing internal ID, encrypted Page token, strict alias/canonical ID reconciliation | LIVE PASS on the owner's Page, including reauthorization |
 | Meta Reels adapter | Start, persist remote ID, rupload binary, finish, then verify ready/complete status and permalink; worker completes automatically with API provenance | LIVE PASS: Reel `2657809668013982`; no manual confirmation |
 | Local scheduled publishing | Bangkok wall-clock -> UTC ISO, future validation, SQLite date comparison, two-second due dispatch; no second Meta schedule | Automated lifecycle PASS; actual schedule saved/held; public scheduled publication PENDING owner verification |
-| TikTok Web Login | Profile identity/scope binding and refresh-token rotation; account type unchanged | Mocked official responses; real app/HTTPS authorization PENDING |
-| TikTok Direct Post / Accounts API | Disabled/pending additional product access and implementation; no claim of comments or analytics access | PENDING |
+| TikTok Web Login | Profile identity/scope binding and refresh-token rotation; account type unchanged | Implemented & tested in isolated suite; real app/HTTPS authorization PENDING |
+| TikTok Display API Real Analytics | `POST /v2/video/query/` for existing videos, paginated `video.list`, numeric zero preservation, scope fallback | Implemented & tested in isolated suite; live synchronization PENDING account authorization |
+| TikTok Content Posting API Direct Post / Upload | Anti-utility-tool developer policy prevents internal management tools; watermark restrictions on API uploads | BLOCKED BY POLICY / AUDIT REQUIRED |
+| TikTok for Business Accounts API | Separate business API officially supports both Personal and Business Accounts for owned publishing, insights, and comment moderation (`comment.list`, `comment.list.manage`) | APPLICATION & APPROVAL REQUIRED; Native Platform Handoff retained |
 | Native browser handoff | Original/branded MP4, caption, native links, exact-account manual URL confirmation; distinct from API verification | Earlier live manual Facebook/TikTok acceptance and isolated workflow tests |
 | Inbox / analytics | Scope-gated provider reads, 15-minute background sync, SSE, append-only observations, no fabricated real metrics | Fixtures and historical browser/manual baselines; do not infer universal live API coverage |
 
@@ -248,10 +250,10 @@ sequenceDiagram
 
 The scheduler needs the local process and PC awake. It does not delegate timing to a cloud service. Future schedules survive boot; interrupted active jobs retain a review hold. Real failures do not auto-replay; no content-wide deduplication is implied for a separately created post.
 
-The protected Tesla job `dest-mvg66513-ttjf` / `post-74051364-849a-4195-b132-d76c19fa10ca` targets **20 October 2026, 12:14 PM Asia/Bangkok** (`05:14 UTC`). Do not alter its caption, derivative, Page, or schedule, and do not stop/restart the server while pending. Actual public publication remains the owner's verification gate.
+The protected Tesla job `dest-mvg66513-ttjf` / `post-74051364-849a-4195-b132-d76c19fa10ca` (target **20 October 2026, 12:14 PM Asia/Bangkok**) was automatically dispatched to Meta Graph API by the background worker, published as remote Reel `2100761720535236` with confirmed API provenance; public publication remains the owner's verification gate.
 
 ### Regression entry points
 
-`facebook_reauthorization.test.ts` covers expiry metadata, identity/alias/duplicate handling, credential preservation and safe errors. `meta_reels_publishing.test.ts` covers phase failures, no fallback, polling and master invariance. `reels_queue_acceptance.test.ts` covers API completion, manual/restart replay exclusions, durable remote ID, uncertain retry blocking and an isolated one-hour schedule advanced to due time. Together with the other five suites, the current total is 66 tests; all use isolated data.
+`facebook_reauthorization.test.ts` covers expiry metadata, identity/alias/duplicate handling, credential preservation and safe errors. `meta_reels_publishing.test.ts` covers phase failures, no fallback, polling and master invariance. `reels_queue_acceptance.test.ts` covers API completion, manual/restart replay exclusions, durable remote ID, uncertain retry blocking and an isolated one-hour schedule advanced to due time. `tiktok_official_integration.test.ts` covers TikTok OAuth state CSRF, token encryption, Display API real metrics query, confirmed 0 vs missing data, paginated video listing, rate limits, scope fallback, Content Posting API policy rejection, and Accounts API segregation. Together with the other suites, the current total is 76 tests across nine suites; all use isolated data.
 
-No TikTok Direct Post capability was enabled. Preserve Personal type and existing manual history; official live authorization/publishing/synchronization remain separate next-milestone work.
+TikTok Content Posting API Direct Post is blocked by policy for internal utility tools; TikTok for Business Accounts API officially supports both Personal and Business Accounts for owned-account publishing and comment moderation upon partner approval. Live official authorization and public publication remain separate next-milestone work.

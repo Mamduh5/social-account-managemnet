@@ -109,6 +109,7 @@ export class SyncService {
     let commentsSynced = 0;
     let accountMetricsSynced = 0;
     let syncError: string | undefined;
+    let apiFailure: string | undefined;
 
     // 1. Sync Account-Level Metrics
     try {
@@ -193,6 +194,8 @@ export class SyncService {
               }
             } else if (postMetric.status === 'auth_required') {
               syncError = postMetric.errorMessage || 'Authorization required for automated synchronization.';
+            } else if (postMetric.status === 'failed') {
+              apiFailure = postMetric.errorMessage || 'Platform API returned an error.';
             }
           }
         }
@@ -246,8 +249,10 @@ export class SyncService {
     const hasSyncedData = (metricsSynced + commentsSynced + accountMetricsSynced) > 0;
     const finalStatus = syncError
       ? 'auth_required'
-      : (isAuthorized || hasSyncedData ? 'success' : 'auth_required');
-    const finalMessage = syncError || (isAuthorized || hasSyncedData ? undefined : 'Official API authorization required for automated synchronization. Connect live credentials in Accounts or record verified observations.');
+      : (apiFailure && !hasSyncedData
+        ? 'failed'
+        : (isAuthorized || hasSyncedData ? 'success' : 'auth_required'));
+    const finalMessage = syncError || (apiFailure && !hasSyncedData ? apiFailure : (isAuthorized || hasSyncedData ? undefined : 'Official API authorization required for automated synchronization. Connect live credentials in Accounts or record verified observations.'));
 
     analyticsRepo.updateSyncState(accountId, 'all', finalStatus, finalMessage, metricsSynced + commentsSynced + accountMetricsSynced);
 
@@ -263,7 +268,7 @@ export class SyncService {
     });
 
     return {
-      success: (isAuthorized || hasSyncedData) && !syncError,
+      success: (isAuthorized || hasSyncedData) && !syncError && (!apiFailure || hasSyncedData),
       metricsSynced,
       commentsSynced,
       status: finalStatus,

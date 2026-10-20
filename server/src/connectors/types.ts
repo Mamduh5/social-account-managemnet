@@ -9,6 +9,7 @@ export interface ConnectorCapabilities {
   canReadInsights: boolean;
   canReceiveEvents: boolean;
   requiresManualConfirmation: boolean;
+  canUploadDraft?: boolean;
   supportedVideoFormats: string[];
   maxVideoSizeMb: number;
   maxDurationSeconds: number;
@@ -76,6 +77,7 @@ export interface AccountMetricsResult {
   likesTotal?: number | null;
   commentsTotal?: number | null;
   sharesTotal?: number | null;
+  followingTotal?: number | null;
   source: string;
   status: 'confirmed' | 'auth_required' | 'unsupported' | 'failed';
   errorMessage?: string;
@@ -92,4 +94,3 @@ export interface AccountConnector {
   fetchPostMetrics?(account: any, remotePostId: string, remotePostUrl?: string): Promise<PostMetricsResult | null>;
   fetchAccountMetrics?(account: any): Promise<AccountMetricsResult | null>;
 }
-

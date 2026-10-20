@@ -151,7 +151,7 @@ export function ConnectionModal({
           <div className="space-y-1 bg-surface/50 p-2.5 rounded-xl border border-white/5 text-slate-300">
             <p className="font-medium">Personal account type is preserved.</p>
             <p className="text-slate-400">
-              Read-only Display API video engagement counters (video.list) and profile identity (user.info.basic) will be authorized. Direct Post and comment moderation remain restricted until partner approvals.
+              Read-only Display API video engagement counters (video.list) and profile identity (user.info.basic) will be requested. Video publishing and comment moderation require TikTok Accounts API access approval for owned accounts.
             </p>
           </div>
         )}

@@ -56,6 +56,10 @@ export const DestinationConfigCard: React.FC<DestinationConfigCardProps> = ({
             ? 'Simulated publishing for testing'
             : acc.capabilities?.canPublish
             ? 'Direct official API Reel upload & status verification'
+            : acc.platform === 'tiktok'
+            ? (acc.connection_status === 'connected' && acc.capabilities?.canReadPostMetrics
+                ? 'Display API analytics authorized; manual publishing required by TikTok developer policy'
+                : 'Manual publishing required; Display API analytics available upon OAuth authorization')
             : 'Prepares branded MP4 & caption package for browser upload'}
         </span>
       </div>
