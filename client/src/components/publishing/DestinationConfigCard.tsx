@@ -35,7 +35,30 @@ export const DestinationConfigCard: React.FC<DestinationConfigCardProps> = ({
         </label>
       </div>
 
-      <p className="text-slate-400">{acc.is_demo ? 'Demo simulation only' : acc.capabilities?.canPublish ? 'Authorized API dispatch' : 'Prepare MP4 for manual native publishing; confirmation required'}</p>
+      <div className="flex items-center gap-2 flex-wrap">
+        {acc.is_demo ? (
+          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+            Demo Simulation Only
+          </span>
+        ) : acc.capabilities?.canPublish ? (
+          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            Publish via API
+          </span>
+        ) : (
+          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/15 text-slate-300 border border-slate-500/30 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+            Prepare for Manual Publishing
+          </span>
+        )}
+        <span className="text-[11px] text-slate-400">
+          {acc.is_demo
+            ? 'Simulated publishing for testing'
+            : acc.capabilities?.canPublish
+            ? 'Direct official API Reel upload & status verification'
+            : 'Prepares branded MP4 & caption package for browser upload'}
+        </span>
+      </div>
       <textarea
         rows={2}
         value={config.caption}

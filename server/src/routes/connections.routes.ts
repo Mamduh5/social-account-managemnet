@@ -10,6 +10,7 @@ import {
   refreshConnection,
   enableBrowserHandoff,
 } from '../services/connections.service.js';
+import { OAuthFailure, authorizationFailure } from '../services/oauth-diagnostics.js';
 export const connectionsRouter = Router();
 const cookieName = 'scc_oauth';
 function browserCookie(req: any) {
@@ -50,6 +51,8 @@ connectionsRouter.post('/:id/start', (req, res) => {
               error:
                 'Open Command Center using the same hostname as the registered OAuth callback so the browser session cookie remains bound correctly.',
             });
+        if (account.platform === 'facebook' && callback.origin !== `${req.protocol}://${req.get('host')}`)
+          return res.status(409).json({ error: `Open Command Center at ${callback.origin} before authorization. The protocol, hostname and port must match the configured callback origin.` });
         const source =
           req.get('origin') || `${req.protocol}://${req.get('host')}`;
         if (account.platform === 'tiktok' && !source.startsWith('https://'))
@@ -83,18 +86,21 @@ connectionsRouter.post('/:id/start', (req, res) => {
 });
 connectionsRouter.get('/callback/:platform', async (req, res) => {
   try {
+    const expected = process.env[req.params.platform === 'facebook' ? 'META_REDIRECT_URI' : 'TIKTOK_REDIRECT_URI'];
+    if (req.params.platform === 'facebook' && expected !== `${req.protocol}://${req.get('host')}${req.baseUrl}${req.path}`)
+      throw authorizationFailure(new OAuthFailure('callback_validation', 'callback_mismatch', 'The callback origin or path differs from META_REDIRECT_URI. Start again using the configured Command Center URL.'), 'callback_validation');
     const id = await completeAuthorization(
       req.params.platform,
       req.query,
       browserCookie(req)
     );
     res.redirect('/?connectionAccount=' + encodeURIComponent(id));
-  } catch {
+  } catch (e) {
     res
       .status(400)
       .type('text/plain')
       .send(
-        'Authorization could not be completed. Return to Accounts, review app configuration, consent, selected identity and session expiry, then reconnect.'
+        e instanceof OAuthFailure ? e.message : 'Authorization could not be completed. Return to Accounts and start a fresh authorization.'
       );
   }
 });

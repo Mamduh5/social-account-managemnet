@@ -1,321 +1,138 @@
-# Social Command Center — Multi-Account Social Media Management Hub
+# Social Command Center
 
-> **Self-hosted command center for automated & semi-automated AI video distribution, brand identity preservation, engagement triage, and cross-platform analytics across Facebook Pages and TikTok accounts.**
+Self-hosted multi-account video distribution, moving-watermark branding, engagement triage and provenance-aware analytics for Facebook Pages and TikTok accounts.
 
----
+## Current milestone: Facebook API integration
 
-## V1.2: Register first, connect later
+Status as of **20 October 2026, Asia/Bangkok**:
 
-Open **Accounts & Categories > Add Social Account**. Choose Facebook Page or TikTok, enter its public profile URL/username and display name, select a category, and save. TikTok Personal is the default and can be changed to Business only to match the account you actually created. No login, token or developer app is required for registration. Optional avatar upload/HTTPS URL, description, notes and per-account caption/hashtag/branding preferences are available.
+| Capability | Evidence and boundary |
+| --- | --- |
+| Registration, categories, archive/restore, immutable masters and separate variants | Implemented; automated and earlier browser acceptance |
+| Facebook OAuth and existing-Page reauthorization | **Live verified**, including actual grants and encrypted token storage |
+| Official Facebook Reels API publishing | **Live verified**: [public acceptance Reel](https://www.facebook.com/reel/2657809668013982/) |
+| Automatic queue completion | **Live verified**: Published with `confirmation_source=api`; confirmed processing/permalink, no manual confirmation |
+| Local scheduling and Bangkok-to-UTC handling | Automated due-time/dispatch tests pass; a real schedule is saved and held until due |
+| Scheduled Reel's actual public publication | **Pending owner verification**, not a live scheduled-publication PASS |
+| Engagement and analytics | Scope-gated connectors, background sync, SSE and append-only snapshots; API, browser and manual evidence remain distinct |
+| TikTok official authorization and automatic publishing | **Pending next milestone**; existing Personal Account and manual history preserved |
 
-Use each account's **Edit Account**, **Configure Branding**, **Prepare Publication**, **Connect API**, **Set Up Browser Handoff**, and **Open Native Account** actions. **New Category** organizes any number of accounts in the same workspace. Accounts are searchable and paginated; demo records are hidden by default. **Archive Account** and **Archive Demo Accounts** preserve publication history and media; show archived/demo records to restore them.
+The authoritative evidence is [Official API Authorization Acceptance](docs/qa/OFFICIAL_API_AUTHORIZATION_ACCEPTANCE.md). Older QA reports describe dated simulator, fixture or manual-browser runs; they do not establish current OAuth/API acceptance.
 
-For manual publishing, select a real MP4 and account, then enqueue preparation. Disconnected accounts produce **Awaiting Manual Confirmation** packages. In Publishing Queue choose **Open Prepared Package**, download the original/branded MP4, verify the correct native account, and publish it yourself. Record the resulting post URL with the explicit account confirmation checkbox. Opening the website does not change publication status. A recorded manual confirmation is labeled separately from API verification.
+**Protected job:** the Tesla derivative is scheduled for **20 October 2026, 12:14 PM Asia/Bangkok** (`05:14 UTC`). Keep the existing server running while pending. Do not cancel, reschedule, duplicate, change its content/destination, or manually publish it. The owner will verify its actual public result. A saved schedule is not a published Reel.
 
-Official API setup is separate. Configure app IDs/secrets, approved products/scopes, an exact loopback redirect URI, an explicit supported Meta Graph version, and a base64 32-byte `SCC_TOKEN_ENCRYPTION_KEY` in the server environment or ignored `.env` file. The key must be kept private and backed up to decrypt saved tokens. This milestone does not provision developer apps, approvals, HTTPS certificates or public callbacks. TikTok Web Login requires an accepted HTTPS redirect/local HTTPS setup. Missing configuration produces setup guidance and preserves the account. No passwords are collected.
+## Setup and startup
 
-See [Real Account Onboarding Acceptance](docs/qa/REAL_ACCOUNT_ONBOARDING_ACCEPTANCE.md) for complete environment variables, official references, recovery instructions, test evidence, and the live-platform operations still pending your first accounts. Restart Command Center after updating the backend so the additive migration and routes load; the AI Video Pipeline does not need a restart.
+Use Node.js 22 LTS (verified host: 22.23.1), npm, and FFmpeg/FFprobe on `PATH`. SQLite is supplied by `better-sqlite3`. For a fresh checkout or deliberate maintenance window:
 
 ```powershell
-npm test                             # Each suite uses isolated data, never the owner's DB
+npm install
+npm --prefix client install
 npm run build:client
-npx tsc --noEmit
-npm run test:onboarding              # Isolated Edge browser acceptance, port 3192
-npx tsx test/e2e/run_pipeline_regression.ts # Isolated SCC 3193; read/download existing pipeline outputs
+npm start
 ```
 
-The default V1.2 service is loopback-only. Docker/LAN/public exposure instructions elsewhere in this older README do not establish a reviewed network configuration for OAuth; do not expose the service or callback without a separate authentication/TLS/proxy review.
+Alternatively run `powershell -ExecutionPolicy Bypass -File .\run_server.ps1`. Open **http://localhost:3001**. The API serves the built frontend, SSE and media; `GET /api/health` checks liveness. Its legacy version string does not identify the acceptance milestone.
 
----
+`npm run dev` starts the API watcher and Vite on 5180. Use the stable server for scheduled operations. **Do not restart, stop or switch the running instance to development mode while the protected publication is pending.** Start Facebook OAuth from port 3001 to match the callback origin.
 
-## 1. Overview & Architecture
+This instance is loopback-only. Existing Docker files are packaging scaffolding, not a reviewed LAN/public deployment. Public callbacks, tunnels, proxies and TLS require a separate authentication/access-control review.
 
-The **Social Command Center** is purpose-built for AI video producers managing multiple branded channels. It links directly with your upstream AI video production pipeline (Flow, Gemini, FFmpeg) to ingest finished MP4s, apply account-specific moving watermarks and digital signatures, schedule multi-destination publishing, triage incoming viewer comments, and evaluate genre performance.
+## Register first, connect separately
 
-### Key Capabilities
+In **Accounts & Categories > Add Social Account**, enter the public identity and display name, then save. Registration needs no credentials. Preserve the actual TikTok **Personal** or Business type; do not convert Personal to bypass an API limitation. Categories, avatars, preferences and brand kits are independent of authorization.
 
-- **Multi-Account & Category Workspaces**: Register a dynamic number of accounts without credentials organized into content production themes (*Object to Life*, *Screen to Life*, *Cinematic AI / Commercials*).
-- **Flexible Connector Architecture**:
-  1. **High-Fidelity Simulator**: Full offline testing of 6 accounts with realistic publishing, comment threads, and latency.
-  2. **Official Meta Pages API**: Separate authorization, Page selection, encrypted tokens and scope-gated adapter operations; live acceptance pending.
-  3. **Official TikTok Web Login**: Separate profile authorization and token renewal; Direct Post, Accounts API, engagement and analytics remain pending.
-  4. **Browser Bridge (Playwright/Chromium)**: Authorized browser-assisted publishing fallback when official API permissions are restricted.
-- **Branding Studio**:
-  - Pre-renders dynamic moving watermarks using FFmpeg trigonometric expressions (`smooth_sine`, `corner_jump`, `diagonal_bounce`, `static_corner`).
-  - Adheres strictly to **TikTok 9:16 safe areas** (top $\ge 120\text{px}$, bottom $\ge 280\text{px}$, right $\ge 120\text{px}$) and Facebook 16:9 landscape.
-  - Interactive live HTML5 canvas simulator + one-click test render with backend FFmpeg.
-  - Deterministic SHA256 caching preserving master MP4s without redundant re-encoding.
-- **Durable Multi-Destination Publishing Queue**:
-  - Independent per-account publishing records, error states, and retries.
-  - If 5 destinations succeed and 1 fails, **Retry Failed** re-queues *only* the failed account without duplicating successful posts.
-  - Automatic restart recovery: interrupted publishing jobs reset to `preparing` with an explicit review/retry hold on server reboot.
-- **Unified Engagement Inbox**: Cross-network comment stream with threaded replies, reaction toggles, and 1-click **Native Platform Handoff** for platforms restricting third-party comment replies.
-- **Comparative Analytics**: Discovers which AI video genre performs best (views, likes, comments, shares, engagement rate, retention), with honest labeling of simulated vs verified platform data.
-- **Timezone Native**: Configured for `Asia/Bangkok` (UTC+7).
+Archive is reversible and retains history/media. Identity aliases stay reserved, including while archived. Demo records are explicitly marked and hidden by default. Simulator dispatch requires persisted `is_demo`; real accounts never fall back to simulated success.
 
----
+## Facebook OAuth setup
 
-## 2. Prerequisites
+Keep credentials in the server environment or ignored `.env`, never the client, Git, screenshots or QA reports.
 
-- **Operating System**: Windows 10/11 or Linux.
-- **Node.js**: v20+ or v22 LTS (Windows host or Docker).
-- **FFmpeg**: Version 6.x, 7.x, or 8.x in system `PATH` (used for moving watermark rendering and thumbnail generation).
-- **Docker & Docker Compose** (Optional, for containerized self-hosting).
+| Variable | Purpose/value |
+| --- | --- |
+| `META_APP_ID` | Owner's Meta developer app ID |
+| `META_APP_SECRET` | Private app secret |
+| `META_GRAPH_VERSION` | Explicit app-supported version; **`v26.0` was used for live acceptance**, not a claim about the latest version |
+| `META_REDIRECT_URI` | **`http://localhost:3001/api/connections/callback/facebook`** |
+| `SCC_TOKEN_ENCRYPTION_KEY` | Server-owned base64 encoding of 32 random bytes; retain the existing private key for saved credentials |
+| `PORT` | `3001` for the accepted callback |
+| `SCC_DATA_DIR` | Optional separate data directory; leave unchanged on the owner instance |
+| `SCC_SEED_DEMOS=false` | Disable initial demo seeding on a fresh instance |
 
----
+The Meta app's Facebook Login OAuth redirect configuration must match `META_REDIRECT_URI` exactly: HTTP, `localhost`, port 3001, full path, **no trailing slash**. `127.0.0.1` is a different cookie hostname. The start route validates the callback origin; the callback validates its exact URL. The resolved live failure was an application expiry-handling bug, not a confirmed Meta dashboard misconfiguration.
 
-## 3. Quick Start (Local Windows PC)
+Configure the Meta products, app roles and permission access for the intended account. The app checks actual grants; it does not provision approvals.
 
-### A. Clone and Install
+| Permission | Application use |
+| --- | --- |
+| `pages_show_list` | Page discovery/profile capability |
+| `pages_read_engagement` | Publishing capability prerequisite and engagement reads |
+| `pages_read_user_content` | Comment reads with engagement permission |
+| **`pages_manage_posts`** | **Direct Page Reels publishing** |
+| `pages_manage_engagement` | Optional moderation/replies with engagement permission |
+
+The UI currently selects publishing and moderation requests by default; deselect unneeded operations. The service always requests the three read/discovery scopes and adds selected operation scopes, using `auth_type=rerequest`. It checks `/me/permissions` and filters effective grants by Page tasks when provided. Requested publishing/moderation scopes that were not granted produce a specific failure. Requesting a permission does not grant it.
+
+### Connect/reconnect the existing Page
+
+1. Open the existing account's **Connect API** or **Reconnect** at `http://localhost:3001`.
+2. Complete official Meta consent in the same browser.
+3. Select the correct Page, review its returned grants, and explicitly **Link Authorized Identity**.
+4. Check account capabilities and **Check Health** before API publishing.
+
+The original public/registered identity **`61563944843401`** and verified Graph Page ID **`409347032254077`** belong to the same existing internal account. Preserve the original alias; use the verified Graph ID for API requests. Names alone do not establish identity. Initial reconciliation requires a trusted same-account alias or Meta resolution; previously verified IDs remain strict, and another account's identity claim is rejected. Do not hardcode these owner IDs into general logic or create a duplicate account.
+
+OAuth uses hashed random state, an HttpOnly/SameSite=Lax cookie, account/revision binding, ten-minute expiry and single-exchange compare-and-set protection. The pending redirect/scopes and candidate payload are encrypted. Disconnect/archive/configuration changes invalidate in-flight completion.
+
+Tokens use AES-256-GCM. Privately back up the existing encryption key; changing/losing it prevents decryption. Failed reauthorization preserves credential bytes. The prior callback rejected valid token responses without `expires_in`. The fix verifies missing expiry using `/debug_token`, including validity/app ownership. Explicit `expires_at=0` gets a conservative **24-hour local revalidation window**, bounded by data-access expiry; invalid/unknown metadata fails closed. Long-lived exchange is attempted, not a guarantee of 60-day/permanent tokens.
+
+Safe `[OAuth]` diagnostics report stage, reference, HTTP status and numeric provider codes. Never log raw state, authorization codes, cookies, tokens, secrets or arbitrary provider exception text. Use fresh consent after expiry/error; do not replay a consumed callback.
+
+## Direct Reels versus manual handoff
+
+Review the selected master/variant, destination and caption before deliberate publication. The official Facebook connector:
+
+1. Starts `POST /{page-id}/video_reels` with `upload_phase=start`.
+2. Saves the remote video ID on the destination **before** uploading the binary to HTTPS `rupload.facebook.com`.
+3. Finishes through `video_reels` with `upload_phase=finish`, `video_state=PUBLISHED`.
+4. Polls `/{video-id}?fields=status,permalink_url`; requires `video_status=ready`, publishing phase `complete`, and an accepted Facebook permalink.
+
+Only confirmed completion makes the worker set **Published**, progress 100, `confirmation_source=api`, and update the parent. An upload ID or FINISH `success:true` alone is insufficient. No manual confirmation is required for a verified API result.
+
+There is **no automatic standard-video fallback** after a Reels error. Real failures are not automatically resubmitted. Saved remote IDs block blind explicit retry until reconciliation. Published/manual-confirmed jobs and restart review holds are excluded; succeeded sibling destinations are never retried. This protects destination replay; separately created posts still require a content/history duplicate check.
+
+Disconnected/unsupported real destinations prepare MP4/caption packages under **Awaiting Manual Confirmation**. Open the exact native account, publish manually, then record the URL with explicit account confirmation. Opening a site/preparing a file never proves publication. Manual receipts keep `confirmation_source=manual`, separate from API verification.
+
+## Scheduling and recovery
+
+Choose **Schedule for Later**, enter a future time labeled **Asia/Bangkok**, then **Schedule Post**. The frontend treats the value as UTC+07:00 and sends UTC ISO. The schedule API (`POST /api/publishing/posts`, `scheduledAt`) requires an explicit `Z`/numeric offset and rejects blank, invalid, past and timezone-free values.
+
+Scheduling belongs to the **local persistent queue**, not Meta. Destinations stay `scheduled`. Every two seconds the worker compares dates with SQLite `julianday`, releases due jobs, then publishes immediately without sending the elapsed schedule time back to Meta. The queue shows Bangkok time and allows cancellation before dispatch. Keep the PC awake and server running; no cloud timer exists. An offline service cannot publish on time.
+
+Future schedules persist across restart, but the protected instance must remain running. Interrupted preparing/branding/uploading jobs return with a review hold. Reconcile saved remote uploads before explicit retry. Expired/revoked authorization at dispatch can prevent direct API publication; manual preparation or an unknown outcome must never become a fabricated success.
+
+The real one-hour job was saved through the scheduling API after a browser date-entry attempt created no job. The saved data and queue display were verified. **Browser form submission and the scheduled Reel's public outcome are not claimed as live PASS.**
+
+## Media, analytics and TikTok limits
+
+Master MP4s are immutable. FFmpeg outputs go to `.data/renders` with separate `branded_videos` metadata and SHA256 checks. The Tesla derivative preserves the full scene over a blurred 9:16 background, 10 seconds/300 frames and identical AAC payload. No AI generation credits were used; generated files and runtime records are untracked.
+
+Pipeline import reads/downloads completed outputs via configured `PIPELINE_API_URL`/Settings (default API 8080), watched directory, webhook or manual upload. Importing/branding is separate from generating a video.
+
+SyncService checks active real accounts after boot and every 15 minutes, supports on-demand sync, appends snapshots and broadcasts `analytics:synced`. Sources/statuses distinguish API, browser and manual observations. Valid zero differs from missing data. Review per-account/provider results; aggregate sync success is not proof of every metric or operation.
+
+TikTok Login Kit identity/renewal and Display API parsing have fixture coverage. Real official authorization remains pending approved app configuration and accepted HTTPS (`TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REDIRECT_URI`). The built-in HTTP server does not establish HTTPS. Direct Post is disabled by the registry pending product access, creator/privacy UX, submission/status reconciliation and live acceptance. Display API does not provide comment moderation/replies; separate API access is required. Preserve the existing Personal Account, manual publications and history. Do not begin the next TikTok milestone without owner instruction.
+
+## Verification and private storage
 
 ```powershell
-git clone https://github.com/Mamduh5/social-account-managemnet.git
-cd social-account-managemnet
-
-# Install root dependencies
-npm install
-
-# Install client dependencies
-cd client
-npm install
-cd ..
+npm test                         # Isolated SCC_DATA_DIR per suite
+npx tsc --noEmit                  # Backend types
+npm run build:client              # Client types and production bundle
 ```
 
-### B. Build Client & Run Application
+Current suite: **66 tests in eight files**, covering reauthorization, safe diagnostics, Reels failure/polling, automatic queue completion, replay/restart protection, schedule validation and due dispatch. Fixtures are not live provider proof. Optional browser/upstream suites have separate ports/data and were not rerun for this finalization.
 
-To build the client bundle and start the full server on port `3001`:
+Keep `.env*`, keys, `.data/` databases/WAL files/backups, tokens, profiles, MP4s, thumbnails, logs, test artifacts, dependencies and `client/dist/` out of Git. Use SQLite's backup API for a consistent live WAL snapshot; copying only the `.db` while running is unreliable. Restore only in an approved maintenance window, with the matching key and remote-outcome reconciliation.
 
-```powershell
-# 1. Build frontend client
-powershell -ExecutionPolicy Bypass -File .\build_client.ps1
-
-# 2. Start server (serves API, SSE, video streaming, and built frontend)
-powershell -ExecutionPolicy Bypass -File .\run_server.ps1
-```
-
-Open your browser to:
-```
-http://localhost:3001
-```
-
-### C. Development Mode (Hot Reloading)
-
-To run the backend with live reloading and Vite dev server concurrently:
-
-```powershell
-npm run dev
-```
-
-- Frontend: `http://localhost:5180` (automatically proxies `/api` and `/uploads` to backend)
-- Backend API: `http://localhost:3001`
-
----
-
-## 4. Docker Deployment
-
-The application includes a production-ready, multi-stage `Dockerfile` (installing Node 22, FFmpeg, and fonts) and `docker-compose.yml`.
-
-### Start Container
-```bash
-docker compose up -d --build
-```
-
-### View Logs
-```bash
-docker compose logs -f
-```
-
-### Stop Container
-```bash
-docker compose down
-```
-
-The SQLite database (`social_command_center.db`), video uploads, and rendered branded videos are persistently mounted to `./.data` on your host machine.
-
----
-
-## 5. Integration with AI Video Pipeline
-
-The Social Command Center bridges with your running upstream pipeline (`ai-video-pipeline`) using decoupled, robust integration methods:
-
-### Option 1: Live HTTP & MinIO Service Integration (Primary / Recommended)
-The Command Center connects directly to your running Go Gin pipeline server and MinIO S3 storage:
-- **Pipeline API URL:** `http://localhost:8080` (configured via `PIPELINE_API_URL` or Settings)
-- **MinIO S3 Gateway:** Streams completed MP4 artifacts from the `ai-video` bucket via `GET /scene-video-jobs/:id/artifacts/video`
-- **1-Click Import:** Open **Publishing** > **Video Library** tab. Click **Import** on any completed project to ingest it into the Command Center.
-- **Auto-Sync:** Real-time polling detects newly finished videos without server restart.
-
-### Option 2: Live Watched Directory Scanner
-The application can also monitor a local output directory for standalone or offline renders:
-```
-D:\Mamduh\Personal\ai-video-pipeline\.tmp-live-validation
-```
-- Open **Publishing Center** > **Video Library** tab.
-- Click **Import** on any discovered video to ingest it into the Command Center.
-- You can change the watched path at any time in **Settings & Bridge**.
-
-### Option 3: REST / Webhook Ingestion Endpoint
-Upstream pipeline jobs can notify the Command Center automatically on completion:
-```bash
-curl -X POST http://localhost:3001/api/pipeline/webhook \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jobId": "scene-job-123",
-    "title": "Morning Espresso Wakes Up",
-    "finalVideoPath": "D:\\Mamduh\\Personal\\ai-video-pipeline\\.tmp-live-validation\\r82-final.mp4"
-  }'
-```
-
-### Option 4: Manual Direct Upload
-Drag and drop any MP4 video directly from your desktop into the **Publishing Center**.
-
----
-
-## 5.1 Critical Master Video Immutability & Brand Variant Tracking
-
-- **Strict Invariance:** Original master videos in `.data/uploads/` are immutable source artifacts.
-- **Pre/Post-Render SHA256 Assertions:** Before any FFmpeg watermark rendering occurs, the master video's SHA256 is recorded. The output is strictly written to a separate file in `.data/renders/`. Upon completion, the master video's SHA256 is re-verified to ensure zero byte alteration.
-- **Independent Variant Storage:** Each branded version is tracked in the `branded_videos` database table with its own aspect ratio, movement preset, watermark text, and SHA256.
-- **Safe Variant Deletion:** Deleting a branded version only removes the rendered file in `.data/renders/`; the master video is protected and remains untouched.
-
----
-
-## 6. Social Media Accounts & Connections
-
-Registration and connection are separate. Add a public account without credentials, then use its **Connect API** or **Set Up Browser Handoff** action when ready. Connection status and supported operations are resolved independently for each account.
-
-| Path | Current behavior |
-| :--- | :--- |
-| Registered / Not Connected | Local branding and MP4 preparation available; no automatic API dispatch |
-| Demo simulator | Explicitly labeled demo records/targets; simulated outcomes never presented as real account results |
-| Meta Pages API | Official OAuth, manageable-Page selection, identity binding and scope/task-gated adapter; live acceptance pending |
-| TikTok Web Login | Official profile authorization and token renewal; Personal/Business type preserved; live acceptance pending |
-| Browser handoff | Downloadable MP4/caption, native links, explicit account/post-URL confirmation; no automatic upload or publication claim |
-
-Manual token pasting and a generic connector-mode selector are no longer connection workflows. See [the V1.2 setup and acceptance guide](docs/qa/REAL_ACCOUNT_ONBOARDING_ACCEPTANCE.md) for developer-app variables, least-scope consent, pending TikTok Direct Post/Accounts API work and reconnect procedures.
-
----
-
-## 7. Branding Studio & Moving Watermark Engine
-
-Every account maintains an independent, persistent **Brand Kit**.
-
-### Watermark Animation Presets:
-1. **Smooth Sine Wave**:
-   Moves smoothly across screen using sinusoidal trigonometric oscillation:
-   $$x = \text{left} + (\text{width} - \text{margin}) \cdot \frac{1 + \sin(2\pi \cdot t / T)}{2}$$
-2. **Corner Interval Jump**:
-   Hops between safe quadrants every $N$ seconds (e.g. top-left $\to$ top-right $\to$ bottom-right $\to$ bottom-left).
-3. **Diagonal Bounce**:
-   Bounces continuously off safe boundaries.
-4. **Static Corner**:
-   Fixed positioning with safe-margin padding.
-
-### Safe Areas:
-- Vertical 9:16 (TikTok): Automatically enforces top margin ($\ge 120\text{px}$) and bottom margin ($\ge 280\text{px}$) to avoid obstructing TikTok sound titles, captions, and side action icons.
-- Horizontal 16:9 (Facebook): Balanced corner padding.
-
-### Testing & Verification:
-- Use the **Live Canvas Simulator** in Branding Studio to preview the motion in real time.
-- Click **Render Preview** to trigger the backend FFmpeg engine and verify the rendered MP4.
-
----
-
-## 8. Running Automated Tests
-
-The application includes an automated test suite covering registry, OAuth, queue, media and existing domain requirements using isolated per-suite storage:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\run_tests.ps1
-```
-
-### Verified Test Cases:
-1. Account and category relational mapping integrity.
-2. Connector capability discovery and honest reporting.
-3. Multi-destination publishing: independent statuses and partial failure handling.
-4. Retry failed destination without duplicating successful posts.
-5. Duplicate upload prevention on published records.
-6. Watermark filter generator adherence to safe areas and presets.
-7. Real FFmpeg moving watermark rendering and SHA256 cache verification.
-8. Engagement inbox comments reply and reaction workflows.
-9. Crash recovery: interrupted jobs safely reset to `preparing` on reboot.
-10. Session expiration detection preventing unauthorized publishing.
-
----
-
-## 9. Data Persistence & Backup Runbook
-
-All state is stored locally inside the `.data/` directory:
-
-- **Database**: `.data/social_command_center.db` (SQLite in WAL mode)
-- **Master Uploads**: `.data/uploads/`
-- **Branded Video Renders**: `.data/renders/`
-- **Browser Profiles**: `.data/browser-profiles/`
-
-### Creating a Snapshot Backup:
-```powershell
-Copy-Item -Path .data\social_command_center.db -Destination .data\backup_$(Get-Date -Format 'yyyyMMdd_HHmmss').db
-```
-
-### Restoring from Backup:
-1. Stop the application or Docker container.
-2. Replace `.data/social_command_center.db` with your backup copy.
-3. Restart the application. Interrupted destinations return with a review hold; reconcile native publication before explicit retry. Restore the matching private encryption key separately when restoring OAuth credentials.
-
----
-
-## 10. Diagnostics & Troubleshooting
-
-| Symptom | Cause | Solution |
-| :--- | :--- | :--- |
-| `Fontconfig error` in FFmpeg | Missing Windows font escape | Built-in FFmpeg service escapes drive letter syntax (e.g. `C\:/Windows/Fonts/arial.ttf`) automatically. |
-| `Token Expired` badge on Account | Remote OAuth token reached expiry | Use **Reconnect** for official consent, or **Renew API Token** for an eligible TikTok connection. |
-| TikTok comment reply disabled | Platform policy restriction | Standard TikTok Content Posting API restricts comments. Use the **Native Platform Handoff** button to open the exact thread on TikTok. |
-| Destination failed during publishing | Network failure or session disconnect | Reconcile any uncertain native publication first, then explicitly retry only that destination; successful siblings remain protected. |
-
----
-
-## 11. Project Structure & Architecture
-
-```
-social-account-managemnet/
-├── AGENTS.md                        # Quickstart operating guide for developers & AI agents
-├── docs/
-│   ├── PROJECT_MAP.md               # Architectural reference & task-to-file guide
-│   ├── UI_REDESIGN_HANDOFF.md       # Dedicated guide for the UI/UX redesign agent
-│   └── qa/
-│       ├── REFACTOR_REPORT.md       # Architecture refactor & QA test report
-│       └── screenshots/             # 25+ visual regression & acceptance screenshots
-├── server/
-│   ├── src/
-│   │   ├── domain/                  # Pure domain rules (publishing states, safe area math)
-│   │   ├── repositories/            # Data access layer (SQLite queries via better-sqlite3)
-│   │   ├── services/                # Application services (FFmpeg, Durable Queue, Pipeline)
-│   │   │   └── connectors/          # Meta Graph, TikTok, Simulator, and Browser Bridge
-│   │   ├── routes/                  # Express REST API endpoints (decoupled from raw SQL)
-│   │   └── index.ts                 # Server entrypoint with Range MP4 streaming & SSE
-├── client/                          # React + Vite + Tailwind CSS Frontend
-│   ├── src/
-│   │   ├── api/                     # Typed API client
-│   │   ├── components/              # Modular UI components (common/, accounts/, publishing/, etc.)
-│   │   ├── hooks/                   # Custom stateful hooks (useAccounts, usePublishing, useInbox)
-│   │   ├── theme/                   # Centralized design tokens (surfaces, platforms, safe areas)
-│   │   ├── types/                   # Full TypeScript interface definitions
-│   │   ├── views/                   # Composed views (Dashboard, Accounts, Publishing, Branding, etc.)
-│   │   └── App.tsx                  # App shell and active view router
-├── test/                            # Unit, integration, and Playwright E2E test suites
-├── Dockerfile                       # Multi-stage production container
-├── docker-compose.yml               # Self-hosted Docker stack
-└── README.md                        # Product documentation
-```
-
----
-
-## 12. Developer & Agent Guides
-
-For detailed architectural maps, task navigation, and redesign instructions, consult:
-- **Developer & Agent Guide**: [`AGENTS.md`](AGENTS.md)
-- **Architecture & Task-to-File Reference**: [`docs/PROJECT_MAP.md`](docs/PROJECT_MAP.md)
-- **UI/UX Cozy Redesign Handoff**: [`docs/UI_REDESIGN_HANDOFF.md`](docs/UI_REDESIGN_HANDOFF.md)
-- **Refactoring & QA Test Report**: [`docs/qa/REFACTOR_REPORT.md`](docs/qa/REFACTOR_REPORT.md)
-
+See [AGENTS.md](AGENTS.md), [Project Map](docs/PROJECT_MAP.md), [current API acceptance](docs/qa/OFFICIAL_API_AUTHORIZATION_ACCEPTANCE.md) and the dated [onboarding](docs/qa/REAL_ACCOUNT_ONBOARDING_ACCEPTANCE.md) / [engagement](docs/qa/REAL_ENGAGEMENT_ANALYTICS_ACCEPTANCE.md) reports.

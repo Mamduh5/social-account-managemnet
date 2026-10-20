@@ -64,6 +64,7 @@ before(async () => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
   });
   base = `http://127.0.0.1:${server.address().port}`;
+  process.env.META_REDIRECT_URI = `${base}/api/connections/callback/facebook`;
   process.env.TIKTOK_REDIRECT_URI = `https://127.0.0.1:${server.address().port}/api/connections/callback/tiktok`;
   globalThis.fetch = (async (url: any, options: any = {}) => {
     if (String(url).startsWith(base)) return realFetch(url, options);

@@ -32,6 +32,8 @@ export interface PublishDestinationPayload {
   hashtags: string;
   applyBranding: boolean;
   scheduledAt?: string;
+  /** Persist the single remote upload before subsequent network operations. */
+  onRemoteCreated?: (remoteId: string) => void;
 }
 
 export interface PublishResult {

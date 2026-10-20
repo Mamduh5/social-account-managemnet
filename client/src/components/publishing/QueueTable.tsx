@@ -73,11 +73,29 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                           </span>
                         </div>
                         <p className="text-xs text-slate-400 font-medium mt-0.5 truncate">{item.post_title}</p>
+                        {item.status === 'scheduled' && item.scheduled_at && (
+                          <p className="text-xs text-slate-300 mt-1">Scheduled for {new Date(item.scheduled_at).toLocaleString('en-GB', { timeZone: 'Asia/Bangkok', hour12: false })} (Asia/Bangkok)</p>
+                        )}
                       </div>
                     </div>
 
                     {/* Status badge & Actions */}
-                    <div className="flex items-center gap-2.5 self-start sm:self-auto shrink-0">
+                    <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 flex-wrap">
+                      {item.is_demo ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-surface border border-border text-slate-400">
+                          Simulator
+                        </span>
+                      ) : item.confirmation_source === 'api' || (!item.confirmation_source && item.verification_status === 'confirmed') ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> API Dispatch
+                        </span>
+                      ) : item.status === 'scheduled' ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-surface border border-border text-slate-400">Pending Dispatch</span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/25">
+                          Manual Handoff
+                        </span>
+                      )}
                       <span className={`px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider border ${
                         isPublished ? 'bg-sage-500/15 text-sage-400 border-sage-500/30' :
                         isFailed ? 'bg-rose-500/15 text-rose-400 border-rose-500/30' :
@@ -98,7 +116,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                         </button>
                       )}
 
-                      {isProcessing && (
+                      {(isProcessing || item.status === 'scheduled') && (
                         <button
                           onClick={() => onCancel(item.id)}
                           className="px-2.5 py-1 bg-surface hover:bg-surface-hover text-slate-400 hover:text-slate-200 border border-border rounded-xl text-xs font-medium cursor-pointer"

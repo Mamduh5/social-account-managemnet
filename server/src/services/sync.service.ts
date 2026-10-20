@@ -3,7 +3,7 @@ import { accountsRepo } from '../repositories/accounts.repo.js';
 import { analyticsRepo } from '../repositories/analytics.repo.js';
 import { inboxRepo } from '../repositories/inbox.repo.js';
 import { activityRepo } from '../repositories/activity.repo.js';
-import { getConnector } from '../connectors/registry.js';
+import { getConnector, hasActiveApiAuthorization } from '../connectors/registry.js';
 import { eventsService } from './events.service.js';
 import { ProvenanceSource, ProvenanceStatus } from '../domain/types.js';
 
@@ -107,6 +107,7 @@ export class SyncService {
 
     let metricsSynced = 0;
     let commentsSynced = 0;
+    let accountMetricsSynced = 0;
     let syncError: string | undefined;
 
     // 1. Sync Account-Level Metrics
@@ -129,6 +130,10 @@ export class SyncService {
             provenance_status: 'confirmed',
             is_simulated: 0,
           });
+          accountMetricsSynced++;
+          if (typeof accMetrics.followersTotal === 'number') {
+            db.prepare("UPDATE accounts SET followers_count=?, updated_at=datetime('now') WHERE id=?").run(accMetrics.followersTotal, account.id);
+          }
         }
       }
     } catch (err: any) {
@@ -212,6 +217,9 @@ export class SyncService {
               content: cmt.content,
               created_time: cmt.createdTime,
               like_count: cmt.likeCount,
+              status: 'unread',
+              awaiting_reply: 1,
+              has_replied: 0,
               video_title: dest.post_title || dest.video_title,
               native_url: cmt.nativeUrl,
               source: account.platform === 'facebook' ? 'meta_graph_api' : 'tiktok_accounts_api',
@@ -234,13 +242,14 @@ export class SyncService {
       }
     }
 
-    const hasSyncedData = (metricsSynced + commentsSynced) > 0;
+    const isAuthorized = hasActiveApiAuthorization(account);
+    const hasSyncedData = (metricsSynced + commentsSynced + accountMetricsSynced) > 0;
     const finalStatus = syncError
       ? 'auth_required'
-      : (hasSyncedData ? 'success' : 'auth_required');
-    const finalMessage = syncError || (hasSyncedData ? undefined : 'Official API authorization required for automated synchronization. Connect live credentials in Accounts or record verified observations.');
+      : (isAuthorized || hasSyncedData ? 'success' : 'auth_required');
+    const finalMessage = syncError || (isAuthorized || hasSyncedData ? undefined : 'Official API authorization required for automated synchronization. Connect live credentials in Accounts or record verified observations.');
 
-    analyticsRepo.updateSyncState(accountId, 'all', finalStatus, finalMessage, metricsSynced + commentsSynced);
+    analyticsRepo.updateSyncState(accountId, 'all', finalStatus, finalMessage, metricsSynced + commentsSynced + accountMetricsSynced);
 
     // Broadcast SSE update
     eventsService.broadcast('analytics:synced', {
@@ -248,12 +257,13 @@ export class SyncService {
       accountName: account.name,
       metricsSynced,
       commentsSynced,
+      accountMetricsSynced,
       status: finalStatus,
       timestamp: new Date().toISOString(),
     });
 
     return {
-      success: hasSyncedData && !syncError,
+      success: (isAuthorized || hasSyncedData) && !syncError,
       metricsSynced,
       commentsSynced,
       status: finalStatus,

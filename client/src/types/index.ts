@@ -147,6 +147,7 @@ export interface PublishingDestination {
   id: string;
   post_id: string;
   post_title?: string;
+  scheduled_at?: string | null;
   account_id: string;
   is_demo?: number;
   account_name: string;
@@ -169,6 +170,7 @@ export interface PublishingDestination {
   remote_post_url?: string;
   published_at?: string;
   verification_status: 'unverified' | 'confirmed' | 'failed';
+  confirmation_source?: string;
   updated_at: string;
 }
 

@@ -92,20 +92,22 @@ export const accountConnectionsRepo = {
         "UPDATE accounts SET connection_status='authorization_required',connection_revision=connection_revision+1 WHERE id=?"
       ).run(session.accountId);
       db.prepare(
-        'INSERT INTO oauth_sessions(state_hash,browser_hash,account_id,revision,expires_at) VALUES (?,?,?,?,?)'
+        'INSERT INTO oauth_sessions(state_hash,browser_hash,account_id,revision,expires_at,payload) VALUES (?,?,?,?,?,?)'
       ).run(
         session.stateHash,
         session.browserHash,
         session.accountId,
         session.revision,
-        session.expiresAt
+        session.expiresAt,
+        session.payload
       );
     });
   },
   exchanging(stateHash: string) {
-    db.prepare(
-      "UPDATE oauth_sessions SET phase='exchanging' WHERE state_hash=?"
+    const result = db.prepare(
+      "UPDATE oauth_sessions SET phase='exchanging' WHERE state_hash=? AND phase='started'"
     ).run(stateHash);
+    if (result.changes !== 1) throw new Error('Authorization already in progress');
   },
   saveCandidates(stateHash: string, payload: string) {
     db.prepare(

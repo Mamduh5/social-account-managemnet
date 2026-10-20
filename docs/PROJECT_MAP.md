@@ -146,20 +146,21 @@ sequenceDiagram
 
 ---
 
-## 4. V1.2 capabilities and verification boundaries
+## 4. V1.6 capabilities and verification boundaries (20 October 2026)
 
 | Workflow | Current behavior | Evidence |
 | :--- | :--- | :--- |
 | Real account registry | Credential-free Facebook Pages and TikTok Personal/Business registration, edit, categories, avatar URL/upload, notes, preferences, archive/restore | Automated and browser acceptance |
 | Simulator | Six preserved demo records; hidden by default; explicit demo publishing toggle | Local simulator only |
-| Meta OAuth | Consent, scoped Page discovery, task filtering, explicit selection onto existing internal ID, encrypted Page token | Mocked official responses; live authorization PENDING |
-| Meta video adapter | Available only with verified identity, valid encrypted token and actual publishing scopes; submission stays unconfirmed until reviewed | Live submission PENDING |
+| Meta OAuth | Consent, actual granted scopes, Page discovery/tasks, explicit selection onto the existing internal ID, encrypted Page token, strict alias/canonical ID reconciliation | LIVE PASS on the owner's Page, including reauthorization |
+| Meta Reels adapter | Start, persist remote ID, rupload binary, finish, then verify ready/complete status and permalink; worker completes automatically with API provenance | LIVE PASS: Reel `2657809668013982`; no manual confirmation |
+| Local scheduled publishing | Bangkok wall-clock -> UTC ISO, future validation, SQLite date comparison, two-second due dispatch; no second Meta schedule | Automated lifecycle PASS; actual schedule saved/held; public scheduled publication PENDING owner verification |
 | TikTok Web Login | Profile identity/scope binding and refresh-token rotation; account type unchanged | Mocked official responses; real app/HTTPS authorization PENDING |
 | TikTok Direct Post / Accounts API | Disabled/pending additional product access and implementation; no claim of comments or analytics access | PENDING |
-| Native browser handoff | Original/branded MP4, per-account caption, native links, manual URL confirmation; no scraping or stealth automation | Isolated browser acceptance |
-| Inbox / analytics | Demo data excluded by default; no invented real-account data; background ingestion remains pending | Fixture exclusion verified |
+| Native browser handoff | Original/branded MP4, caption, native links, exact-account manual URL confirmation; distinct from API verification | Earlier live manual Facebook/TikTok acceptance and isolated workflow tests |
+| Inbox / analytics | Scope-gated provider reads, 15-minute background sync, SSE, append-only observations, no fabricated real metrics | Fixtures and historical browser/manual baselines; do not infer universal live API coverage |
 
-`GET /api/connectors/capabilities` describes the default unavailable state and points to per-account capabilities on `GET /api/accounts`. The registry gates execution with the same account grants used for display. A browser profile directory never proves authorization. Older reports describing live operations as verified are superseded by this table.
+`GET /api/connectors/capabilities` describes the default unavailable state and points to per-account capabilities on `GET /api/accounts`. The registry gates execution with the same account grants used for display. A browser profile directory never proves API authorization. See `qa/OFFICIAL_API_AUTHORIZATION_ACCEPTANCE.md` for dated evidence and the protected job. A saved schedule or fixture PASS is not public publication proof.
 
 ---
 
@@ -175,7 +176,7 @@ When working on a specific task, use this reference table to find the primary fi
 | **Modify Publishing Queue Table or Retry Actions** | [`client/src/components/publishing/QueueTable.tsx`](file:///d:/Mamduh/Personal/social-account-managemnet/client/src/components/publishing/QueueTable.tsx)<br>[`client/src/hooks/usePublishing.ts`](file:///d:/Mamduh/Personal/social-account-managemnet/client/src/hooks/usePublishing.ts) | `PublishingDestination`, `DestinationStatus` | `test/social_command_center.test.ts` (Tests 3, 4, 5) |
 | **Change Watermark Preview Canvas or Controls** | [`client/src/components/branding/WatermarkCanvas.tsx`](file:///d:/Mamduh/Personal/social-account-managemnet/client/src/components/branding/WatermarkCanvas.tsx)<br>[`client/src/components/branding/WatermarkControls.tsx`](file:///d:/Mamduh/Personal/social-account-managemnet/client/src/components/branding/WatermarkControls.tsx) | `BrandingPreset`, `calculateWatermarkPosition` in [`server/src/domain/branding.ts`](file:///d:/Mamduh/Personal/social-account-managemnet/server/src/domain/branding.ts) | `test/domain_and_repositories.test.ts` (Tests 4, 5) |
 | **Change Inbox Presentation or Reply Dialogs** | [`client/src/views/InboxView.tsx`](file:///d:/Mamduh/Personal/social-account-managemnet/client/src/views/InboxView.tsx)<br>[`client/src/components/inbox/CommentItem.tsx`](file:///d:/Mamduh/Personal/social-account-managemnet/client/src/components/inbox/CommentItem.tsx) | `InboxComment` in [`client/src/types/index.ts`](file:///d:/Mamduh/Personal/social-account-managemnet/client/src/types/index.ts) | `test/e2e/autonomous_acceptance.ts` (Phase 3 Workflow D) |
-| **Add a Connector Capability** | [`server/src/connectors/`](file:///d:/Mamduh/Personal/social-account-managemnet/server/src/connectors/)<br>[`server/src/connectors/social-connector.interface.ts`](file:///d:/Mamduh/Personal/social-account-managemnet/server/src/connectors/social-connector.interface.ts) | `ConnectorCapabilities` interface | `test/social_command_center.test.ts` (Test 2) |
+| **Add a Connector Capability** | `server/src/connectors/registry.ts`, `server/src/connectors/types.ts`, platform adapter | `ConnectorCapabilities` and confirmed `PublishResult` | `test/meta_reels_publishing.test.ts`, `test/official_api_authorization.test.ts` |
 | **Modify Queue Dispatch or Recovery Logic** | [`server/src/services/queue.service.ts`](file:///d:/Mamduh/Personal/social-account-managemnet/server/src/services/queue.service.ts)<br>[`server/src/domain/publishing.ts`](file:///d:/Mamduh/Personal/social-account-managemnet/server/src/domain/publishing.ts) | `PublishingRepo` in [`server/src/repositories/publishing.repo.ts`](file:///d:/Mamduh/Personal/social-account-managemnet/server/src/repositories/publishing.repo.ts) | `test/social_command_center.test.ts` (Test 9), `test/domain_and_repositories.test.ts` |
 | **Change Ingestion Folder Configuration** | [`server/src/services/pipeline.service.ts`](file:///d:/Mamduh/Personal/social-account-managemnet/server/src/services/pipeline.service.ts) | `INGESTION_DIR` in `.env` / configuration | `test/e2e/autonomous_acceptance.ts` (Phase 1 Screen 8) |
 | **Update Theme Colors, Surfaces, or Borders** | [`client/src/theme/tokens.ts`](file:///d:/Mamduh/Personal/social-account-managemnet/client/src/theme/tokens.ts)<br>[`client/src/index.css`](file:///d:/Mamduh/Personal/social-account-managemnet/client/src/index.css) | `tokens` object (Surfaces, Text, Status, Safe Areas) | `npm run build:client` |
@@ -196,3 +197,61 @@ When working on a specific task, use this reference table to find the primary fi
 | Automated / browser / upstream regression evidence | `test/real_accounts.test.ts`; `test/e2e/real_account_onboarding.ts`; `test/e2e/run_pipeline_regression.ts`; `docs/qa/REAL_ACCOUNT_ONBOARDING_ACCEPTANCE.md` |
 
 The registry is independent of the video library and render cache. Migrations add columns/tables without rebuilding account or publication tables. Identity aliases reserve prior handles to prevent accidental duplicate registration after renaming. Existing ambiguous historical records are preserved, never automatically merged. Archive is reversible and does not release identity claims.
+
+## 7. OAuth, Reels and scheduling implementation
+
+### Authorization and credentials
+
+`connections.routes.ts` owns setup/start/callback/select/refresh/disconnect endpoints under `/api/connections`. The accepted Facebook callback is `http://localhost:3001/api/connections/callback/facebook`, with exact origin/path checks and no trailing slash. Secrets stay server-side in environment/ignored `.env`; `token-protection.ts` uses AES-256-GCM with a base64 32-byte `SCC_TOKEN_ENCRYPTION_KEY`.
+
+`connections.service.ts` creates hashed state/browser bindings, account revision and a ten-minute expiry. The initial pending payload seals the requested scopes and redirect; `account-connections.repo.ts` atomically changes `started` to `exchanging`, then stores sealed candidates under `selecting`. Explicit identity selection saves encrypted tokens on the same account and consumes the session. Concurrent account edits/disconnect/archive invalidate completion. A bad state/replayed callback must not consume a valid selection.
+
+Default Facebook discovery/read scopes are `pages_show_list`, `pages_read_engagement`, `pages_read_user_content`; selected publishing/moderation add `pages_manage_posts` / `pages_manage_engagement`. Actual permissions come from `/me/permissions`, with task filtering when Meta provides Page tasks. Operation requests that were declined fail explicitly. The live missing-`expires_in` case is verified through `/debug_token`, not interpreted as automatic rejection or unlimited validity. Explicit zero expiry uses a bounded 24-hour local window, limited by data-access expiry. `oauth-diagnostics.ts` emits allowlisted stages/references/numeric codes, never codes, state, cookies or token bodies.
+
+The owner Page's original registered/public ID `61563944843401` and Graph Page ID `409347032254077` are aliases of one persisted internal account. Reauthorization accepts its own identity claim; another account's claim fails. Initial canonical resolution needs a trusted alias or a Meta response, never display-name similarity. These IDs are acceptance data, not constants in the generic connector.
+
+### Verified API publication
+
+```mermaid
+sequenceDiagram
+    participant W as Queue worker
+    participant C as MetaFacebookConnector
+    participant M as Meta Graph / rupload
+    participant R as Publishing repository
+    W->>C: Selected master/variant and caption
+    C->>M: video_reels start
+    M-->>C: video_id and upload_url
+    C->>R: onRemoteCreated persists unverified ID
+    C->>M: HTTPS rupload binary
+    C->>M: video_reels finish (PUBLISHED)
+    loop Bounded read-only status polling
+        C->>M: video status and permalink
+        M-->>C: Processing / publishing phases
+    end
+    C-->>W: Confirmed ready + publishing complete + permalink
+    W->>R: Published, 100%, confirmation_source=api
+```
+
+`meta-facebook.ts` rejects unsuccessful HTTP/phase responses and unexpected upload/permalink hosts. It never falls back to a second standard-video upload after a Reels error. The remote ID is durable before subsequent network calls; failed/uncertain real submissions are not automatically retried. `publishing.service.ts` blocks blind explicit retry when a remote upload exists. A ready/complete result updates destination and parent automatically; a manual bridge result remains `awaiting_confirmation` until an explicit exact-account URL receipt.
+
+### Local scheduler and UI
+
+| Layer | Responsibility |
+| --- | --- |
+| `client/src/hooks/usePublishing.ts` | Treat the displayed datetime-local as Bangkok UTC+07:00, validate future time, send UTC ISO and expose errors |
+| `client/src/views/PublishingView.tsx` | Capability-honest API/manual/demo targets, master/variant preview, Schedule Post form |
+| `client/src/components/publishing/QueueTable.tsx` | Pending Dispatch + Scheduled, Bangkok target time, cancellation before dispatch; separate API/manual provenance |
+| `server/src/services/publishing.service.ts` | Validate explicit timezone/future timestamp; persist one parent and independent scheduled destinations |
+| `server/src/repositories/publishing.repo.ts` | `julianday` due comparisons, future-job exclusion, durable remote IDs and confirmation source |
+| `server/src/services/queue.service.ts` | Two-second polling; due -> preparing -> API dispatch; do not forward expired `scheduledAt` to Meta; exclude terminal/restart-held/future work |
+| `server/src/domain/publishing.ts` | Retry failed/cancelled only, preserve published results; explicit restart recovery is handled separately |
+
+The scheduler needs the local process and PC awake. It does not delegate timing to a cloud service. Future schedules survive boot; interrupted active jobs retain a review hold. Real failures do not auto-replay; no content-wide deduplication is implied for a separately created post.
+
+The protected Tesla job `dest-mvg66513-ttjf` / `post-74051364-849a-4195-b132-d76c19fa10ca` targets **20 October 2026, 12:14 PM Asia/Bangkok** (`05:14 UTC`). Do not alter its caption, derivative, Page, or schedule, and do not stop/restart the server while pending. Actual public publication remains the owner's verification gate.
+
+### Regression entry points
+
+`facebook_reauthorization.test.ts` covers expiry metadata, identity/alias/duplicate handling, credential preservation and safe errors. `meta_reels_publishing.test.ts` covers phase failures, no fallback, polling and master invariance. `reels_queue_acceptance.test.ts` covers API completion, manual/restart replay exclusions, durable remote ID, uncertain retry blocking and an isolated one-hour schedule advanced to due time. Together with the other five suites, the current total is 66 tests; all use isolated data.
+
+No TikTok Direct Post capability was enabled. Preserve Personal type and existing manual history; official live authorization/publishing/synchronization remain separate next-milestone work.

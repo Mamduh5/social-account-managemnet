@@ -24,7 +24,16 @@ export interface CreatePostInput {
 
 export class PublishingService {
   createPost(input: CreatePostInput): { postId: string; destinationCount: number } {
-    const { videoId, title, scheduledAt, selectedVariantId, destinations } = input;
+    const { videoId, title, selectedVariantId, destinations } = input;
+    let scheduledAt: string | null = null;
+    if (input.scheduledAt !== undefined && input.scheduledAt !== null) {
+      if (typeof input.scheduledAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(input.scheduledAt))
+        throw new Error('Scheduled time must be an ISO date with an explicit timezone.');
+      const timestamp = Date.parse(input.scheduledAt);
+      if (!Number.isFinite(timestamp) || timestamp <= Date.now())
+        throw new Error('Scheduled time must be a valid future date.');
+      scheduledAt = new Date(timestamp).toISOString();
+    }
 
     if (!videoId || !title || !destinations || !Array.isArray(destinations) || destinations.length === 0) {
       throw new Error('Video, Title, and at least one destination account are required.');
@@ -94,6 +103,10 @@ export class PublishingService {
     if (!dest) {
       throw new Error('Destination not found');
     }
+
+    const account = accountsRepo.getAccountById(dest.account_id) as any;
+    if (!account?.is_demo && dest.remote_post_id && dest.status !== 'published')
+      throw new Error('Reconcile the existing remote upload before retrying this destination.');
 
     const interrupted = dest.status === 'preparing' && dest.error_message?.startsWith('Interrupted by server restart');
     if (!interrupted && !canRetryDestination(dest.status, dest.retry_count, dest.max_retries)) {

@@ -1,5 +1,8 @@
 # Social Command Center V1.3 — First Real Facebook & TikTok Integration Report
 
+> **2026-10-20 status note:** Historical V1.3 manual/browser acceptance. Existing publications retain confirmation_source=manual. Current Facebook Graph identity/OAuth/API evidence is documented separately; earlier API-pending statements are dated history. See [current V1.6 acceptance](OFFICIAL_API_AUTHORIZATION_ACCEPTANCE.md). Preserve the 12:14 PM Asia/Bangkok schedule and keep its server running while pending; do not follow historical restart/publication steps against the owner instance.
+
+
 **Date**: 2026-10-16 (Asia/Bangkok)  
 **Target Environment**: Local Windows host (`http://localhost:3001`), AI Video Pipeline (`http://localhost:8080`)  
 **Scope**: Authentic verification, real browser-assisted publishing, publication verification, and official API capability correction for registered test Facebook Page and TikTok account.
@@ -16,7 +19,7 @@ Using the registered post `post-44262397-7263-4036-8585-fbde52b78051` and the pr
 
 | Capability | Status | Evidence |
 | :--- | :--- | :--- |
-| **Real account identity verified** | **PASS** | Genuinely logged in as personal administrator (`c_user: 100000057509296`). In Facebook New Pages Experience (NPE), switched profile context to Page `แก้บัคยาวๆๆ` (`61563944843401`). Verified live page header, avatar, and Page management controls. |
+| **Real account identity verified** | **PASS** | Genuinely logged in as personal administrator (`administrator session identifier omitted`). In Facebook New Pages Experience (NPE), switched profile context to Page `แก้บัคยาวๆๆ` (`61563944843401`). Verified live page header, avatar, and Page management controls. |
 | **Authorization established** | **PASS (Session)** / **PENDING (OAuth)** | Active browser session authenticated. Official Graph API OAuth requires setting `META_APP_ID`, `META_APP_SECRET`, and `SCC_TOKEN_ENCRYPTION_KEY`. |
 | **API connection** | **DOCUMENTED** | Meta Graph API enables publishing for app-role users (Administrator, Developer, Tester) on managed Pages in **Development Mode** without public App Review. App Review is only required for third-party production users. |
 | **Browser-assisted workflow** | **PASS** | Switched profile to Page `แก้บัคยาวๆๆ`, accessed native 9:16 vertical video composer (`https://www.facebook.com/reels/create`), attached master MP4, typed test caption, and completed configuration steps. |
@@ -31,7 +34,7 @@ Using the registered post `post-44262397-7263-4036-8585-fbde52b78051` and the pr
 
 | Capability | Status | Evidence |
 | :--- | :--- | :--- |
-| **Real account identity verified** | **PASS** | Genuinely logged in as `@maroooooooooooon16` (`secUid: MS4wLjABAAAAnKFohWtgYCkGXlxU4WR3GUXaDE-ytvinvDYbJrtGi5HTKaxiEKo6pIcj0JTW5WBV`). Confirmed avatar, handle, bio, and creator studio access. |
+| **Real account identity verified** | **PASS** | Genuinely logged in as `@maroooooooooooon16` (`session-specific identifier omitted`). Confirmed avatar, handle, bio, and creator studio access. |
 | **Authorization established** | **PASS (Session)** / **PENDING (OAuth)** | Active browser session authenticated. Official TikTok Web Login requires `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, and HTTPS redirect URI. |
 | **API connection** | **DOCUMENTED** | TikTok Content Posting API (`video.publish`, `video.upload`) is documented in TikTok for Developers v2. It requires an approved developer app, HTTPS redirect URI, and scope review for `video.publish`. It is not universally closed. |
 | **Browser-assisted workflow** | **PASS** | Navigated to TikTok Studio (`https://www.tiktok.com/tiktokstudio/upload`), attached master MP4, dismissed joyride tour overlay, entered test caption, enabled AI-generated content disclosure, and submitted post. |

@@ -1,5 +1,8 @@
 # Social Command Center — Autonomous UI Acceptance Test Report
 
+> **2026-10-20 status note:** Historical UI/simulator acceptance. The pilot-release verdict below does not establish live platform API authorization, publication or scheduling acceptance. See [current V1.6 acceptance](OFFICIAL_API_AUTHORIZATION_ACCEPTANCE.md). Preserve the 12:14 PM Asia/Bangkok schedule and keep its server running while pending; do not follow historical restart/publication steps against the owner instance.
+
+
 **Evaluation Date:** October 15, 2026  
 **Test Environment:** Windows 11, Node.js v22.23.1, SQLite 3 (WAL mode), Microsoft Edge Chromium (via Playwright Automation)  
 **Application Target:** `http://localhost:3001` (Single-Port Express 5 + Vite React SPA)  

@@ -1,5 +1,8 @@
 # REAL_BRANDED_PUBLISHING_ACCEPTANCE.md — Social Command Center V1.4
 
+> **2026-10-20 status note:** Historical V1.4 manual/browser publishing acceptance. These branded publications retain manual confirmation provenance; they are not the subsequent direct API acceptance or the pending scheduled Tesla Reel. See [current V1.6 acceptance](OFFICIAL_API_AUTHORIZATION_ACCEPTANCE.md). Preserve the 12:14 PM Asia/Bangkok schedule and keep its server running while pending; do not follow historical restart/publication steps against the owner instance.
+
+
 > **Acceptance Report: Real Branded Video Publishing with Account-Specific Dynamic Moving Watermarks**  
 > **Date**: October 16, 2026  
 > **Status**: **PASS (VERIFIED ON LIVE PLATFORMS)**  

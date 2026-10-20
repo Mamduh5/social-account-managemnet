@@ -35,6 +35,8 @@ describe('Domain Rules & Calculations - Unit Tests', () => {
   test('canRetryDestination: enforces retry limits and prevents retrying published items', () => {
     // Published destination cannot be retried
     assert.strictEqual(canRetryDestination('published', 0, 3), false);
+    assert.strictEqual(canRetryDestination('scheduled', 0, 3), false);
+    assert.strictEqual(canRetryDestination('uploading', 0, 3), false);
 
     // Failed destination with retries remaining can be retried
     assert.strictEqual(canRetryDestination('failed', 0, 3), true);

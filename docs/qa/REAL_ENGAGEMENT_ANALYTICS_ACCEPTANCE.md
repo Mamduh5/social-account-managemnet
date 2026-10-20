@@ -1,5 +1,8 @@
 # V1.5 Real Engagement & Analytics Integration Acceptance Report
 
+> **2026-10-20 status note:** Historical V1.5 report. Browser-verified/manual metric baselines and automated connector tests below are separate from live official API acceptance. Do not interpret the broad PASS heading as proof of every live OAuth, metrics, comment, reply or TikTok operation. See [current V1.6 acceptance](OFFICIAL_API_AUTHORIZATION_ACCEPTANCE.md). Preserve the 12:14 PM Asia/Bangkok schedule and keep its server running while pending; do not follow historical restart/publication steps against the owner instance.
+
+
 > **Social Command Center V1.5**  
 > **Status:** PASS  
 > **Date:** 2026-10-16  

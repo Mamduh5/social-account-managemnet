@@ -1,5 +1,8 @@
 # V1.2 Real Account Onboarding Acceptance
 
+> **2026-10-20 status note:** Historical V1.2 report. Facebook OAuth and direct Reels publishing subsequently passed live acceptance on 20 October; the actual scheduled publication still awaits owner verification. Its older pending-API statements and restart instructions are historical. See [current V1.6 acceptance](OFFICIAL_API_AUTHORIZATION_ACCEPTANCE.md). Preserve the 12:14 PM Asia/Bangkok schedule and keep its server running while pending; do not follow historical restart/publication steps against the owner instance.
+
+
 Date: 2026-10-15 (Asia/Bangkok). Local implementation and isolated acceptance: PASS. Real Facebook/TikTok authorization and live operations: PENDING. No real social accounts were created and no live posts, comments or reactions were submitted. No commit or push was performed.
 
 ## Register a real account now

@@ -27,7 +27,7 @@ export function resolveParentPostStatus(destinationStatuses: DestinationStatus[]
 }
 
 export function canRetryDestination(status: DestinationStatus, retryCount: number, maxRetries: number = 3): boolean {
-  if (status === 'published') return false;
+  if (!['failed', 'cancelled'].includes(status)) return false;
   return retryCount <= maxRetries;
 }
 

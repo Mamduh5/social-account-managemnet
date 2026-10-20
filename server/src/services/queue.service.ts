@@ -69,6 +69,9 @@ export class QueueService {
 
   private async executeDestinationJob(job: any) {
     if (this.inFlight.has(job.id)) return;
+    const current = publishingRepo.getDestinationById(job.id);
+    if (!current || !['preparing', 'branding'].includes(current.status) || current.error_message?.startsWith('Interrupted by server restart')) return;
+    if (job.scheduled_at && (!Number.isFinite(Date.parse(job.scheduled_at)) || Date.parse(job.scheduled_at) > Date.now())) return;
     this.inFlight.add(job.id);
     try {
       const initialAccount = accountsRepo.getAccountById(job.account_id) as any;
@@ -128,7 +131,10 @@ export class QueueService {
           caption: job.caption,
           hashtags: job.hashtags,
           applyBranding: !!job.apply_branding,
-          scheduledAt: job.scheduled_at,
+          // The local queue owns scheduling. Once due, publish immediately;
+          // do not ask Meta to schedule again using an already elapsed time.
+          scheduledAt: undefined,
+          onRemoteCreated: (remoteId) => publishingRepo.recordRemoteUpload(job.id, remoteId),
         },
         (pct, stage) => {
           this.updateDestinationStatus(

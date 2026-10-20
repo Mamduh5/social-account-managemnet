@@ -1,5 +1,8 @@
 # Social Command Center — Maintainability Refactor & Architecture QA Report
 
+> **2026-10-20 status note:** Historical refactor and isolated test report. Its test counts and readiness statements describe that dated run; current milestone gates comprise 66 isolated tests, backend typecheck and frontend build. See [current V1.6 acceptance](OFFICIAL_API_AUTHORIZATION_ACCEPTANCE.md). Preserve the 12:14 PM Asia/Bangkok schedule and keep its server running while pending; do not follow historical restart/publication steps against the owner instance.
+
+
 > **Date**: October 15, 2026  
 > **Status**: Verified & Passing  
 > **Target Audience**: Core Maintainers, System Architects, and UI/UX Redesign Team  

@@ -14,8 +14,8 @@ export function ConnectionModal({
   const [setup, setSetup] = useState<any>(null);
   const [candidates, setCandidates] = useState<any[]>([]);
   const [error, setError] = useState('');
-  const [publishing, setPublishing] = useState(false);
-  const [engagement, setEngagement] = useState(false);
+  const [publishing, setPublishing] = useState(true);
+  const [engagement, setEngagement] = useState(true);
   const [selection, setSelection] = useState('');
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -27,6 +27,9 @@ export function ConnectionModal({
       .then(([s, c]) => {
         setSetup(s);
         setCandidates(c.candidates);
+        if (c.candidates?.length === 1) {
+          setSelection(c.candidates[0].id);
+        }
       })
       .catch((e) => setError(e.message));
   }, [account.id]);
@@ -98,6 +101,9 @@ export function ConnectionModal({
                 ))}
               </select>
             </label>
+            {selection && (
+              <p>Meta/platform granted permissions: {candidates.find(c => c.id === selection)?.scopes?.join(', ') || 'None'}.</p>
+            )}
             <label className="flex gap-2">
               <input
                 type="checkbox"
@@ -121,14 +127,15 @@ export function ConnectionModal({
           </div>
         )}
         {account.platform === 'facebook' && (
-          <div className="space-y-2">
+          <div className="space-y-2 bg-surface/50 p-2.5 rounded-xl border border-white/5">
+            <p className="text-slate-300 font-medium">Read-only analytics and comment retrieval are requested by default.</p>
             <label className="flex gap-2">
               <input
                 type="checkbox"
                 checked={publishing}
                 onChange={(e) => setPublishing(e.target.checked)}
               />
-              Request Page video publishing permissions
+              Request Page video publishing permissions (pages_manage_posts)
             </label>
             <label className="flex gap-2">
               <input
@@ -136,17 +143,17 @@ export function ConnectionModal({
                 checked={engagement}
                 onChange={(e) => setEngagement(e.target.checked)}
               />
-              Request comment reading and moderation permissions
+              Request comment moderation and reply permissions (pages_manage_engagement)
             </label>
           </div>
         )}
         {account.platform === 'tiktok' && (
-          <p>
-            Personal and Business types are preserved. Profile authorization is
-            supported; API publishing, engagement and analytics remain
-            unavailable until the required product approvals and workflows are
-            implemented.
-          </p>
+          <div className="space-y-1 bg-surface/50 p-2.5 rounded-xl border border-white/5 text-slate-300">
+            <p className="font-medium">Personal account type is preserved.</p>
+            <p className="text-slate-400">
+              Read-only Display API video engagement counters (video.list) and profile identity (user.info.basic) will be authorized. Direct Post and comment moderation remain restricted until partner approvals.
+            </p>
+          </div>
         )}
         <button
           disabled={!setup?.ready || busy}

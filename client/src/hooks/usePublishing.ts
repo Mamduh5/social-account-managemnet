@@ -37,6 +37,7 @@ export function usePublishing() {
 
   // Submitting state
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [syncingPipeline, setSyncingPipeline] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -220,7 +221,16 @@ export function usePublishing() {
     if (!selectedVideoId || selectedAccountIds.length === 0) return;
 
     setSubmitting(true);
+    setSubmitError('');
     try {
+      let scheduledAt: string | null = null;
+      if (isScheduled) {
+        // The form explicitly displays Bangkok time, independent of browser TZ.
+        const timestamp = Date.parse(`${scheduleTime}+07:00`);
+        if (!scheduleTime || !Number.isFinite(timestamp) || timestamp <= Date.now())
+          throw new Error('Choose a future date and time in Asia/Bangkok.');
+        scheduledAt = new Date(timestamp).toISOString();
+      }
       const destinations = selectedAccountIds.map(accountId => {
         const conf = destinationConfig[accountId] || { caption: postTitle, hashtags: '', applyBranding: true };
         const destVariantId = conf.selectedVariantId !== undefined 
@@ -240,7 +250,7 @@ export function usePublishing() {
       await api.createPost({
         videoId: selectedVideoId,
         title: postTitle,
-        scheduledAt: isScheduled ? scheduleTime : null,
+        scheduledAt,
         selectedVariantId: selectedVariantId || null,
         destinations,
       });
@@ -248,6 +258,7 @@ export function usePublishing() {
       await loadData();
       setActiveTab('queue');
     } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Publishing request failed.');
       console.error('Publish submit failed:', err);
     } finally {
       setSubmitting(false);
@@ -303,6 +314,7 @@ export function usePublishing() {
     uploadProgress,
     fileInputRef,
     submitting,
+    submitError,
     loadData,
     handleFileUpload,
     handleImportPipelineFile,

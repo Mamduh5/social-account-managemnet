@@ -4,6 +4,24 @@
 
 ---
 
+## V1.6 milestone status and operational hold (20 October 2026)
+
+Read `docs/qa/OFFICIAL_API_AUTHORIZATION_ACCEPTANCE.md` for current evidence. Facebook OAuth, existing-Page reauthorization, official Reels upload, remote processing/permalink verification and automatic queue completion have **passed live acceptance**. Scheduling has automated lifecycle coverage and a saved real job; its actual public publication remains **PENDING OWNER VERIFICATION**. Browser schedule-form submission is not live-verified. Historical manual/browser or fixture PASS must not be relabeled as official API PASS.
+
+**Protected schedule:** destination `dest-mvg66513-ttjf`, post `post-74051364-849a-4195-b132-d76c19fa10ca`, Facebook Page `409347032254077`, **20 October 2026 at 12:14 PM Asia/Bangkok** (`2026-10-20T05:14:00.000Z`). Preserve its caption, hashtags, derivative, destination and time. Do not cancel, reschedule, duplicate or manually publish it. Keep the current server running; no restart, stop, development watcher, database replacement or migration while publication is pending. Check status read-only and leave public verification to the owner. Do not mark it successful merely because the deadline passes.
+
+Current implementation map:
+
+- OAuth: `routes/connections.routes.ts`, `services/connections.service.ts`, `services/oauth-diagnostics.ts`, `repositories/account-connections.repo.ts` (paths relative to `server/src`). Hashed state, cookie/account/revision/expiry binding, compare-and-set exchange, encrypted request/candidate payloads and AES-256-GCM tokens remain required. Never expose codes, raw state, cookies, secrets or token bodies.
+- Callback: `http://localhost:3001/api/connections/callback/facebook`, exact origin/path, no trailing slash. Acceptance used configured `META_GRAPH_VERSION=v26.0`; do not assume this means latest. Publishing needs actual `pages_manage_posts` and `pages_read_engagement`; discovery/read scopes and optional moderation are separate. `/me/permissions` verifies grants.
+- Identity: original registered/public ID `61563944843401` and verified Graph Page ID `409347032254077` belong to the same existing owner account. The trusted alias is runtime data, not hardcoded production behavior. Preserve aliases/internal ID/history; no display-name matching, account duplication or cross-account identity claim bypass. Initial reconciliation accepts a trusted same-account alias or Meta resolution; an already verified ID stays strict.
+- Missing Meta `expires_in` is not automatically failure: verify validity, app ownership and expiry through `/debug_token`. Explicit nonexpiring metadata uses a bounded 24-hour local revalidation window; unknown/invalid metadata fails closed. Preserve the existing encryption key and credentials on failed reauthorization. Do not promise a 60-day/permanent token lifetime.
+- Reels: `connectors/meta-facebook.ts` performs start -> persist remote ID -> HTTPS rupload binary -> finish -> bounded read-only processing/permalink polling. Require ready video, complete publishing phase and a valid permalink before confirmed success. No standard-video fallback or real-account automatic replay after an uncertain submission. `onRemoteCreated` persists the ID through the queue/repository before upload/finish.
+- Queue: `services/queue.service.ts` sets confirmed API results to `published` with `confirmation_source=api`; manual packages keep `awaiting_confirmation` until an explicit exact-account receipt (`confirmation_source=manual`). The legacy capability-level `requiresManualConfirmation` flag is conservative; actual API completion uses the verified result, not that flag.
+- Scheduling: composer input is Bangkok wall time -> UTC ISO; server requires explicit timezone/future validity. SQLite `julianday` comparisons release due jobs on a two-second local loop. Do not re-send an elapsed schedule to Meta: due dispatch uses immediate `PUBLISHED`. Future jobs, terminal jobs and restart holds are excluded; retry must not bypass the due time. PC/server availability is required; no cloud scheduler exists.
+- Tests: `npm test` runs **66 tests across eight isolated suites** at this milestone. `npx tsc --noEmit` and `npm run build:client` are required checks. Do not run tests or legacy E2E scripts against the owner's data or pending queue. Fixtures do not authorize live publishing.
+- TikTok: preserve the Personal Account and manual history. Official live authorization, Direct Post and synchronization acceptance are the next milestone, not authorized implementation work now. Login/renewal/Display API fixtures do not prove live TikTok access. The registry still disables Direct Post pending creator/privacy/status workflows and product approvals.
+
 ## 1. Quick Navigation: Read This First!
 
 Depending on your role and task, choose the designated entry point:
@@ -61,14 +79,14 @@ npm test
 
 ### Run End-to-End Autonomous Acceptance Test
 ```powershell
-# Requires backend running on http://localhost:3001
-npx tsx test/e2e/autonomous_acceptance.ts
+# Starts its own isolated database/server on port 3192
+npm run test:onboarding
 ```
 
 ### Run Real Pipeline & Branding Studio Acceptance Test
 ```powershell
-# Requires backend running on port 3001 and AI Video Pipeline running on port 8080
-npx tsx test/e2e/real_pipeline_acceptance.ts
+# Isolated Command Center on 3193; reads/downloads existing upstream outputs
+npx tsx test/e2e/run_pipeline_regression.ts
 ```
 
 ---
@@ -112,7 +130,7 @@ The application is structured into clear layers:
    - A failure on one destination (e.g. TikTok) must **never** republish already-succeeded destinations (e.g. Facebook).
    - "Retry Failed" strictly re-queues only failed/cancelled destinations.
 2. **Safe Restart Recovery**:
-   - Jobs in `processing` or `queued` state when the server terminates are safely reset to `preparing` on boot.
+   - Destinations interrupted in `preparing`, `branding` or `uploading` reset to `preparing` with an explicit review hold on boot.
    - They are never assumed to have safely published; human review or explicit retry is required.
 3. **Master Video Invariance**:
    - Original master video files in `.data/uploads` or incoming pipeline directories are strictly immutable.
@@ -184,7 +202,7 @@ Start with [`docs/qa/REAL_ENGAGEMENT_ANALYTICS_ACCEPTANCE.md`](file:///d:/Mamduh
 
 - **Zero Engagement Honesty**: Zero engagement on newly published posts or newly registered accounts is a valid result. Never invent synthetic counters or fabricate simulated metrics for real accounts. Missing data must be rendered as `Unavailable (Authorization Required)`, not converted to zero.
 - **Provenance Transparency**: Every metric value (post-level or account-level) carries an explicit source badge (`meta_graph_api`, `tiktok_api`, `browser_verified`, `manual`) and status (`confirmed`, `estimated`, `unavailable`, `auth_required`, `stale`).
-- **Meta June 2026 Deprecations**: Meta Graph API has deprecated legacy page-level insights (`page_video_views`). The Facebook connector strictly queries post-level summaries (`views`, `likes.summary(true)`, `comments.summary(true)`, `shares`) and Video Insights (`total_video_views`).
+- **Provider field availability**: The Facebook connector queries post summaries and separate shares/video-insights edges. It parses available Reel/video counters without inventing missing values. Do not assume every field/metric is available for every Graph version or account; verify live responses and provenance.
 - **TikTok API Segregation**:
   - TikTok Display API (`video.list`, `video.query`): video metadata and metrics counters.
   - TikTok Accounts API: comment moderation and remote replies.
@@ -197,6 +215,6 @@ Start with [`docs/qa/REAL_ENGAGEMENT_ANALYTICS_ACCEPTANCE.md`](file:///d:/Mamduh
   - `SyncService` runs on a conservative 15-minute background polling cadence with rate-limit compliance, change detection, and activity event logging (`engagement_increased`, `observation_recorded`).
   - Broadcasts live updates via SSE (`analytics:synced`).
 - **Testing & Storage Isolation**:
-  - `npm test` runs 4 test suites in isolated temporary directories: `test/analytics.test.ts`, `test/domain.test.ts`, `test/real_accounts.test.ts`, `test/social_command_center.test.ts`. All 37 tests must remain 100% green.
+  - `npm test` discovers eight `test/*.test.ts` suites, each with an isolated `SCC_DATA_DIR`. All 66 tests must remain green at this milestone; update counts only from a new run.
   - Baseline real snapshots are persisted in SQLite (`post_metrics_snapshots` and `analytics_snapshots`) and never overwritten.
 

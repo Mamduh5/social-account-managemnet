@@ -122,7 +122,7 @@ export function getConnector(account: any): AccountConnector {
     fetchComments: async (_a, opts) =>
       capabilities.canReadComments
         ? adapter.fetchComments(authorized, opts)
-        : (account.connector_mode === 'browser_bridge' ? bridgeConnector.fetchComments(account, opts) : []),
+        : (account.connector_mode === 'browser_bridge' ? bridgeConnector.fetchComments(account) : []),
     replyComment: async (_a, id, text) =>
       capabilities.canReply
         ? adapter.replyComment(authorized, id, text)

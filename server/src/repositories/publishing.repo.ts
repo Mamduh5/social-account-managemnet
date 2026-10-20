@@ -298,6 +298,10 @@ export class PublishingRepository {
     );
   }
 
+  recordRemoteUpload(id: string, remoteId: string) {
+    db.prepare("UPDATE publishing_destinations SET remote_post_id=?,verification_status='unverified',updated_at=datetime('now') WHERE id=? AND status='uploading'").run(remoteId, id);
+  }
+
   markAwaitingConfirmation(id: string, remoteId?: string, remoteUrl?: string) {
     db.prepare("UPDATE publishing_destinations SET status='awaiting_confirmation', progress=90, remote_post_id=?, remote_post_url=?, verification_status='unverified', updated_at=datetime('now') WHERE id=?").run(remoteId || null, remoteUrl || null, id);
   }
@@ -357,7 +361,7 @@ export class PublishingRepository {
       FROM publishing_destinations pd
       JOIN publishing_posts p ON pd.post_id = p.id
       WHERE pd.status = 'scheduled'
-      AND (p.scheduled_at IS NULL OR p.scheduled_at <= datetime('now'))
+      AND julianday(p.scheduled_at) <= julianday('now')
     `).all() as any[];
   }
 
@@ -378,6 +382,7 @@ export class PublishingRepository {
       JOIN accounts a ON pd.account_id = a.id
       WHERE pd.status IN ('preparing', 'branding')
       AND (pd.error_message IS NULL OR pd.error_message NOT LIKE 'Interrupted by server restart%')
+      AND (p.scheduled_at IS NULL OR julianday(p.scheduled_at) <= julianday('now'))
       LIMIT ?
     `).all(limit) as any[];
   }

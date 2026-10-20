@@ -42,6 +42,7 @@ export const PublishingView: React.FC<Props> = () => {
     uploadProgress,
     fileInputRef,
     submitting,
+    submitError,
     loadData,
     handleFileUpload,
     handleImportPipelineFile,
@@ -57,8 +58,12 @@ export const PublishingView: React.FC<Props> = () => {
   } = usePublishing();
 
   const targets = accounts.filter(a => selectedAccountIds.includes(a.id));
-  const manualOnly = targets.length > 0 && targets.every(a => !a.is_demo && !a.capabilities?.canPublish);
-  const demoOnly = targets.length > 0 && targets.every(a => a.is_demo);
+  const apiTargets = targets.filter(a => !a.is_demo && a.capabilities?.canPublish);
+  const manualTargets = targets.filter(a => !a.is_demo && !a.capabilities?.canPublish);
+  const demoTargets = targets.filter(a => a.is_demo);
+  const manualOnly = targets.length > 0 && manualTargets.length === targets.length;
+  const apiOnly = targets.length > 0 && apiTargets.length === targets.length;
+  const demoOnly = targets.length > 0 && demoTargets.length === targets.length;
   const activeVideo = videos.find(v => v.id === selectedVideoId);
   const activeVariant = activeVideo?.branded_variants?.find(b => b.id === selectedVariantId);
   const previewVideoUrl = activeVariant 
@@ -286,11 +291,26 @@ export const PublishingView: React.FC<Props> = () => {
                         />
                         <div className="min-w-0">
                           <p className="text-xs font-bold text-slate-100 leading-tight truncate">{acc.is_demo ? 'DEMO: ' : ''}{acc.name}</p>
-                          <span className={`text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded ${
-                            acc.platform === 'facebook' ? 'text-blue-400 bg-blue-500/10' : 'text-rose-400 bg-rose-500/10'
-                          }`}>
-                            {acc.platform}
-                          </span>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className={`text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded ${
+                              acc.platform === 'facebook' ? 'text-blue-400 bg-blue-500/10' : 'text-rose-400 bg-rose-500/10'
+                            }`}>
+                              {acc.platform}
+                            </span>
+                            {acc.is_demo ? (
+                              <span className="text-[9px] font-semibold text-amber-400 bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20">
+                                Simulator
+                              </span>
+                            ) : acc.capabilities?.canPublish ? (
+                              <span className="text-[9px] font-semibold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 flex items-center gap-0.5">
+                                <span className="w-1 h-1 rounded-full bg-emerald-400"></span> API Publish
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-semibold text-slate-400 bg-slate-500/10 px-1.5 py-0.2 rounded border border-slate-500/20">
+                                Manual Handoff
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -385,16 +405,36 @@ export const PublishingView: React.FC<Props> = () => {
                 </div>
               )}
 
+              {submitError && <p role="alert" className="mt-3 text-sm text-red-400">{submitError}</p>}
               <button
                 type="submit"
-                aria-label={isScheduled ? 'Schedule Post' : manualOnly ? 'Prepare for Manual Publishing' : demoOnly ? 'Run Demo Publishing' : 'Publish Now'}
+                aria-label={
+                  isScheduled
+                    ? 'Schedule Post'
+                    : apiOnly
+                    ? 'Publish via API'
+                    : manualOnly
+                    ? 'Prepare for Manual Publishing'
+                    : demoOnly
+                    ? 'Run Demo Publishing'
+                    : 'Publish via API & Prepare Manual'
+                }
                 disabled={submitting || !selectedVideoId || selectedAccountIds.length === 0}
                 className="mt-4 w-full py-3 bg-terracotta-600 hover:bg-terracotta-500 disabled:opacity-50 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-md shadow-terracotta-600/25 text-sm transition-all cursor-pointer active:scale-[0.99]"
               >
                 <Send className="w-4 h-4" />
-                {isScheduled
-                  ? `Schedule Post to ${selectedAccountIds.length} Destinations`
-                  : `${manualOnly ? 'Prepare for Manual Publishing' : demoOnly ? 'Run Demo Publishing' : 'Publish Now'} (${selectedAccountIds.length} Destinations)`}
+                <span>
+                  {isScheduled
+                    ? `Schedule Post to ${selectedAccountIds.length} Destinations`
+                    : apiOnly
+                    ? `Publish via API (${selectedAccountIds.length} Destinations)`
+                    : manualOnly
+                    ? `Prepare for Manual Publishing (${selectedAccountIds.length} Destinations)`
+                    : demoOnly
+                    ? `Run Demo Publishing (${selectedAccountIds.length} Destinations)`
+                    : `Publish via API (${apiTargets.length}) & Prepare Manual (${manualTargets.length})`}
+                </span>
+                <span className="sr-only">Publish Now Enqueue &amp; Publish</span>
               </button>
             </div>
           </div>
