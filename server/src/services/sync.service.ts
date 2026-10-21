@@ -4,6 +4,7 @@ import { analyticsRepo } from '../repositories/analytics.repo.js';
 import { inboxRepo } from '../repositories/inbox.repo.js';
 import { activityRepo } from '../repositories/activity.repo.js';
 import { getConnector, hasActiveApiAuthorization } from '../connectors/registry.js';
+import { ensureFreshToken, refreshConnection } from './connections.service.js';
 import { eventsService } from './events.service.js';
 import { ProvenanceSource, ProvenanceStatus } from '../domain/types.js';
 
@@ -19,12 +20,18 @@ export interface ManualObservationPayload {
 
 export class SyncService {
   private timer: NodeJS.Timeout | null = null;
+  private bootTimer: NodeJS.Timeout | null = null;
   private isSyncing = false;
   private intervalMs = 15 * 60 * 1000; // 15 minutes default conservative polling
 
   start(intervalMs?: number): void {
-    if (intervalMs) this.intervalMs = intervalMs;
+    if (intervalMs) {
+      this.intervalMs = intervalMs;
+    } else {
+      this.intervalMs = this.resolveIntervalMs();
+    }
     if (this.timer) clearInterval(this.timer);
+    if (this.bootTimer) clearTimeout(this.bootTimer);
 
     console.log(`[SyncService] Starting background synchronization service (interval: ${Math.round(this.intervalMs / 1000)}s)...`);
     this.timer = setInterval(() => {
@@ -34,12 +41,29 @@ export class SyncService {
     }, this.intervalMs);
 
     // Initial check on boot
-    setTimeout(() => {
+    this.bootTimer = setTimeout(() => {
+      this.bootTimer = null;
       this.syncAllAccounts().catch(() => {});
     }, 5000);
   }
 
+  private resolveIntervalMs(): number {
+    if (process.env.SCC_SYNC_INTERVAL_MS) {
+      const ms = parseInt(process.env.SCC_SYNC_INTERVAL_MS, 10);
+      if (Number.isFinite(ms) && ms >= 5000) return ms;
+    }
+    if (process.env.SCC_SYNC_INTERVAL_MINUTES) {
+      const min = parseFloat(process.env.SCC_SYNC_INTERVAL_MINUTES);
+      if (Number.isFinite(min) && min >= 0.1) return Math.round(min * 60 * 1000);
+    }
+    return 15 * 60 * 1000;
+  }
+
   stop(): void {
+    if (this.bootTimer) {
+      clearTimeout(this.bootTimer);
+      this.bootTimer = null;
+    }
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -96,37 +120,78 @@ export class SyncService {
     status: string;
     message?: string;
   }> {
-    const account = accountsRepo.getAccountById(accountId);
+    let account: any = accountsRepo.getAccountById(accountId);
+    if (!account || account.archived_at || account.is_demo) {
+      return { success: false, metricsSynced: 0, commentsSynced: 0, status: 'skipped' };
+    }
+
+    // Proactively refresh token if near expiry or expired
+    if (account.platform === 'tiktok') {
+      try {
+        account = (await ensureFreshToken(account)) || account;
+      } catch (err: any) {
+        const status = err.reason === 'invalid_grant' ? 'auth_required' : 'failed';
+        analyticsRepo.updateSyncState(accountId, 'all', status, err.message, 0);
+        return { success: false, metricsSynced: 0, commentsSynced: 0, status, message: err.message };
+      }
+    }
     if (!account || account.archived_at || account.is_demo) {
       return { success: false, metricsSynced: 0, commentsSynced: 0, status: 'skipped' };
     }
 
     analyticsRepo.updateSyncState(accountId, 'all', 'syncing');
-    const connector = getConnector(account);
-    const capabilities = connector.getCapabilities();
+    let connector = getConnector(account);
+    let capabilities = connector.getCapabilities();
 
     let metricsSynced = 0;
     let commentsSynced = 0;
     let accountMetricsSynced = 0;
     let syncError: string | undefined;
     let apiFailure: string | undefined;
+    let refreshAttempted = false;
 
     // 1. Sync Account-Level Metrics
     try {
       if (connector.fetchAccountMetrics) {
-        const accMetrics = await connector.fetchAccountMetrics(account);
-        if (accMetrics && accMetrics.status === 'confirmed') {
+        let accMetrics = await connector.fetchAccountMetrics(account);
+        if (
+          accMetrics &&
+          accMetrics.status === 'auth_required' &&
+          account.platform === 'tiktok' &&
+          !refreshAttempted &&
+          account.refresh_token &&
+          account.refresh_expires_at &&
+          Date.parse(account.refresh_expires_at) > Date.now()
+        ) {
+          try {
+            refreshAttempted = true;
+            account = await refreshConnection(account.id);
+            connector = getConnector(account);
+            capabilities = connector.getCapabilities();
+            if (connector.fetchAccountMetrics) {
+              accMetrics = await connector.fetchAccountMetrics(account);
+            }
+          } catch (rErr: any) {
+            if (rErr.reason === 'invalid_grant') syncError = rErr.message;
+            else apiFailure = rErr.message;
+          }
+        }
+        const hasNumericAccountMetrics = accMetrics && [accMetrics.followersTotal, accMetrics.followingTotal, accMetrics.followersGain,
+          accMetrics.viewsTotal, accMetrics.likesTotal, accMetrics.commentsTotal, accMetrics.sharesTotal]
+          .some((value) => typeof value === 'number' && Number.isFinite(value));
+        if (accMetrics && accMetrics.status === 'confirmed' && hasNumericAccountMetrics) {
           analyticsRepo.recordAccountMetricSnapshot({
             account_id: account.id,
             observed_at: new Date().toISOString(),
             date: new Date().toISOString().slice(0, 10),
             followers_total: accMetrics.followersTotal,
-            followers_gain: accMetrics.followersGain || 0,
-            views_total: accMetrics.viewsTotal || 0,
-            likes_total: accMetrics.likesTotal || 0,
-            comments_total: accMetrics.commentsTotal || 0,
-            shares_total: accMetrics.sharesTotal || 0,
-            engagement_rate: 0,
+            followers_gain: accMetrics.followersGain ?? null,
+            following_total: accMetrics.followingTotal ?? null,
+            views_total: accMetrics.viewsTotal ?? null,
+            likes_total: accMetrics.likesTotal ?? null,
+            comments_total: accMetrics.commentsTotal ?? null,
+            shares_total: accMetrics.sharesTotal ?? null,
+            engagement_rate: null,
             source: accMetrics.source as ProvenanceSource,
             provenance_status: 'confirmed',
             is_simulated: 0,
@@ -135,9 +200,16 @@ export class SyncService {
           if (typeof accMetrics.followersTotal === 'number') {
             db.prepare("UPDATE accounts SET followers_count=?, updated_at=datetime('now') WHERE id=?").run(accMetrics.followersTotal, account.id);
           }
+        } else if (accMetrics?.status === 'failed') {
+          apiFailure = accMetrics.errorMessage || 'Account statistics API failed.';
+        } else if (accMetrics?.status === 'auth_required' && !apiFailure) {
+          syncError = accMetrics.errorMessage || 'Authorization required for account statistics.';
+        } else if (accMetrics?.status === 'unsupported' || (accMetrics?.status === 'confirmed' && !hasNumericAccountMetrics)) {
+          apiFailure = accMetrics.errorMessage || 'Account statistics are unavailable; no numeric account metrics were returned.';
         }
       }
     } catch (err: any) {
+      apiFailure = err.message;
       console.warn(`[SyncService] Account metrics sync failed for ${account.name}:`, err.message);
     }
 
@@ -153,7 +225,29 @@ export class SyncService {
     for (const dest of destinations) {
       try {
         if (connector.fetchPostMetrics) {
-          const postMetric = await connector.fetchPostMetrics(account, dest.remote_post_id, dest.remote_post_url);
+          let postMetric = await connector.fetchPostMetrics(account, dest.remote_post_id, dest.remote_post_url);
+          if (
+            postMetric &&
+            postMetric.status === 'auth_required' &&
+            account.platform === 'tiktok' &&
+            !refreshAttempted &&
+            account.refresh_token &&
+            account.refresh_expires_at &&
+            Date.parse(account.refresh_expires_at) > Date.now()
+          ) {
+            try {
+              refreshAttempted = true;
+              account = await refreshConnection(account.id);
+              connector = getConnector(account);
+              capabilities = connector.getCapabilities();
+              if (capabilities.canReadPostMetrics && connector.fetchPostMetrics) {
+                postMetric = await connector.fetchPostMetrics(account, dest.remote_post_id, dest.remote_post_url);
+              }
+            } catch (rErr: any) {
+              if (rErr.reason === 'invalid_grant') syncError = rErr.message;
+              else apiFailure = rErr.message;
+            }
+          }
           if (postMetric) {
             // Find prior snapshot to calculate differences
             const priorSnapshot = db.prepare(`
@@ -192,7 +286,7 @@ export class SyncService {
                   });
                 }
               }
-            } else if (postMetric.status === 'auth_required') {
+            } else if (postMetric.status === 'auth_required' && !apiFailure) {
               syncError = postMetric.errorMessage || 'Authorization required for automated synchronization.';
             } else if (postMetric.status === 'failed') {
               apiFailure = postMetric.errorMessage || 'Platform API returned an error.';
@@ -200,6 +294,7 @@ export class SyncService {
           }
         }
       } catch (err: any) {
+        apiFailure = err.message;
         console.warn(`[SyncService] Post metrics sync failed for destination ${dest.id}:`, err.message);
       }
 

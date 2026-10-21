@@ -21,6 +21,8 @@ export interface ConnectionHealth {
   tokenExpiresAt?: string;
   lastCheckedAt: string;
   warnings?: string[];
+  /** An unavailable health check does not establish a connection-state change. */
+  preserveConnection?: boolean;
 }
 
 export interface PublishDestinationPayload {

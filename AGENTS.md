@@ -4,6 +4,12 @@
 
 ---
 
+## V1.9 validation and protected live observation (21 October 2026)
+
+Read [docs/qa/V1_9_FINAL_VALIDATION.md](docs/qa/V1_9_FINAL_VALIDATION.md) for current engineering results and live boundaries. Temporary TikTok refresh/health failures preserve authorization; missing account statistics remain unavailable rather than confirmed zeros. New account snapshots require the versioned nullable schema. Existing databases require the explicit [later maintenance migration](docs/qa/V19_ACCOUNT_STATISTICS_MIGRATION.md); startup does not rebuild them or rewrite historical observations.
+
+Preserve the running non-watcher backend, local HTTPS proxy and read-only natural-renewal collector until its 21 October 2026 19:20 Asia/Bangkok closeout. Do not stop/restart them, edit live expiry/revision/credentials, trigger refresh, change .env or write/migrate the owner database during observation. These source fixes are not loaded in that protected process. Natural renewal remains a separate live gate; code-complete does not mean live rollout complete. Local commits are authorized for this final-validation task; push, deployment and social publication are not.
+
 ## V1.7 milestone status: TikTok Integration & Facebook Scheduling Verification (20 October 2026)
 
 Read `docs/qa/OFFICIAL_API_AUTHORIZATION_ACCEPTANCE.md` for current evidence. Facebook OAuth, existing-Page reauthorization, official Reels upload, remote processing/permalink verification and automatic queue completion have **passed live acceptance**. Scheduling has automated lifecycle coverage and a saved real job; its actual public publication remains **PENDING OWNER VERIFICATION**. Browser schedule-form submission is not live-verified. Historical manual/browser or fixture PASS must not be relabeled as official API PASS.

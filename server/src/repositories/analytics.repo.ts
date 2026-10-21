@@ -9,6 +9,19 @@ export interface AnalyticsFilter {
 }
 
 export class AnalyticsRepository {
+  // Old API snapshots did not retain field presence. In particular a stored zero
+  // follower count from those rows cannot establish a provider-confirmed zero.
+  private followerValueSql(alias = 'a'): string {
+    const columns = db.prepare('PRAGMA table_info(analytics_snapshots)').all() as any[];
+    const versioned = columns.some((column) => column.name === 'metric_contract_version');
+    return `(SELECT CASE WHEN s.provenance_status <> 'confirmed' THEN NULL
+      WHEN ${versioned ? 's.metric_contract_version = 1' : '0'} THEN s.followers_total
+      WHEN s.source IN ('tiktok_display_api', 'meta_graph_api') AND s.followers_total = 0 THEN NULL
+      ELSE s.followers_total END
+      FROM analytics_snapshots s WHERE s.account_id = ${alias}.id AND s.is_simulated = 0
+      ORDER BY COALESCE(s.observed_at, s.date) DESC, s.rowid DESC LIMIT 1)`;
+  }
+
   recordPostMetricSnapshot(data: Omit<PostMetricsSnapshot, 'id' | 'created_at'> & { id?: string }): PostMetricsSnapshot {
     const id = data.id || `pms-${randomUUID()}`;
     const observed_at = data.observed_at || new Date().toISOString();
@@ -65,6 +78,11 @@ export class AnalyticsRepository {
   }
 
   recordAccountMetricSnapshot(data: Omit<AccountMetricsSnapshot, 'id'> & { id?: string }): void {
+    const columns = db.prepare('PRAGMA table_info(analytics_snapshots)').all() as any[];
+    if (columns.some((column) => ['views', 'likes', 'comments', 'shares', 'followers_total', 'followers_gain', 'watch_time_seconds', 'engagement_rate'].includes(column.name) && column.notnull) ||
+        !columns.some((column) => column.name === 'metric_contract_version')) {
+      throw new Error('Account metrics require the explicit V1.9 nullable-statistics maintenance migration; no snapshot was written.');
+    }
     const id = data.id || `ams-${randomUUID()}`;
     const observed_at = data.observed_at || new Date().toISOString();
     const date = data.date || observed_at.slice(0, 10);
@@ -73,25 +91,26 @@ export class AnalyticsRepository {
       INSERT INTO analytics_snapshots (
         id, account_id, date, views, likes, comments, shares,
         followers_total, followers_gain, watch_time_seconds, engagement_rate,
-        is_simulated, observed_at, source, provenance_status, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        is_simulated, observed_at, source, provenance_status, notes, following_total, metric_contract_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `).run(
       id,
       data.account_id,
       date,
-      data.views_total || 0,
-      data.likes_total || 0,
-      data.comments_total || 0,
-      data.shares_total || 0,
-      data.followers_total || 0,
-      data.followers_gain || 0,
-      0,
-      data.engagement_rate || 0,
+      data.views_total ?? null,
+      data.likes_total ?? null,
+      data.comments_total ?? null,
+      data.shares_total ?? null,
+      data.followers_total ?? null,
+      data.followers_gain ?? null,
+      data.watch_time_seconds ?? null,
+      data.engagement_rate ?? null,
       data.is_simulated ? 1 : 0,
       observed_at,
       data.source,
       data.provenance_status,
-      data.notes || null
+      data.notes || null,
+      data.following_total ?? null
     );
 
     // Update account table with latest followers
@@ -102,6 +121,20 @@ export class AnalyticsRepository {
         WHERE id = ?
       `).run(data.followers_total, observed_at, data.account_id);
     }
+  }
+
+  getAccountMetricHistory(accountId: string): any[] {
+    return (db.prepare('SELECT * FROM analytics_snapshots WHERE account_id = ? ORDER BY COALESCE(observed_at, date), rowid').all(accountId) as any[])
+      .map((snapshot) => {
+        if (snapshot.metric_contract_version === 1 || !['tiktok_display_api', 'meta_graph_api'].includes(snapshot.source)) return snapshot;
+        // Preserve raw audit rows. Legacy official connectors never supplied these
+        // totals; zero followers/likes also lost the distinction from missing data.
+        return { ...snapshot, views: null, comments: null, shares: null, followers_gain: null,
+          watch_time_seconds: null, engagement_rate: null,
+          followers_total: snapshot.followers_total === 0 ? null : snapshot.followers_total,
+          likes: snapshot.source === 'tiktok_display_api' && snapshot.likes !== 0 ? snapshot.likes : null,
+          historical_warning: 'Legacy API snapshot did not preserve field availability; raw stored values are retained for audit.' };
+      });
   }
 
   getOverviewTotals(filter?: AnalyticsFilter): any {
@@ -144,7 +177,8 @@ export class AnalyticsRepository {
     // Also get follower total from accounts
     const accountTotals = db.prepare(`
       SELECT 
-        COALESCE(sum(followers_count), 0) as total_followers,
+        CASE WHEN count(${this.followerValueSql()}) = count(id) AND count(id) > 0
+          THEN sum(${this.followerValueSql()}) ELSE NULL END as total_followers,
         count(id) as total_accounts,
         MAX(last_synced_at) as last_sync_time
       FROM accounts a
@@ -152,17 +186,17 @@ export class AnalyticsRepository {
     `).get(...params) as any;
 
     const hasSnapshots = Boolean(postTotals && postTotals.total_synced_videos > 0);
-    const views = hasSnapshots ? (postTotals.total_views ?? 0) : null;
+    const views = hasSnapshots ? postTotals.total_views : null;
     const engagements = (postTotals?.total_likes || 0) + (postTotals?.total_comments || 0) + (postTotals?.total_shares || 0);
     const avg_engagement_rate = (views !== null && views > 0) ? Number(((engagements / views) * 100).toFixed(2)) : 0;
 
     return {
       total_views: views,
-      total_likes: hasSnapshots ? (postTotals?.total_likes ?? 0) : null,
-      total_comments: hasSnapshots ? (postTotals?.total_comments ?? 0) : null,
-      total_shares: hasSnapshots ? (postTotals?.total_shares ?? 0) : null,
-      total_followers: accountTotals?.total_followers || 0,
-      total_followers_gained: 0,
+      total_likes: hasSnapshots ? postTotals?.total_likes : null,
+      total_comments: hasSnapshots ? postTotals?.total_comments : null,
+      total_shares: hasSnapshots ? postTotals?.total_shares : null,
+      total_followers: accountTotals?.total_followers ?? null,
+      total_followers_gained: null,
       total_accounts: accountTotals?.total_accounts || 0,
       total_synced_videos: postTotals?.total_synced_videos || 0,
       avg_engagement_rate,
@@ -248,7 +282,9 @@ export class AnalyticsRepository {
         COALESCE(sum(lps.like_count), 0) as total_likes,
         COALESCE(sum(lps.comment_count), 0) as total_comments,
         COALESCE(sum(lps.share_count), 0) as total_shares,
-        COALESCE(sum(a.followers_count), 0) as total_followers,
+        (SELECT CASE WHEN count(${this.followerValueSql('af')}) = count(*) AND count(*) > 0
+          THEN sum(${this.followerValueSql('af')}) ELSE NULL END FROM accounts af
+          WHERE af.platform = a.platform AND af.is_demo = 0 AND af.archived_at IS NULL) as total_followers,
         round(
           case when sum(lps.view_count) > 0 
                then (CAST((sum(lps.like_count) + sum(lps.comment_count) + sum(lps.share_count)) AS FLOAT) / sum(lps.view_count)) * 100.0
@@ -322,7 +358,7 @@ export class AnalyticsRepository {
         COALESCE(sum(lps.like_count), 0) as total_likes,
         COALESCE(sum(lps.comment_count), 0) as total_comments,
         COALESCE(sum(lps.share_count), 0) as total_shares,
-        a.followers_count as current_followers,
+        ${this.followerValueSql()} as current_followers,
         round(
           case when sum(lps.view_count) > 0 
                then (CAST((sum(lps.like_count) + sum(lps.comment_count) + sum(lps.share_count)) AS FLOAT) / sum(lps.view_count)) * 100.0

@@ -32,6 +32,7 @@ export function hasActiveApiAuthorization(account: any): boolean {
       account.connector_mode === 'official_api' &&
       account.identity_verified_at &&
       account.status === 'connected' &&
+      account.connection_status !== 'expired' &&
       unseal(account.access_token) &&
       account.token_expires_at &&
       Date.parse(account.token_expires_at) > Date.now()

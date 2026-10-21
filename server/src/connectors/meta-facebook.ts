@@ -520,19 +520,21 @@ export class MetaFacebookConnector implements AccountConnector {
         { signal: AbortSignal.timeout(15000) }
       );
       const json = await res.json() as any;
-      if (json.error) {
+      if (!res.ok || json.error) {
         return {
           followersTotal: null,
           source: 'meta_graph_api',
           status: 'failed',
-          errorMessage: json.error.message,
+          errorMessage: json.error?.message || `Meta account statistics failed (HTTP ${res.status}).`,
         };
       }
 
+      const followers = json.followers_count ?? json.fan_count;
+      const followersTotal = typeof followers === 'number' && Number.isFinite(followers) && followers >= 0 ? followers : null;
       return {
-        followersTotal: json.followers_count ?? json.fan_count ?? null,
+        followersTotal,
         source: 'meta_graph_api',
-        status: 'confirmed',
+        status: followersTotal === null ? 'unsupported' : 'confirmed',
       };
     } catch (err: any) {
       return {

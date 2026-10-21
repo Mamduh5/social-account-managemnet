@@ -49,29 +49,33 @@ export class TikTokConnector implements AccountConnector {
       });
       const data = (await res.json()) as any;
 
-      if (data.error && data.error.code !== 'ok') {
+      if (!res.ok || (data?.error && data.error.code !== 'ok')) {
         return {
-          status: 'expired',
-          healthStatus: `TikTok API Error: ${data.error.message || 'Token expired'}`,
+          status: 'failed',
+          healthStatus: `TikTok health check was not verified (HTTP ${res.status}); existing credentials were preserved`,
           lastCheckedAt: new Date().toISOString(),
-          warnings: [data.error.message],
+          warnings: ['Retry after a temporary outage, or review scopes and authorization if the problem persists. A failed access-token check does not prove that the refresh grant was revoked.'],
+          preserveConnection: true,
         };
       }
 
-      if (account.external_id && (!data.data?.user?.open_id || data.data.user.open_id !== account.external_id)) {
-        throw new Error('Authorized TikTok identity mismatch');
+      if (!data?.data?.user?.open_id) {
+        return { status: 'failed', healthStatus: 'TikTok returned an incomplete health response; existing connection was preserved', lastCheckedAt: new Date().toISOString(), preserveConnection: true };
+      }
+      if (account.external_id && data.data.user.open_id !== account.external_id) {
+        return { status: 'failed', healthStatus: 'Authorized TikTok identity mismatch', lastCheckedAt: new Date().toISOString() };
       }
       return {
         status: 'connected',
         healthStatus: `Connected as TikTok Creator: ${data.data?.user?.display_name || account.name}`,
         lastCheckedAt: new Date().toISOString(),
       };
-    } catch (err: any) {
+    } catch {
       return {
         status: 'failed',
-        healthStatus: `Network error: ${err.message}`,
+        healthStatus: 'TikTok health check is unavailable; existing connection was preserved',
         lastCheckedAt: new Date().toISOString(),
-        warnings: [err.message],
+        preserveConnection: true,
       };
     }
   }
@@ -557,14 +561,23 @@ export class TikTokConnector implements AccountConnector {
       const data = (await res.json()) as any;
       let u = data.data?.user;
       if (data.error && data.error.code !== 'ok') {
-        // Fall back to basic user info if stats scope is ungranted
+        // Basic profile availability cannot prove account statistics. Only a scope
+        // rejection permits this fallback; outages/auth failures must remain failures.
+        if (data.error.code !== 'scope_not_authorized') {
+          return {
+            followersTotal: null,
+            source: 'tiktok_display_api',
+            status: ['access_token_invalid', 'access_token_expired', 'invalid_token'].includes(data.error.code) ? 'auth_required' : 'failed',
+            errorMessage: data.error.message || `TikTok account statistics failed (HTTP ${res.status}).`,
+          };
+        }
         try {
           const fallbackRes = await fetch(`${this.baseUrl}/user/info/?fields=open_id,display_name`, {
             headers: { Authorization: `Bearer ${account.access_token}` },
             signal: AbortSignal.timeout(15000),
           });
           const fallbackData = (await fallbackRes.json()) as any;
-          if (fallbackData.data?.user) {
+          if (fallbackRes.ok && (!fallbackData.error || fallbackData.error.code === 'ok') && fallbackData.data?.user) {
             u = fallbackData.data.user;
           } else {
             return {
@@ -584,12 +597,29 @@ export class TikTokConnector implements AccountConnector {
         }
       }
 
+      if ((!res.ok && data.error?.code !== 'scope_not_authorized') || !u || typeof u !== 'object' ||
+          (account.external_id && u.open_id !== account.external_id)) {
+        return {
+          followersTotal: null,
+          source: 'tiktok_display_api',
+          status: 'failed',
+          errorMessage: 'TikTok account statistics response was incomplete or did not match the authorized identity.',
+        };
+      }
+
+      const numeric = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+      const followersTotal = numeric(u.follower_count);
+      const followingTotal = numeric(u.following_count);
+      const likesTotal = numeric(u.likes_count);
+      const hasStatistics = [followersTotal, followingTotal, likesTotal].some((value) => value !== null);
+
       return {
-        followersTotal: typeof u?.follower_count === 'number' ? u.follower_count : null,
-        followingTotal: typeof u?.following_count === 'number' ? u.following_count : null,
-        likesTotal: typeof u?.likes_count === 'number' ? u.likes_count : null,
+        followersTotal,
+        followingTotal,
+        likesTotal,
         source: 'tiktok_display_api',
-        status: 'confirmed',
+        status: hasStatistics ? 'confirmed' : 'unsupported',
+        ...(!hasStatistics ? { errorMessage: 'Account statistics unavailable; user.info.stats authorization or supported numeric fields are required.' } : {}),
       };
     } catch (err: any) {
       return {

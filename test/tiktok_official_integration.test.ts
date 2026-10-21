@@ -404,7 +404,7 @@ test('7. Account statistics fallback gracefully handles ungranted user.info.stat
   };
 
   const res = await connector.fetchAccountMetrics({ access_token: 'mock-token' });
-  assert.equal(res.status, 'confirmed');
+  assert.equal(res.status, 'unsupported');
   assert.equal(res.followersTotal, null, 'Followers total must be null when stats scope is not granted');
   assert.equal(res.likesTotal, null);
   assert.equal(res.source, 'tiktok_display_api');

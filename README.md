@@ -2,9 +2,13 @@
 
 Self-hosted multi-account video distribution, moving-watermark branding, engagement triage and provenance-aware analytics for Facebook Pages and TikTok accounts.
 
-## Current milestone: V1.7 TikTok Official API Integration
+The separate [informational website](public-site/README.md) serves Terms, Privacy and Support pages plus a narrowly scoped TikTok OAuth redirect relay. It has no access to the management API, database, credentials or media. The existing owner-managed deployment and legal review boundaries are described in its [deployment guide](public-site/DEPLOYMENT.md) and [owner review](public-site/OWNER_REVIEW.md). This validation performs no deployment.
 
-Status as of **20 October 2026, Asia/Bangkok**:
+## Current milestone: V1.9 validation and automatic synchronization
+
+Status as of **21 October 2026, Asia/Bangkok**. See [V1.9 final validation](docs/qa/V1_9_FINAL_VALIDATION.md) for fixes, exact regression results, historical snapshot handling and runtime boundaries. Natural token renewal remains a separate live acceptance gate; do not restart the backend, HTTPS proxy or collector while that observation is running.
+
+Prior and current evidence:
 
 | Capability | Evidence and boundary |
 | --- | --- |
@@ -13,15 +17,15 @@ Status as of **20 October 2026, Asia/Bangkok**:
 | Official Facebook Reels API publishing | **Live verified**: Acceptance Reel [2657809668013982](https://www.facebook.com/reel/2657809668013982/) |
 | Scheduled Facebook Reels due dispatch | **Dispatched via API**: Scheduled Reel [2100761720535236](https://www.facebook.com/reel/2100761720535236/) dispatched at 12:14 PM Bangkok time (`05:14 UTC`); status `published`, `confirmation_source=api`, `verification_status=confirmed`. Public result pending owner review. |
 | Automatic queue completion | **Live verified**: Published with `confirmation_source=api`; confirmed processing/permalink, no manual confirmation |
-| TikTok Login Kit & Token Rotation | **Implemented & Isolated-Tested (Live OAuth Unverified)**: CSRF state, compare-and-set code exchange, AES-256-GCM token storage, and refresh-token rotation tested. Live authorization pending owner developer app registration and secure HTTPS callback forwarder. |
-| TikTok Display API Real Analytics | **Implemented & Isolated-Tested (Live Unverified)**: Queries `POST /v2/video/query/` for existing videos (`7697115798170782983`, `7697147128375725320`). Distinguishes confirmed 0 from missing data. Paginated `fetchVideoList` (`POST /v2/video/list/`). Strict provenance `tiktok_display_api`. Live sync unverified until owner connects account. |
-| TikTok Stats Scope Fallback | **Implemented & Isolated-Tested (Live Unverified)**: When `user.info.stats` is ungranted, connector falls back to basic user info and records `followersTotal: null` without failing sync. |
+| TikTok Login Kit & Token Rotation | **Existing live OAuth accepted in V1.8**. Hashed state, cookie/account/revision binding and encrypted tokens remain required. Automatic renewal, rotation, races and failure recovery are isolated-tested; natural live renewal is pending the read-only observation. |
+| TikTok Display API Real Analytics | **Existing live periodic post synchronization verified**. Genuine post counters and provenance are preserved. Missing account statistics require nullable values; historical zero snapshots are not accepted as proof of zero. |
+| TikTok Stats Scope Fallback | Basic-profile fallback preserves unavailable statistics as null through connector, synchronization, persistence and analytics responses. Explicit API numeric zero remains zero. |
 | TikTok Content Posting API Direct Post (`video.publish`) | **Blocked by Policy**: Prohibited by TikTok Open Platform Developer Guidelines for internal utility tools managing one's own accounts: *"Not acceptable: A utility tool to help upload contents to the account(s) you or your team manages. ❌"*. Third-party watermarks/branding also prohibited on API uploads. Full workflow (`queryCreatorInfo`, `initDirectPost`, `pollPublishStatus`) implemented and gated. |
 | TikTok Upload to Draft (`video.upload`) | **Blocked by Policy / App Review Required**: Subject to same creator-audience review policies; only routes video to mobile inbox drafts for manual completion. |
 | TikTok for Business Accounts API (Owned Publishing, Insights & Moderation) | **Application & Approval Required**: TikTok's separate Accounts API for Business explicitly supports both Personal and Business Accounts for owned account management, video publishing, insights, and comment moderation (`comment.list`, `comment.list.manage`). Access requires business developer registration and partner approval. Native Platform Handoff retained. |
 | Engagement and analytics | Scope-gated connectors, background sync, SSE and append-only snapshots; API, browser and manual evidence remain distinct. |
 
-The authoritative evidence is [TikTok Official API Integration Acceptance](docs/qa/TIKTOK_OFFICIAL_API_INTEGRATION_ACCEPTANCE.md) and [Official API Authorization Acceptance](docs/qa/OFFICIAL_API_AUTHORIZATION_ACCEPTANCE.md).
+The current engineering evidence is [V1.9 Final Validation](docs/qa/V1_9_FINAL_VALIDATION.md). Historical milestone evidence is [TikTok Official API Integration Acceptance](docs/qa/TIKTOK_OFFICIAL_API_INTEGRATION_ACCEPTANCE.md) and [Official API Authorization Acceptance](docs/qa/OFFICIAL_API_AUTHORIZATION_ACCEPTANCE.md).
 
 ---
 
@@ -40,7 +44,7 @@ Alternatively run `powershell -ExecutionPolicy Bypass -File .\run_server.ps1`. O
 
 `npm run dev` starts the API watcher and Vite on 5180. Start Facebook OAuth from port 3001 to match the callback origin.
 
-This instance is loopback-only. Existing Docker files are packaging scaffolding, not a reviewed LAN/public deployment. Public callbacks, tunnels, proxies and TLS require a separate authentication/access-control review.
+This management instance is loopback-only. The reviewed callback relay redirects allowlisted OAuth fields to the fixed local HTTPS callback; it does not expose the management server through a tunnel. Existing Docker files are packaging scaffolding, not a reviewed LAN/public deployment.
 
 ---
 
@@ -76,11 +80,11 @@ Keep credentials in the server environment or ignored `.env`:
 ## Verification and Private Storage
 
 ```powershell
-npm test                         # 9 test suites, 76 tests (isolated SCC_DATA_DIR per suite)
+npm test                         # Isolated SCC_DATA_DIR per suite; exact results in V1.9 report
 npx tsc --noEmit                  # Backend types
 npm run build:client              # Client types and production bundle
 ```
 
-Current test suite: **76 tests in nine files**, covering TikTok OAuth, state CSRF, token encryption, Display API metric synchronization, confirmed 0 vs missing data, rate limiting (HTTP 429), scope fallback, Content Posting API policy compliance, Reels API publishing, and scheduling.
+The full suite covers OAuth and relay isolation, token encryption/rotation and failure recovery, missing statistics, Display API metrics and rate limiting, content-posting capability gates, Facebook Reels, independent destinations and scheduling. See the dated V1.9 report for current counts; fixtures are separate from live acceptance.
 
 Keep `.env*`, keys, `.data/` databases/WAL files/backups, tokens, profiles, MP4s, thumbnails, logs, test artifacts, dependencies and `client/dist/` out of Git.

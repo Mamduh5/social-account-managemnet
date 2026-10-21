@@ -261,12 +261,12 @@ export interface SyncState {
 
 export interface AnalyticsOverviewResponse {
   totals: {
-    total_views: number;
-    total_likes: number;
-    total_comments: number;
-    total_shares: number;
-    total_followers?: number;
-    total_followers_gained?: number;
+    total_views: number | null;
+    total_likes: number | null;
+    total_comments: number | null;
+    total_shares: number | null;
+    total_followers?: number | null;
+    total_followers_gained?: number | null;
     total_accounts?: number;
     total_synced_videos?: number;
     avg_engagement_rate?: number;

@@ -8,6 +8,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { saveAvatar } from '../services/avatars.service.js';
 import { getConnector } from '../connectors/registry.js';
+import { ensureFreshToken } from '../services/connections.service.js';
 import { accountsRepo } from '../repositories/accounts.repo.js';
 import { activityRepo } from '../repositories/activity.repo.js';
 
@@ -197,8 +198,11 @@ accountsRouter.post('/:id/reconnect', (req, res) => {
   res.json({ success: true, message: 'Demo session reset (simulated only)' });
 });
 accountsRouter.post('/:id/test-health', async (req, res) => {
-  const account = accountsRepo.getAccountById(req.params.id) as any;
+  let account = accountsRepo.getAccountById(req.params.id) as any;
   if (!account) return res.status(404).json({ error: 'Account not found' });
+  if (account.platform === 'tiktok') {
+    account = await ensureFreshToken(account);
+  }
   const health = await getConnector(account).verifyHealth(account);
   if (
     (accountsRepo.getAccountById(account.id) as any)?.connection_revision !==
@@ -207,6 +211,8 @@ accountsRouter.post('/:id/test-health', async (req, res) => {
     return res
       .status(409)
       .json({ error: 'Connection changed during health check; check again' });
+  if (health.status === 'failed' && health.preserveConnection)
+    return res.json({ success: false, health });
   accountsRepo.updateHealthStatus(
     account.id,
     health.status,

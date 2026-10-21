@@ -4,7 +4,7 @@ import { accountsRepo } from '../repositories/accounts.repo.js';
 import { claimIdentity, disconnectAccount } from './accounts.service.js';
 import { seal, unseal, tokenProtectionReady } from './token-protection.js';
 import { normalizeIdentity } from '../domain/account-identity.js';
-import { OAuthFailure, authorizationFailure } from './oauth-diagnostics.js';
+import { OAuthFailure, authorizationFailure, safeProviderDiagnostics } from './oauth-diagnostics.js';
 
 const hash = (v: string) => createHash('sha256').update(v).digest('hex');
 const version = () => {
@@ -29,8 +29,15 @@ export function connectionSetup(platform: string) {
   let callbackAllowed = false;
   try {
     const url = new URL(redirect);
+    const isLoopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+    const isRelay =
+      platform === 'tiktok' &&
+      url.protocol === 'https:' &&
+      (url.hostname === 'billowing-leaf-7ccd.mamduh2542.workers.dev' ||
+        url.hostname.endsWith('.workers.dev') ||
+        url.hostname.endsWith('.pages.dev'));
     callbackAllowed =
-      ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) &&
+      (isLoopback || isRelay) &&
       !url.username &&
       !url.password &&
       !url.search &&
@@ -87,12 +94,24 @@ async function jsonFetch(url: string, options: RequestInit = {}) {
   try { data = await response.json(); } catch {
     throw new OAuthFailure('provider_response', 'invalid_json', 'The platform returned an unreadable response.', { httpStatus: response.status });
   }
-  if (!response.ok || (data.error && data.error.code !== 'ok'))
-    throw new OAuthFailure('provider_response', 'provider_rejected', 'The platform rejected this request. Review the diagnostic HTTP status and numeric provider code.', {
-      httpStatus: response.status,
-      ...(Number.isSafeInteger(data.error?.code) ? { code: data.error.code } : {}),
-      ...(Number.isSafeInteger(data.error?.error_subcode) ? { subcode: data.error.error_subcode } : {}),
-    });
+  if (!data || typeof data !== 'object' || Array.isArray(data))
+    throw new OAuthFailure('provider_response', 'invalid_json', 'The platform returned an incomplete response.', { httpStatus: response.status });
+  const hasError = !response.ok || (data.error && data.error.code !== 'ok') || (typeof data.error === 'string') || (data.code !== undefined && data.code !== 0 && data.code !== 'ok');
+  if (hasError) {
+    const providerCode = typeof data.error === 'string'
+      ? data.error
+      : (data.error?.code ?? (data.code !== 'ok' ? data.code : undefined));
+    throw new OAuthFailure(
+      'provider_response',
+      'provider_rejected',
+      'The platform rejected this request. Review developer-app configuration, permissions and provider availability.',
+      safeProviderDiagnostics({
+        httpStatus: response.status,
+        ...(providerCode !== undefined ? { code: providerCode } : {}),
+        ...(Number.isSafeInteger(data.error?.error_subcode) ? { subcode: data.error.error_subcode } : {}),
+      })
+    );
+  }
   return data;
 }
 
@@ -255,9 +274,15 @@ export async function completeAuthorization(
     const redirectUri = process.env[account.platform === 'facebook' ? 'META_REDIRECT_URI' : 'TIKTOK_REDIRECT_URI'];
     if (!request || request.redirectUri !== redirectUri)
       throw new OAuthFailure(stage, 'configuration_changed', 'The callback configuration changed during authorization. Start a fresh authorization with the configured callback.');
-    stage = 'meta_consent';
-    if (query.error || !query.code)
-      throw new OAuthFailure(stage, query.error === 'access_denied' ? 'access_denied' : 'missing_code', 'Meta denied or cancelled authorization, or returned no authorization code. Start again and review the consent screen.');
+    stage = account.platform === 'facebook' ? 'meta_consent' : 'tiktok_consent';
+    if (query.error || !query.code) {
+      const platformName = account.platform === 'facebook' ? 'Meta' : 'TikTok';
+      throw new OAuthFailure(
+        stage,
+        query.error === 'access_denied' ? 'access_denied' : 'missing_code',
+        `${platformName} denied or cancelled authorization, or returned no authorization code. Start again and review the consent screen.`
+      );
+    }
     const code = String(query.code);
     let items: any[] = [];
     if (account.platform === 'facebook') {
@@ -379,6 +404,10 @@ export async function completeAuthorization(
         'https://open.tiktokapis.com/v2/oauth/token/',
         {
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Cache-Control': 'no-cache',
+          },
           body: new URLSearchParams({
             client_key: process.env.TIKTOK_CLIENT_KEY!,
             client_secret: process.env.TIKTOK_CLIENT_SECRET!,
@@ -471,57 +500,201 @@ export function selectAuthorizedIdentity(
     console.info('[OAuth]', JSON.stringify({ stage: 'connection_finalization', reason: 'connected', platform: account.platform }));
   } catch (e) { throw authorizationFailure(e, 'connection_finalization'); }
 }
-export async function refreshConnection(id: string) {
+const inFlightRefreshes = new Map<string, Promise<any>>();
+
+function isPermanentTikTokRefreshFailure(error: unknown): error is OAuthFailure {
+  if (!(error instanceof OAuthFailure) || error.reason !== 'provider_rejected') return false;
+  const status = error.provider.httpStatus;
+  // TikTok documents invalid_grant as an invalid/expired/revoked refresh grant.
+  // HTTP status alone (including 400/401) does not prove an account revocation;
+  // rate limits, outages, client configuration and unknown errors preserve it.
+  return error.provider.code === 'invalid_grant' &&
+    status !== undefined && ((status >= 200 && status < 300) || status === 400 || status === 401);
+}
+
+export async function refreshConnection(id: string): Promise<any> {
+  const existing = inFlightRefreshes.get(id);
+  if (existing) {
+    return existing;
+  }
+  const promise = (async () => {
+    try {
+      return await executeRefreshConnection(id);
+    } finally {
+      inFlightRefreshes.delete(id);
+    }
+  })();
+  inFlightRefreshes.set(id, promise);
+  return promise;
+}
+
+async function executeRefreshConnection(id: string): Promise<any> {
   const account = accountsRepo.getAccountById(id) as any;
+  if (!account || account.is_demo || account.archived_at || account.platform !== 'tiktok') {
+    throw new Error('Select an active real TikTok account');
+  }
+
+  const now = Date.now();
+  const refreshExpiry = Date.parse(account.refresh_expires_at);
+  if (
+    !account.refresh_token ||
+    !account.identity_verified_at ||
+    !account.refresh_expires_at ||
+    !Number.isFinite(refreshExpiry)
+  ) {
+    throw new OAuthFailure('token_validation', 'missing_refresh_metadata', 'TikTok refresh credentials or expiry metadata are unavailable; official reauthorization required');
+  }
+  if (
+    refreshExpiry <= now
+  ) {
+    registry.connectionStatus(
+      account.id,
+      'expired',
+      'TikTok refresh token expired or missing; official reauthorization required'
+    );
+    throw new OAuthFailure('token_validation', 'refresh_token_expired', 'TikTok refresh token expired or missing; official reauthorization required');
+  }
+
+  let unsealedRefresh: string | null = null;
+  try {
+    unsealedRefresh = unseal(account.refresh_token);
+  } catch {
+    // A local encryption/configuration problem is not evidence of revocation.
+    throw new OAuthFailure('token_encryption', 'decryption_failed', 'Could not decrypt stored refresh token; reconnect through official authorization');
+  }
+
+  if (!unsealedRefresh) {
+    throw new OAuthFailure('token_validation', 'missing_refresh_token', 'Missing refresh token; reconnect through official authorization');
+  }
+
+  let token: any;
+  try {
+    token = await jsonFetch(
+      'https://open.tiktokapis.com/v2/oauth/token/',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Cache-Control': 'no-cache',
+        },
+        body: new URLSearchParams({
+          client_key: process.env.TIKTOK_CLIENT_KEY!,
+          client_secret: process.env.TIKTOK_CLIENT_SECRET!,
+          grant_type: 'refresh_token',
+          refresh_token: unsealedRefresh,
+        }),
+      }
+    );
+  } catch (err: any) {
+    if (isPermanentTikTokRefreshFailure(err)) {
+      // An old request must not expire a newer authorization or disconnected account.
+      const current = accountsRepo.getAccountById(account.id) as any;
+      if (!current || current.archived_at || current.connection_revision !== account.connection_revision)
+        throw new OAuthFailure('token_validation', 'connection_changed', 'Account connection changed during refresh; the current connection was preserved.');
+      registry.connectionStatus(account.id, 'expired',
+        'TikTok authorization expired or revoked; reconnect through official authorization');
+      throw new OAuthFailure(
+        'provider_response',
+        'invalid_grant',
+        'TikTok authorization expired or revoked; reconnect through official authorization',
+        err.provider,
+      );
+    }
+    // Temporary and unclassified failures preserve existing status and credentials.
+    throw err;
+  }
+
+  if (
+    (account.external_id && token.open_id && token.open_id !== account.external_id) ||
+    typeof token.access_token !== 'string' || !token.access_token ||
+    !Number.isFinite(token.expires_in) || token.expires_in <= 0 ||
+    (token.refresh_token !== undefined && (typeof token.refresh_token !== 'string' || !token.refresh_token)) ||
+    (token.refresh_expires_in !== undefined && (!Number.isFinite(token.refresh_expires_in) || token.refresh_expires_in <= 0))
+  ) {
+    throw new OAuthFailure('provider_response', 'token_identity_mismatch', 'TikTok token identity mismatch or incomplete token response');
+  }
+
+  const current = accountsRepo.getAccountById(account.id) as any;
+  if (!current || current.archived_at) {
+    throw new Error('Account was archived or deleted');
+  }
+  if (current.connection_revision !== account.connection_revision) {
+    if (current.token_expires_at && Date.parse(current.token_expires_at) > now + 15 * 60 * 1000) {
+      return current;
+    }
+    throw new Error('Account connection changed during refresh');
+  }
+
+  const rotatedRefreshToken = token.refresh_token || unsealedRefresh;
+  // Missing metadata must never extend the known refresh-token lifetime.
+  const newRefreshExpiresAt = token.refresh_expires_in !== undefined
+    ? new Date(now + token.refresh_expires_in * 1000).toISOString()
+    : current.refresh_expires_at;
+  const newExpiresAt = new Date(now + token.expires_in * 1000).toISOString();
+
+  const scopes = token.scope
+    ? String(token.scope).split(',').map((s: string) => s.trim()).filter(Boolean)
+    : (current.granted_scopes_json ? JSON.parse(current.granted_scopes_json) : []);
+
+  updateConnection(current, {
+    id: token.open_id || current.external_id,
+    accessToken: token.access_token,
+    refreshToken: rotatedRefreshToken,
+    expiresAt: newExpiresAt,
+    refreshExpiresAt: newRefreshExpiresAt,
+    scopes,
+  });
+
+  console.info('[OAuth]', JSON.stringify({
+    stage: 'token_refresh',
+    reason: 'refreshed',
+    platform: 'tiktok',
+    accountId: account.id,
+    expiresAt: newExpiresAt,
+    refreshRotated: !!token.refresh_token && token.refresh_token !== unsealedRefresh,
+  }));
+
+  return accountsRepo.getAccountById(account.id);
+}
+
+export async function ensureFreshToken(account: any): Promise<any> {
+  if (account?.platform === 'tiktok' && !account.is_demo && !account.archived_at && account.connection_status === 'expired')
+    throw new OAuthFailure('token_validation', 'invalid_grant', 'TikTok authorization requires official reauthorization; automatic refresh of the expired connection is disabled.');
   if (
     !account ||
     account.is_demo ||
     account.archived_at ||
     account.platform !== 'tiktok' ||
     !account.refresh_token ||
-    !account.identity_verified_at ||
     !account.refresh_expires_at ||
     Date.parse(account.refresh_expires_at) <= Date.now()
-  )
-    throw new Error('Official reauthorization required');
-  try {
-    const token = await jsonFetch(
-      'https://open.tiktokapis.com/v2/oauth/token/',
-      {
-        method: 'POST',
-        body: new URLSearchParams({
-          client_key: process.env.TIKTOK_CLIENT_KEY!,
-          client_secret: process.env.TIKTOK_CLIENT_SECRET!,
-          grant_type: 'refresh_token',
-          refresh_token: unseal(account.refresh_token)!,
-        }),
-      }
-    );
-    if (
-      token.open_id !== account.external_id ||
-      !token.access_token ||
-      !token.refresh_token ||
-      !token.expires_in
-    )
-      throw new Error('Token identity mismatch');
-    const current = accountsRepo.getAccountById(account.id) as any;
-    if (current.connection_revision !== account.connection_revision)
-      throw new Error('Account connection changed');
-    updateConnection(current, {
-      id: token.open_id,
-      accessToken: token.access_token,
-      refreshToken: token.refresh_token,
-      expiresAt: new Date(Date.now() + token.expires_in * 1000).toISOString(),
-      refreshExpiresAt: new Date(
-        Date.now() + token.refresh_expires_in * 1000
-      ).toISOString(),
-      scopes: String(token.scope || '').split(','),
-    });
-  } catch {
-    throw new Error(
-      'Token renewal failed; reconnect through official authorization'
-    );
+  ) {
+    return account;
   }
+
+  const now = Date.now();
+  // Proactively refresh if expiring within 30 minutes, or already expired
+  const safetyThresholdMs = 30 * 60 * 1000;
+  const accessExpiry = Date.parse(account.token_expires_at);
+  const isExpiringSoon = !Number.isFinite(accessExpiry) || accessExpiry <= (now + safetyThresholdMs);
+
+  if (isExpiringSoon) {
+    try {
+      return await refreshConnection(account.id);
+    } catch (err: any) {
+      console.warn('[OAuth]', JSON.stringify({ stage: 'token_refresh', reason: err instanceof OAuthFailure ? err.reason : 'refresh_failed', httpStatus: err instanceof OAuthFailure ? err.provider.httpStatus : undefined }));
+      const current = accountsRepo.getAccountById(account.id) as any;
+      // A temporary proactive refresh failure can use a still-valid access token.
+      // An expired token or confirmed revocation must fail this cycle rather than
+      // send a known-unusable token and immediately attempt another refresh.
+      if (current && !current.archived_at && current.status === 'connected' &&
+          current.connection_status !== 'expired' && current.access_token &&
+          Date.parse(current.token_expires_at) > Date.now()) return current;
+      throw err;
+    }
+  }
+
+  return account;
 }
 export function enableBrowserHandoff(id: string) {
   const account = accountsRepo.getAccountById(id) as any;

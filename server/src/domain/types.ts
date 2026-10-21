@@ -196,12 +196,14 @@ export interface AccountMetricsSnapshot {
   observed_at: string;
   date: string;
   followers_total: number | null;
-  followers_gain: number;
+  followers_gain: number | null;
   views_total: number | null;
   likes_total: number | null;
   comments_total: number | null;
   shares_total: number | null;
-  engagement_rate: number;
+  engagement_rate: number | null;
+  following_total?: number | null;
+  watch_time_seconds?: number | null;
   source: ProvenanceSource;
   provenance_status: ProvenanceStatus;
   is_simulated: number;

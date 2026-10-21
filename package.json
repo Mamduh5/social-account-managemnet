@@ -11,7 +11,8 @@
     "build": "npm run build:client",
     "start": "tsx server/src/index.ts",
     "test": "tsx test/run-tests.ts",
-    "test:onboarding": "tsx test/e2e/real_account_onboarding.ts"
+    "test:onboarding": "tsx test/e2e/real_account_onboarding.ts",
+    "proxy:https": "tsx server/src/loopback-proxy.ts"
   },
   "repository": {
     "type": "git",

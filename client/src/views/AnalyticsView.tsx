@@ -230,7 +230,7 @@ export const AnalyticsView: React.FC = () => {
         <div className="bg-surface-card border border-border p-4 rounded-2xl shadow-xs">
           <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Followers Total</p>
           <h3 className="text-xl font-black text-slate-100 mt-1">
-            {Number(totals?.total_followers || 0).toLocaleString()}
+            {totals?.total_followers == null ? 'Unavailable' : Number(totals.total_followers).toLocaleString()}
           </h3>
           <p className="text-[10px] text-sage-400 mt-1 font-medium">Current audience</p>
         </div>
@@ -532,7 +532,7 @@ export const AnalyticsView: React.FC = () => {
                   <td className="py-3 text-slate-300 font-mono">{Number(acc.total_likes).toLocaleString()}</td>
                   <td className="py-3 text-slate-300 font-mono">{Number(acc.total_comments).toLocaleString()}</td>
                   <td className="py-3 font-semibold text-slate-200 font-mono">
-                    {Number(acc.current_followers).toLocaleString()}
+                    {acc.current_followers == null ? 'Unavailable' : Number(acc.current_followers).toLocaleString()}
                   </td>
                   <td className="py-3 text-sage-400 font-bold">{acc.engagement_rate}%</td>
                 </tr>

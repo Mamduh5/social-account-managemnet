@@ -44,24 +44,37 @@ connectionsRouter.post('/:id/start', (req, res) => {
         ];
       if (configured) {
         const callback = new URL(configured);
-        if (callback.hostname !== req.hostname)
-          return res
-            .status(409)
-            .json({
-              error:
-                'Open Command Center using the same hostname as the registered OAuth callback so the browser session cookie remains bound correctly.',
-            });
-        if (account.platform === 'facebook' && callback.origin !== `${req.protocol}://${req.get('host')}`)
-          return res.status(409).json({ error: `Open Command Center at ${callback.origin} before authorization. The protocol, hostname and port must match the configured callback origin.` });
-        const source =
-          req.get('origin') || `${req.protocol}://${req.get('host')}`;
-        if (account.platform === 'tiktok' && !source.startsWith('https://'))
-          return res
-            .status(409)
-            .json({
-              error:
-                'TikTok Web Login requires HTTPS. Open Command Center through your reviewed loopback HTTPS setup before authorization.',
-            });
+        if (account.platform === 'facebook') {
+          if (callback.hostname !== req.hostname)
+            return res
+              .status(409)
+              .json({
+                error:
+                  'Open Command Center using the same hostname as the registered OAuth callback so the browser session cookie remains bound correctly.',
+              });
+          if (callback.origin !== `${req.protocol}://${req.get('host')}`)
+            return res.status(409).json({ error: `Open Command Center at ${callback.origin} before authorization. The protocol, hostname and port must match the configured callback origin.` });
+        } else if (account.platform === 'tiktok') {
+          const isLoopback = ['localhost', '127.0.0.1', '[::1]'].includes(req.hostname);
+          const isCallbackHost = callback.hostname === req.hostname;
+          if (!isCallbackHost && !isLoopback)
+            return res
+              .status(409)
+              .json({
+                error:
+                  'Open Command Center using the callback hostname or local loopback before authorization.',
+              });
+          const proto = req.headers['x-forwarded-proto'] || req.protocol;
+          const host = req.get('host') || '';
+          const source = req.get('origin') || `${proto}://${host}`;
+          if (!source.startsWith('https://'))
+            return res
+              .status(409)
+              .json({
+                error:
+                  'TikTok Web Login requires HTTPS. Open Command Center through your reviewed loopback HTTPS setup before authorization.',
+              });
+        }
       }
     }
 
