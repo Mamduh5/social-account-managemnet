@@ -1,0 +1,11 @@
+{
+  "name": "social-command-center-public-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "preview": "node scripts/preview.mjs",
+    "check": "node scripts/check.mjs",
+    "package:upload": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-upload.ps1"
+  }
+}

@@ -1,0 +1,4 @@
+_worker.js
+worker.js
+*.map
+.DS_Store
