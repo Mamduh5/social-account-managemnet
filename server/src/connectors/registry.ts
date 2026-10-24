@@ -127,6 +127,10 @@ export function getConnector(account: any): AccountConnector {
       const health = await adapter.verifyHealth(authorized);
       return health;
     },
+    publishPost: async (_a, payload) => {
+      if (!capabilities.canPublish || account.platform !== 'facebook' || account.account_type !== 'page' || !metaConnector.publishPost) throw new Error('General posts require an authorized Facebook Page');
+      return metaConnector.publishPost(authorized,payload);
+    },
     publishVideo: async (_a, payload, progress) => {
       if (!capabilities.canPublish) throw new Error(blocked().errorMessage);
       return adapter.publishVideo(authorized, payload, progress);

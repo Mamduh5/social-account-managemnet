@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { api } from '../../api/client';
 import { HandoffModal } from './HandoffModal';
 import { PublishingDestination } from '../../types';
 import { RotateCcw, ExternalLink, AlertCircle } from 'lucide-react';
@@ -16,6 +17,12 @@ export const QueueTable: React.FC<QueueTableProps> = ({
   onCancel,
   onRefresh,
 }) => {
+  const [reconcileError, setReconcileError] = useState('');
+  const [reconcilingId, setReconcilingId] = useState<string | null>(null);
+  async function reconcile(id: string) {
+    setReconcilingId(id); setReconcileError('');
+    try { await api.reconcileDestination(id); onRefresh(); } catch (error) { setReconcileError(error instanceof Error ? error.message : 'Reconciliation failed.'); } finally { setReconcilingId(null); }
+  }
   const [handoffId, setHandoffId] = useState<string | null>(null);
   return (
     <div className="space-y-4">
@@ -35,6 +42,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
           </button>
         </div>
 
+        {reconcileError && <p role="alert" className="text-xs text-rose-300 mb-3">{reconcileError}</p>}
         {queue.length === 0 ? (
           <div className="text-center py-12 text-slate-500 text-sm">
             No items in the publishing queue.
@@ -45,6 +53,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
               const isInterrupted = item.status === 'preparing' && item.error_message?.startsWith('Interrupted by server restart');
               const isFailed = item.status === 'failed' || isInterrupted;
               const isPublished = item.status === 'published';
+              const requiresReconciliation = isFailed && Boolean(item.submission_state || item.remote_post_id);
               const isProcessing = ['preparing', 'branding', 'uploading'].includes(item.status);
 
               return (
@@ -73,6 +82,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                           </span>
                         </div>
                         <p className="text-xs text-slate-400 font-medium mt-0.5 truncate">{item.post_title}</p>
+                        <p className="text-[10px] text-slate-400 uppercase mt-1">{(item.content_type || 'reel').replace('_', ' ')}</p>
                         {item.status === 'scheduled' && item.scheduled_at && (
                           <p className="text-xs text-slate-300 mt-1">Scheduled for {new Date(item.scheduled_at).toLocaleString('en-GB', { timeZone: 'Asia/Bangkok', hour12: false })} (Asia/Bangkok)</p>
                         )}
@@ -106,8 +116,9 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                       </span>
 
                       {item.status === 'awaiting_confirmation' && <button className="text-terracotta-400 font-bold" onClick={() => setHandoffId(item.id)}>Open Prepared Package</button>}
+                      {requiresReconciliation && <button disabled={reconcilingId === item.id} onClick={() => void reconcile(item.id)} className="px-3 py-1 text-xs rounded-xl bg-surface border border-border text-amber-300 disabled:opacity-40">{reconcilingId === item.id ? 'Checking…' : 'Reconcile Read-only'}</button>}
                       {/* Retries only this destination! */}
-                      {isFailed && (
+                      {isFailed && !requiresReconciliation && (
                         <button
                           onClick={() => onRetry(item.id)}
                           className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer active:scale-95"
@@ -159,7 +170,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                     <div className="mt-2.5 p-2.5 bg-rose-950/20 border border-rose-900/40 rounded-xl text-xs text-rose-300 flex items-start gap-2">
                       <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                       <div>
-                        <p className="font-semibold">Publication Error (Retry Available):</p>
+                        <p className="font-semibold">{requiresReconciliation ? 'Remote outcome requires reconciliation; replay is blocked' : 'Publication Error (Retry Available):'}</p>
                         <p className="text-[11px] text-rose-400 mt-0.5">{item.error_message}</p>
                       </div>
                     </div>

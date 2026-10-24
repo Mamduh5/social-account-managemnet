@@ -123,7 +123,8 @@ export interface BrandedVideoEntity {
 
 export interface PublishingPostEntity {
   id: string;
-  video_id: string;
+  video_id: string | null;
+  content_type?: string;
   title: string;
   scheduled_at?: string | null;
   status: PostStatus;

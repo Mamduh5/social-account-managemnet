@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { GeneralPostComposer } from '../components/publishing/GeneralPostComposer';
+import { GeneralPostType, PostContentType } from '../types/general-posts';
 import { 
   Upload, Film, Check, Clock, Layers, Send, Sparkles 
 } from 'lucide-react';
@@ -12,6 +14,7 @@ interface Props {
 }
 
 export const PublishingView: React.FC<Props> = () => {
+  const [postType, setPostType] = useState<PostContentType>('reel');
   const {
     activeTab,
     setActiveTab,
@@ -71,7 +74,7 @@ export const PublishingView: React.FC<Props> = () => {
     : (activeVideo ? (activeVideo.streamUrl || `/uploads/${activeVideo.file_path.split(/[/\\]/).pop()}`) : '');
 
   return (
-    <div className="space-y-6"><p className="text-xs text-slate-400">Disconnected accounts prepare a downloadable MP4 and caption for native publishing. Opening a platform never marks a post published.</p>
+    <div className="space-y-6"><p className="text-xs text-slate-400">Reels use the existing video workflow. General Page posts are prepared as drafts for explicit review and approval. Opening a native handoff never marks content published.</p>
       {/* Tab Navigation */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-3.5">
         <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
@@ -121,20 +124,31 @@ export const PublishingView: React.FC<Props> = () => {
             accept="video/mp4,video/*"
             className="hidden"
           />
-          <button
+          {(activeTab !== 'compose' || postType === 'reel') && <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
             className="px-3.5 py-1.5 bg-surface hover:bg-surface-hover text-slate-200 border border-border rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer active:scale-95"
           >
             <Upload className="w-3.5 h-3.5 text-terracotta-400" />
             {uploading ? `Uploading ${uploadProgress}%...` : 'Upload MP4'}
-          </button>
+          </button>}
         </div>
       </div>
 
       <label className="flex gap-2 text-xs"><input type="checkbox" checked={showDemoAccounts} onChange={e => setShowDemoAccounts(e.target.checked)} />Show demo publishing targets (simulated only)</label>
+      {activeTab === 'compose' && <div className="bg-surface-card border border-border rounded-2xl p-4 space-y-2">
+        <label className="text-xs font-bold block" htmlFor="post-content-type">Post type</label>
+        <select id="post-content-type" aria-label="Post type" value={postType} onChange={e => setPostType(e.target.value as PostContentType)} className="w-full sm:w-80 bg-surface border border-border rounded-xl px-3 py-2 text-sm">
+          <option value="reel">Reel / Video (existing workflow)</option>
+          <option value="text">Facebook Page: Text-only</option>
+          <option value="image">Facebook Page: Single image</option>
+          <option value="multi_image">Facebook Page: Multiple images</option>
+          <option value="link">Facebook Page: Link</option>
+        </select>
+      </div>}
+      {activeTab === 'compose' && postType !== 'reel' && <GeneralPostComposer accounts={accounts} contentType={postType} onContentTypeChange={setPostType} onQueued={() => { void loadData(); setActiveTab('queue'); }} />}
       {/* TAB 1: COMPOSE & MULTI-DESTINATION PUBLISHING */}
-      {activeTab === 'compose' && (
+      {activeTab === 'compose' && postType === 'reel' && (
         <form onSubmit={handlePublishSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left Column: Form & Destinations (7 cols) */}
           <div className="lg:col-span-7 space-y-5">
@@ -507,12 +521,13 @@ export const PublishingView: React.FC<Props> = () => {
           syncingPipeline={syncingPipeline}
           selectedVideoId={selectedVideoId}
           onSelectVideo={(id, title) => {
+            setPostType('reel');
             setSelectedVideoId(id);
             setSelectedVariantId('original');
             setPostTitle(title);
             setActiveTab('compose');
           }}
-          onSelectVideoVariant={handleSelectVideoVariant}
+          onSelectVideoVariant={(videoId, variantId, title) => { setPostType('reel'); handleSelectVideoVariant(videoId, variantId, title); }}
           onImportPipelineFile={handleImportPipelineFile}
           onImportPipelineJob={handleImportPipelineJob}
           onSyncPipeline={handleSyncPipeline}

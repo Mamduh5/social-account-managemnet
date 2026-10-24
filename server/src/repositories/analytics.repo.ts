@@ -231,7 +231,7 @@ export class AnalyticsRepository {
         pd.id as destination_id,
         pd.post_id,
         v.id as video_id,
-        v.title as video_title,
+        COALESCE(v.title,pp.title) as video_title,
         v.thumbnail_path,
         a.id as account_id,
         a.name as account_name,
@@ -255,7 +255,7 @@ export class AnalyticsRepository {
       FROM publishing_destinations pd
       JOIN accounts a ON pd.account_id = a.id
       JOIN publishing_posts pp ON pd.post_id = pp.id
-      JOIN videos v ON pp.video_id = v.id
+      LEFT JOIN videos v ON pp.video_id = v.id
       LEFT JOIN categories cat ON a.category_id = cat.id
       LEFT JOIN LatestPostSnapshots pms ON pms.destination_id = pd.id AND pms.rn = 1
       ${where}

@@ -1,3 +1,4 @@
+import {generalPostsReady} from '../db/general-posts-schema.js';
 import { db } from '../db/database.js';
 import {
   VideoEntity,
@@ -146,7 +147,7 @@ export class PublishingRepository {
 
   createPostWithDestinations(params: {
     postId: string;
-    videoId: string;
+    videoId: string | null;
     title: string;
     scheduledAt?: string | null;
     postStatus: PostStatus;
@@ -208,7 +209,7 @@ export class PublishingRepository {
     const posts = db.prepare(`
       SELECT p.*, v.title as video_title, v.aspect_ratio, v.duration, v.thumbnail_path
       FROM publishing_posts p
-      JOIN videos v ON p.video_id = v.id
+      LEFT JOIN videos v ON p.video_id = v.id
       ORDER BY p.created_at DESC
     `).all() as any[];
 
@@ -235,7 +236,7 @@ export class PublishingRepository {
              c.name as category_name, c.color as category_color
       FROM publishing_destinations pd
       JOIN publishing_posts p ON pd.post_id = p.id
-      JOIN videos v ON p.video_id = v.id
+      LEFT JOIN videos v ON p.video_id = v.id
       JOIN accounts a ON pd.account_id = a.id
       LEFT JOIN categories c ON a.category_id = c.id
       ORDER BY 
@@ -259,6 +260,8 @@ export class PublishingRepository {
   getDestinationById(id: string): PublishingDestinationEntity | undefined {
     return db.prepare('SELECT * FROM publishing_destinations WHERE id = ?').get(id) as any;
   }
+
+  getPostDestinationRows(postId: string): any[] { return db.prepare('SELECT * FROM publishing_destinations WHERE post_id=?').all(postId) as any[]; }
 
   getDestinationsByPostId(postId: string): { status: DestinationStatus }[] {
     return db.prepare('SELECT status FROM publishing_destinations WHERE post_id = ?').all(postId) as any[];
@@ -340,6 +343,8 @@ export class PublishingRepository {
 
   // --- QUEUE WORKER QUERIES ---
 
+  getStartupSafetyJobs():any[]{return db.prepare(`SELECT pd.id,pd.status,p.scheduled_at,pd.remote_post_id,${generalPostsReady(db)?'pd.submission_state':'NULL as submission_state'} FROM publishing_destinations pd JOIN publishing_posts p ON p.id=pd.post_id WHERE pd.status IN ('preparing','branding','uploading','scheduled')`).all();}
+
   getStuckJobs(): { id: string; status: string }[] {
     return db.prepare(`
       SELECT id, status FROM publishing_destinations
@@ -371,14 +376,15 @@ export class PublishingRepository {
         pd.id, pd.post_id, pd.account_id, pd.caption, pd.hashtags,
         pd.apply_branding, pd.branding_override_json, pd.branded_video_path,
         pd.selected_variant_id, pd.status,
-        pd.retry_count, pd.max_retries,
+        pd.retry_count, pd.max_retries, pd.remote_post_id,
+        ${generalPostsReady(db)?"pd.submission_state, pd.content_type, pd.link_url":"NULL as submission_state, 'reel' as content_type, NULL as link_url"},
         p.title, p.scheduled_at,
         v.file_path as original_video_path,
         a.platform, a.name as account_name, a.handle as account_handle,
         a.connector_mode, a.access_token, a.external_id, a.brand_kit_json, a.status as account_status
       FROM publishing_destinations pd
       JOIN publishing_posts p ON pd.post_id = p.id
-      JOIN videos v ON p.video_id = v.id
+      LEFT JOIN videos v ON p.video_id = v.id
       JOIN accounts a ON pd.account_id = a.id
       WHERE pd.status IN ('preparing', 'branding')
       AND (pd.error_message IS NULL OR pd.error_message NOT LIKE 'Interrupted by server restart%')

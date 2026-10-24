@@ -1,4 +1,4 @@
-import { AccountConnector, ConnectorCapabilities, ConnectionHealth, PublishDestinationPayload, PublishResult, CommentFetchResult } from './types.js';
+import { AccountConnector, ConnectorCapabilities, ConnectionHealth, PublishDestinationPayload, PagePostPayload, PublishResult, CommentFetchResult } from './types.js';
 
 export class SimulatorConnector implements AccountConnector {
   getCapabilities(): ConnectorCapabilities {
@@ -33,6 +33,11 @@ export class SimulatorConnector implements AccountConnector {
       tokenExpiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
       lastCheckedAt: new Date().toISOString(),
     };
+  }
+
+  async publishPost(account:any,payload:PagePostPayload):Promise<PublishResult> {
+    if (!account.is_demo || account.platform!=='facebook' || account.account_type!=='page') throw new Error('Simulator is restricted to persisted demo Pages');
+    return {success:true,remotePostId:'sim-post-'+payload.destinationId,remotePostUrl:'https://www.facebook.com/'+account.external_id+'/posts/sim-'+payload.destinationId,verificationStatus:'confirmed'};
   }
 
   async publishVideo(

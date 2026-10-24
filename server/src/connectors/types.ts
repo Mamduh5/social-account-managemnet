@@ -1,4 +1,5 @@
 export interface ConnectorCapabilities {
+  supportedPostTypes?: Array<'video' | 'text' | 'image' | 'multi_image' | 'link'>;
   canReadProfile?: boolean;
   canPublish: boolean;
   canSchedule: boolean;
@@ -48,6 +49,30 @@ export interface PublishResult {
   publishedAt?: string;
 }
 
+/** General Page posts use local image bytes; no remote URL is fetched by the server. */
+export interface PagePostPayload {
+  destinationId: string;
+  postId: string;
+  accountId: string;
+  contentType: 'text' | 'image' | 'multi_image' | 'link';
+  caption: string;
+  hashtags: string;
+  linkUrl?: string;
+  attachments: Array<{
+    id: string;
+    path: string;
+    mimeType: string;
+    altText?: string;
+    remoteId?: string;
+  }>;
+  /** An existing post is reconciled read-only; it must never be submitted again. */
+  remotePostId?: string;
+  /** Callbacks must durably persist intent/IDs before the next network operation. */
+  onSubmissionStarted: (stage: string, attachmentId?: string) => void;
+  onAttachmentUploaded: (attachmentId: string, remoteId: string) => void;
+  onRemoteCreated: (remoteId: string) => void;
+}
+
 export interface CommentFetchResult {
   externalCommentId: string;
   authorName: string;
@@ -89,6 +114,7 @@ export interface AccountConnector {
   getCapabilities(): ConnectorCapabilities;
   verifyHealth(account: any): Promise<ConnectionHealth>;
   publishVideo(account: any, payload: PublishDestinationPayload, onProgress?: (pct: number, stage: string) => void): Promise<PublishResult>;
+  publishPost?(account: any, payload: PagePostPayload, onProgress?: (pct: number, stage: string) => void): Promise<PublishResult>;
   fetchComments(account: any, options?: { postId?: string; limit?: number }): Promise<CommentFetchResult[]>;
   replyComment(account: any, commentId: string, text: string): Promise<{ success: boolean; replyId?: string; errorMessage?: string }>;
   reactComment(account: any, commentId: string, reaction: string): Promise<{ success: boolean; errorMessage?: string }>;

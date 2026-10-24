@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { AccountConnector, ConnectorCapabilities, ConnectionHealth, PublishDestinationPayload, PublishResult, CommentFetchResult } from './types.js';
+import { AccountConnector, ConnectorCapabilities, ConnectionHealth, PublishDestinationPayload, PublishResult, CommentFetchResult, PagePostPayload } from './types.js';
 
 export class MetaFacebookConnector implements AccountConnector {
   constructor(private readonly polling = { attempts: 90, intervalMs: 2000 }) {}
@@ -11,6 +11,7 @@ export class MetaFacebookConnector implements AccountConnector {
   getCapabilities(): ConnectorCapabilities {
     return {
       canPublish: true,
+      supportedPostTypes: ['video', 'text', 'image', 'multi_image', 'link'],
       canSchedule: true,
       canReadPostMetrics: true,
       canReadComments: true,
@@ -23,6 +24,110 @@ export class MetaFacebookConnector implements AccountConnector {
       maxVideoSizeMb: 1024,
       maxDurationSeconds: 14400,
     };
+  }
+
+  /** Page feed posts deliberately bypass FFmpeg and the Reels upload endpoint. */
+  async publishPost(
+    account: any,
+    payload: PagePostPayload,
+    onProgress?: (pct: number, stage: string) => void,
+  ): Promise<PublishResult> {
+    const pageId = String(account.external_id || '');
+    if (!account.access_token || !/^\d+$/.test(pageId) || (account.account_type && account.account_type !== 'page'))
+      throw new Error('General publishing requires an authorized Facebook Page identity.');
+    // A saved remote ID is a reconciliation request, never permission to replay.
+    if (payload.remotePostId) return this.verifyPagePost(account, pageId, payload.remotePostId, onProgress);
+    if (typeof payload.onSubmissionStarted !== 'function' || typeof payload.onAttachmentUploaded !== 'function' || typeof payload.onRemoteCreated !== 'function')
+      throw new Error('Durable submission tracking is required for Page posts.');
+    const attachments = payload.attachments || [];
+    if (!['text', 'image', 'multi_image', 'link'].includes(payload.contentType)) throw new Error('Unsupported Page post type.');
+    if (payload.contentType === 'image' && attachments.length !== 1) throw new Error('A single-image post requires exactly one image.');
+    if (payload.contentType === 'multi_image' && (attachments.length < 2 || attachments.length > 10)) throw new Error('A multi-image post requires 2 to 10 ordered images.');
+    if (['text', 'link'].includes(payload.contentType) && attachments.length) throw new Error('Text and link posts cannot contain image attachments.');
+    const message = [payload.caption, payload.hashtags].filter(Boolean).join('\n');
+    if (payload.contentType === 'text' && !message.trim()) throw new Error('A text post requires text.');
+    if (payload.contentType === 'link') {
+      let link: URL;
+      try { link = new URL(payload.linkUrl || ''); } catch { throw new Error('A link post requires a valid HTTP(S) URL.'); }
+      if (!['https:', 'http:'].includes(link.protocol) || link.username || link.password) throw new Error('A link post requires a valid HTTP(S) URL.');
+    } else if (payload.linkUrl) throw new Error('Only link posts may contain a link attachment.');
+    // Validate all files before the first remote upload. Originals are only read.
+    for (const attachment of attachments) {
+      if (!['image/jpeg', 'image/png'].includes(attachment.mimeType)) throw new Error('Page image uploads support validated JPEG and PNG files.');
+      if (!attachment.remoteId && (!fs.existsSync(attachment.path) || !fs.statSync(attachment.path).isFile())) throw new Error('A Page image attachment is unavailable.');
+      if (attachment.remoteId && !/^\d+$/.test(attachment.remoteId)) throw new Error('Invalid saved Page photo ID; reconcile before retry.');
+    }
+    const photoIds: string[] = [];
+    for (const attachment of attachments) {
+      if (attachment.remoteId) {
+        // Reuse only persisted uploads owned by the exact selected Page.
+        const photo = await this.pageRequest(account, `${attachment.remoteId}?fields=id,from`, { method: 'GET' }, 'saved photo verification');
+        if (String(photo.id) !== attachment.remoteId || String(photo.from?.id) !== pageId) throw new Error('Saved photo identity is unverified; reconcile before retry.');
+        photoIds.push(attachment.remoteId);
+        continue;
+      }
+      const form = new FormData();
+      form.append('source', new Blob([fs.readFileSync(attachment.path)], { type: attachment.mimeType }), attachment.mimeType === 'image/png' ? 'image.png' : 'image.jpg');
+      form.append('published', 'false');
+      if (attachment.altText) form.append('alt_text_custom', attachment.altText);
+      // The callback must finish synchronously before fetch begins. Any later
+      // timeout/invalid response leaves an intent that requires reconciliation.
+      await payload.onSubmissionStarted('photo_upload', attachment.id);
+      const photo = await this.pageRequest(account, `${pageId}/photos`, { method: 'POST', body: form }, 'photo upload');
+      if (!/^\d+$/.test(String(photo.id || ''))) throw new Error('Photo upload returned no valid ID; reconcile the saved intent before retry.');
+      await payload.onAttachmentUploaded(attachment.id, String(photo.id));
+      photoIds.push(String(photo.id));
+      onProgress?.(Math.round(70 * photoIds.length / attachments.length), 'uploading');
+    }
+    const body: Record<string, unknown> = { message, published: true };
+    if (payload.contentType === 'link') body.link = payload.linkUrl;
+    if (photoIds.length) {
+      body.attached_media = photoIds.map(media_fbid => ({ media_fbid }));
+      body.multi_share_optimized = false;
+    }
+    await payload.onSubmissionStarted('feed_publish');
+    const post = await this.pageRequest(account, `${pageId}/feed`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }, 'feed publication');
+    const postId = String(post.id || '');
+    if (!/^\d+(?:_\d+)?$/.test(postId)) throw new Error('Page publication returned no valid ID; reconcile the saved intent before retry.');
+    await payload.onRemoteCreated(postId);
+    return this.verifyPagePost(account, pageId, postId, onProgress);
+  }
+
+  private async pageRequest(account: any, edge: string, init: RequestInit, stage: string): Promise<any> {
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}/${this.apiVersion}/${edge}`, {
+        ...init,
+        headers: { ...Object.fromEntries(new Headers(init.headers).entries()), Authorization: `Bearer ${account.access_token}` },
+        signal: AbortSignal.timeout(init.method === 'POST' ? 60000 : 15000),
+      });
+    } catch {
+      throw new Error(`Meta Page ${stage} outcome is unavailable; reconcile saved submission state before retry.`);
+    }
+    const result = await response.json().catch(() => null) as any;
+    if (!response.ok || !result || result.error) throw new Error(`Meta Page ${stage} was not confirmed (HTTP ${response.status}); reconcile saved submission state before retry.`);
+    return result;
+  }
+
+  private async verifyPagePost(account: any, pageId: string, remoteId: string, onProgress?: (pct: number, stage: string) => void): Promise<PublishResult> {
+    if (!/^\d+(?:_\d+)?$/.test(remoteId)) throw new Error('Invalid saved Page post ID.');
+    if (remoteId.includes('_') && remoteId.split('_')[0] !== pageId) throw new Error('Saved post belongs to a different Page.');
+    for (let attempt = 0; attempt < this.polling.attempts; attempt++) {
+      const post = await this.pageRequest(account, `${remoteId}?fields=id,is_published,permalink_url,from`, { method: 'GET' }, 'post verification');
+      if (String(post.id) !== remoteId || String(post.from?.id) !== pageId) throw new Error('Published post identity is unverified; reconcile the saved remote ID.');
+      if (post.is_published === true && post.permalink_url) {
+        let permalink: URL;
+        try { permalink = new URL(post.permalink_url); } catch { throw new Error('Meta returned an invalid post permalink; reconcile the saved remote ID.'); }
+        if (permalink.protocol !== 'https:' || !['facebook.com', 'www.facebook.com'].includes(permalink.hostname) || permalink.username || permalink.password)
+          throw new Error('Meta returned an unexpected post permalink; reconcile the saved remote ID.');
+        onProgress?.(100, 'published');
+        return { success: true, remotePostId: remoteId, remotePostUrl: permalink.href, verificationStatus: 'confirmed', publishedAt: new Date().toISOString() };
+      }
+      if (attempt + 1 < this.polling.attempts) await new Promise(resolve => setTimeout(resolve, this.polling.intervalMs));
+    }
+    throw new Error('Page post publication is unconfirmed; reconcile the saved remote ID before retry.');
   }
 
   async verifyHealth(account: any): Promise<ConnectionHealth> {

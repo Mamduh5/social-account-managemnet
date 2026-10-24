@@ -257,3 +257,39 @@ The protected Tesla job `dest-mvg66513-ttjf` / `post-74051364-849a-4195-b132-d76
 `facebook_reauthorization.test.ts` covers expiry metadata, identity/alias/duplicate handling, credential preservation and safe errors. `meta_reels_publishing.test.ts` covers phase failures, no fallback, polling and master invariance. `reels_queue_acceptance.test.ts` covers API completion, manual/restart replay exclusions, durable remote ID, uncertain retry blocking and an isolated one-hour schedule advanced to due time. `tiktok_official_integration.test.ts` covers TikTok OAuth state CSRF, token encryption, Display API real metrics query, confirmed 0 vs missing data, paginated video listing, rate limits, scope fallback, Content Posting API policy rejection, and Accounts API segregation. Together with the other suites, the current total is 76 tests across nine suites; all use isolated data.
 
 TikTok Content Posting API Direct Post is blocked by policy for internal utility tools; TikTok for Business Accounts API officially supports both Personal and Business Accounts for owned-account publishing and comment moderation upon partner approval. Live official authorization and public publication remain separate next-milestone work.
+
+## V1.10 general posts and content workspace
+
+| Area | Files and responsibilities |
+| --- | --- |
+| General publishing composer | client/src/components/publishing/GeneralPostComposer.tsx, hooks/useGeneralPosts.ts, types/general-posts.ts; existing PublishingView selects general posts or the unchanged Reel workflow |
+| Draft rules and approvals | server/src/domain/general-posts.ts, services/general-posts.service.ts, repositories/general-posts.repo.ts; exact revision/hash/destination/schedule binding, atomic batch approval, one-time queue transition |
+| Media | services/image-media.service.ts; actual JPEG/PNG decode, size/dimension bounds, immutable originals, SHA256 and managed-path verification; image records live in the repository |
+| General endpoints | routes/general-publishing.routes.ts; drafts, images, capabilities, audit and read-only remote reconciliation |
+| Queue and connectors | existing queue.service.ts, publishing.repo.ts, registry.ts and meta-facebook.ts; nullable video parent, explicit content_type, per-destination ordered attachment rows, durable photo/feed intent and remote IDs; FFmpeg remains Reel-only |
+| Owner voice and assistant | domain/content-assistant.ts; db/content-workspace{,-schema}.ts; repositories/content-workspace.repo.ts; services/content-assistant.service.ts; routes/content-assistant.routes.ts; client views/ContentAssistantView.tsx and api/content-workspace.ts |
+| Groups | services/groups-workspace.service.ts, routes/groups-workspace.routes.ts, client/views/GroupsWorkspaceView.tsx; manual/unverified registry, rules, packages and receipts; no Page API dispatch |
+| Migration | db/general-posts-schema.ts; scripts/prepare-general-posts-migration.ts; source opened read-only, migration on a new copy only, exact old publication/destination values and foreign keys checked |
+| Isolated review | scripts/run-v110-review.ts, test/e2e/v110_review_server.ts; separate database/client bundle, external fetch blocked, fixture workers paused; owner services remain independent |
+| Verification | test/general_posts.test.ts, meta_general_posts.test.ts, content_workspace.test.ts, test/e2e/v110_general_posts.ts, content_workspace_acceptance.ts; latest results in docs/qa/V1_10_GENERAL_POSTS_CONTENT_ASSISTANT.md |
+
+Assistant generation never executes publishing APIs. Approved assistant text transfers into a new unapproved publishing draft with its source revision/context hash recorded in the audit. General drafts enqueue into publishing_posts/publishing_destinations only after exact-revision approval; attachment upload IDs and uncertain intent are stored per destination. Old video rows default to content_type=reel. Existing databases require explicit offline migration; startup does not rebuild their publishing table.
+
+## V1.10 runtime recovery and real text provider
+
+- server/src/services/assistant-provider.ts selects only explicit real Gemini Free-tier configuration or separately labeled fixtures/unavailable mode. It validates the source configuration fingerprint/attestation/model, reserves a durable bounded request before native text-only inference, strips unrelated facts from caption input, sanitizes failures and returns secret-free model/request/usage metadata. The existing content-assistant service saves it in draft provenance; it has no publishing execution path.
+- scripts/run-v110-review.ts --provider-config selects the ignored local configuration; test/e2e/v110_review_server.ts permits that exact text endpoint while blocking social calls and pausing only review workers. test/e2e/v110_real_generation.ts records genuine synthetic calls and browser/revision/safety checks separately from test/assistant_provider.test.ts transport mocks.
+- server/src/domain/runtime-recovery.ts contains pure queue restoration guards; scripts/recover-owner-runtime.ts freezes pre-V1.10 source, rehearses it on a copy and starts only a free owner port after live recheck. Owner source/data are pinned separately from dirty V1.10 review code/data. test/runtime_recovery.test.ts covers due/uncertain/in-flight refusal and protected holds.
+- Current operational source/process/schema distinctions and remaining rollout gates: docs/qa/V1_10_RUNTIME_RECOVERY_REAL_GENERATION.md.
+
+## V1.10 controlled owner release and startup
+
+| Responsibility | Implementation |
+| --- | --- |
+| Atomic schema maintenance | server/src/db/v110-migration.ts; scripts/prepare-general-posts-migration.ts remains copy-only; scripts/apply-v110-migration.ts applies only after verified backup and fresh maintenance gates |
+| Frozen release provenance | scripts/package-owner-release.ts; canonical client source fingerprint, Git checkpoint extraction and source/bundle checksums |
+| Current-user owner lifecycle | scripts/owner-runtime.ts and scripts/lib/owner-runtime-core.ts; fixed private configuration, exclusive lifecycle lock, PID/start-time/entrypoint ownership, readiness before proxy, hidden Startup-folder entry |
+| Managed boot and graceful stop | server/src/index.ts; server/src/routes/runtime.routes.ts; publishingStartupHold in domain/runtime-recovery.ts; authenticated idle-only shutdown and no-reset publishing hold |
+| Regression and operations | test/v110_rollout.test.ts; tsconfig.operations.json; docs/qa/V1_10_PRODUCTION_ROLLOUT.md includes baseline, rollback, evidence and remaining platform acceptance |
+
+The owner keeps its original database, credentials, media and certificate; the review instance remains separate. Historical recovery records identify 12ae5d8, while current deployed revision/status are in the production rollout report. The current-user startup entry runs only owner backend/proxy, never the review app. General Page public publishing still needs separate Facebook acceptance.

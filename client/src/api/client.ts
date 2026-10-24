@@ -1,3 +1,4 @@
+import { DraftInput, ImageAsset, PublishingDraft, PostCapabilities } from '../types/general-posts';
 import {
   AccountsResponse,
   CategoriesResponse,
@@ -77,6 +78,30 @@ export const api = {
   async archiveDemos() { return checked(await fetch(`${API_BASE}/accounts/archive-demos`, { method: 'POST' })); },
   async handoffPackage(id: string) { return checked(await fetch(`${API_BASE}/bridge/destinations/${id}/package`)); },
 
+  // General Page posts are saved as drafts before explicit approval and dispatch.
+  async getImages(): Promise<{ images: ImageAsset[] }> { return checked(await fetch(API_BASE + '/publishing/images')); },
+  async uploadImage(file: File): Promise<{ image: ImageAsset }> {
+    const body = new FormData(); body.append('image', file);
+    return checked(await fetch(API_BASE + '/publishing/images', { method: 'POST', body }));
+  },
+  async getPublishingDrafts(): Promise<{ drafts: PublishingDraft[] }> { return checked(await fetch(API_BASE + '/publishing/drafts')); },
+  async savePublishingDraft(data: DraftInput, id?: string, revision?: number): Promise<{ draft: PublishingDraft }> {
+    return checked(await fetch(API_BASE + '/publishing/drafts' + (id ? '/' + encodeURIComponent(id) : ''), {
+      method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...data, revision }),
+    }));
+  },
+  async publishingDraftAction(id: string, action: 'approve' | 'reject' | 'queue', revision: number): Promise<{ draft: PublishingDraft }> {
+    return checked(await fetch(API_BASE + '/publishing/drafts/' + encodeURIComponent(id) + '/' + action, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision }),
+    }));
+  },
+  async approvePublishingDraftBatch(drafts: { id: string; revision: number }[]): Promise<{ drafts: PublishingDraft[] }> {
+    return checked(await fetch(API_BASE + '/publishing/drafts/batch-approve', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ drafts }),
+    }));
+  },
+  async getPostCapabilities(accountId: string): Promise<PostCapabilities> { return checked(await fetch(API_BASE + '/publishing/post-capabilities/' + encodeURIComponent(accountId))); },
+
   // Publishing
   async getVideos(categoryId?: string): Promise<VideosResponse> {
     const url = categoryId ? `${API_BASE}/publishing/videos?categoryId=${categoryId}` : `${API_BASE}/publishing/videos`;
@@ -109,6 +134,9 @@ export const api = {
   async retryDestination(id: string): Promise<{ success: boolean; message: string }> {
     const res = await fetch(`${API_BASE}/publishing/destinations/${id}/retry`, { method: 'POST' });
     return checked(res);
+  },
+  async reconcileDestination(id: string): Promise<{ success: boolean; message?: string }> {
+    return checked(await fetch(API_BASE + '/publishing/destinations/' + encodeURIComponent(id) + '/reconcile', { method: 'POST' }));
   },
   async cancelDestination(id: string): Promise<{ success: boolean }> {
     const res = await fetch(`${API_BASE}/publishing/destinations/${id}/cancel`, { method: 'POST' });

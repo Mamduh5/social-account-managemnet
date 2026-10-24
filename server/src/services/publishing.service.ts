@@ -104,6 +104,7 @@ export class PublishingService {
       throw new Error('Destination not found');
     }
 
+    if ((dest as any).submission_state) throw new Error('Remote outcome requires read-only reconciliation before retry');
     const account = accountsRepo.getAccountById(dest.account_id) as any;
     if (!account?.is_demo && dest.remote_post_id && dest.status !== 'published')
       throw new Error('Reconcile the existing remote upload before retrying this destination.');

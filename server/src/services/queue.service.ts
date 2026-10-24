@@ -1,3 +1,5 @@
+import {generalPostsRepo} from '../repositories/general-posts.repo.js';
+import {verifiedImagePath} from './image-media.service.js';
 import fs from 'fs';
 import { ffmpegService, BrandKitOptions } from './ffmpeg.service.js';
 import { accountsRepo } from '../repositories/accounts.repo.js';
@@ -13,6 +15,8 @@ export class QueueService {
   private isRunning = false;
   private inFlight = new Set<string>();
   private intervalTimer: NodeJS.Timeout | null = null;
+
+  get activeJobCount(){return this.inFlight.size;}
 
   start() {
     if (this.isRunning) return;
@@ -77,6 +81,10 @@ export class QueueService {
     try {
       const initialAccount = accountsRepo.getAccountById(job.account_id) as any;
       if (!initialAccount || initialAccount.archived_at) throw new Error('Account is archived or unavailable');
+      if (job.content_type && job.content_type !== 'reel') {
+        await this.executeGeneralPost(job);
+        return;
+      }
       // Step A: Video Version & Branding Resolution
       let finalVideoPath = job.original_video_path;
 
@@ -219,6 +227,42 @@ export class QueueService {
     } finally {
       this.inFlight.delete(job.id);
     }
+  }
+
+  async executeGeneralPost(job:any, reconcileOnly=false) {
+    const current=publishingRepo.getDestinationById(job.id) as any;
+    if(!current) throw new Error('Destination not found');
+    if(current.submission_state && !current.remote_post_id) throw new Error('Remote outcome is uncertain; reconcile in the native Page before any retry. Automatic replay is blocked.');
+    if(reconcileOnly&&!current.remote_post_id)throw new Error('No saved remote post ID; native reconciliation is required');
+    const storedAccount=accountsRepo.getAccountById(job.account_id) as any;
+    const account=reconcileOnly?storedAccount:await ensureFreshToken(storedAccount);
+    if(!account||account.archived_at||account.platform!=='facebook'||account.account_type!=='page')throw new Error('General publishing requires an active Facebook Page');
+    const connector=getConnector(account);
+    if(!connector.getCapabilities().canPublish||!connector.publishPost)throw new Error('General Page publishing authorization is unavailable');
+    const attachments=current.remote_post_id?[]:generalPostsRepo.attachments(job.id).map(a=>({id:a.media_id,path:verifiedImagePath({...a,file_path:a.file_path,id:a.media_id}),mimeType:a.mime_type,altText:a.alt_text,remoteId:a.remote_id||undefined}));
+    if(!reconcileOnly)this.updateDestinationStatus(job.id,'uploading',45);
+    const result=await connector.publishPost(account,{
+      destinationId:job.id,postId:job.post_id,accountId:job.account_id,contentType:current.content_type,
+      caption:current.caption,hashtags:current.hashtags,linkUrl:current.link_url||undefined,
+      attachments,remotePostId:current.remote_post_id||undefined,
+      onSubmissionStarted:(stage,attachmentId)=>generalPostsRepo.submissionStarted(job.id,stage,attachmentId),
+      onAttachmentUploaded:(id,remoteId)=>generalPostsRepo.attachmentUploaded(job.id,id,remoteId),
+      onRemoteCreated:remoteId=>{publishingRepo.recordRemoteUpload(job.id,remoteId);generalPostsRepo.remoteCreated(job.id);}
+    });
+    if(!result.success||result.verificationStatus!=='confirmed'||!result.remotePostId||!result.remotePostUrl)throw new Error('Page publication was not confirmed; use read-only reconciliation.');
+    publishingRepo.markDestinationPublished({destinationId:job.id,remotePostId:result.remotePostId,remotePostUrl:result.remotePostUrl,verificationStatus:'confirmed',confirmationSource:account.is_demo?'simulator':'api'});
+    activityRepo.logEvent({type:'publish_success',accountId:job.account_id,title:account.is_demo?'SIMULATED Page post':'Page post confirmed',message:job.title||'General Page post',severity:'success'});
+    eventService.broadcast('destination_updated',{destinationId:job.id,status:'published',progress:100});
+    this.syncParentPostStatus(job.post_id);
+  }
+
+  async reconcileGeneralDestination(id:string) {
+    const destination=publishingRepo.getDestinationById(id) as any;
+    if(!destination||destination.content_type==='reel'||!destination.content_type)throw new Error('Select a general Page destination');
+    if(destination.status==='published')return;
+    if(!['failed','awaiting_confirmation','preparing'].includes(destination.status)||this.inFlight.has(id))throw new Error('Destination is busy');
+    this.inFlight.add(id);
+    try {await this.executeGeneralPost({...destination,post_id:destination.post_id,account_id:destination.account_id},true);} finally {this.inFlight.delete(id);}
   }
 
   updateDestinationStatus(destinationId: string, status: DestinationStatus, progress: number) {

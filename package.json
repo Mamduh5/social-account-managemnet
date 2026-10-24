@@ -9,10 +9,16 @@
     "dev:client": "npm --prefix client run dev",
     "build:client": "npm --prefix client run build",
     "build": "npm run build:client",
-    "start": "tsx server/src/index.ts",
+    "start": "tsx scripts/owner-runtime.ts start",
     "test": "tsx test/run-tests.ts",
     "test:onboarding": "tsx test/e2e/real_account_onboarding.ts",
-    "proxy:https": "tsx server/src/loopback-proxy.ts"
+    "proxy:https": "tsx server/src/loopback-proxy.ts",
+    "review:v110": "tsx scripts/run-v110-review.ts",
+    "owner:start": "tsx scripts/owner-runtime.ts start",
+    "owner:stop": "tsx scripts/owner-runtime.ts stop",
+    "owner:status": "tsx scripts/owner-runtime.ts status",
+    "owner:startup": "tsx scripts/owner-runtime.ts install-startup",
+    "owner:disable": "tsx scripts/owner-runtime.ts disable"
   },
   "repository": {
     "type": "git",

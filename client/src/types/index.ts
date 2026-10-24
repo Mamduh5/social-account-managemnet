@@ -146,6 +146,8 @@ export interface VideoItem {
 }
 
 export interface PublishingDestination {
+  content_type?: 'reel' | 'text' | 'image' | 'multi_image' | 'link';
+  submission_state?: string | null;
   id: string;
   post_id: string;
   post_title?: string;
@@ -177,6 +179,7 @@ export interface PublishingDestination {
 }
 
 export interface PublishingPost {
+  content_type?: 'reel' | 'text' | 'image' | 'multi_image' | 'link';
   id: string;
   video_id: string;
   title: string;

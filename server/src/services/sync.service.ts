@@ -24,6 +24,8 @@ export class SyncService {
   private isSyncing = false;
   private intervalMs = 15 * 60 * 1000; // 15 minutes default conservative polling
 
+  get activeSynchronization(){return this.isSyncing;}
+
   start(intervalMs?: number): void {
     if (intervalMs) {
       this.intervalMs = intervalMs;
@@ -216,10 +218,10 @@ export class SyncService {
 
     // 2. Sync Post-Level Metrics for Published Destinations
     const destinations = db.prepare(`
-      SELECT pd.*, pp.title as post_title, v.title as video_title
+      SELECT pd.*, pp.title as post_title, COALESCE(v.title,pp.title) as video_title
       FROM publishing_destinations pd
       JOIN publishing_posts pp ON pd.post_id = pp.id
-      JOIN videos v ON pp.video_id = v.id
+      LEFT JOIN videos v ON pp.video_id = v.id
       WHERE pd.account_id = ? AND pd.status = 'published' AND pd.remote_post_id IS NOT NULL
     `).all(accountId) as any[];
 

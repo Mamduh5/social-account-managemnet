@@ -1,6 +1,9 @@
+import {initializeContentWorkspace} from './content-workspace.js';
+import {initializeGeneralPublishingSchema} from './general-posts-schema.js';
 import { db } from './database.js';
 
 export function initializeDatabase() {
+  const hadPublishingPosts=!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='publishing_posts'").get();
   db.exec(`
     -- Categories
     CREATE TABLE IF NOT EXISTS categories (
@@ -76,7 +79,7 @@ export function initializeDatabase() {
     -- Publishing Posts (Group of multi-destination publishing)
     CREATE TABLE IF NOT EXISTS publishing_posts (
       id TEXT PRIMARY KEY,
-      video_id TEXT NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+      video_id TEXT REFERENCES videos(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
       scheduled_at TEXT,
       timezone TEXT NOT NULL DEFAULT 'Asia/Bangkok',
@@ -275,5 +278,6 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_post_metrics_remote ON post_metrics_snapshots(remote_post_id);
     CREATE INDEX IF NOT EXISTS idx_sync_states_acc ON sync_states(account_id);
   `);
+  // Existing installations require an explicit offline V1.10 migration.
+  if (!hadPublishingPosts) {initializeGeneralPublishingSchema(db); initializeContentWorkspace();}
 }
-

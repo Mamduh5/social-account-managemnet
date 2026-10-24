@@ -1,0 +1,13 @@
+import {contentWorkspaceRepo as workspaceReadiness} from '../repositories/content-workspace.repo.js';
+import { Router } from 'express';
+import { groupsWorkspaceService as service } from '../services/groups-workspace.service.js';
+export const groupsRouter=Router();
+groupsRouter.use((_req,res,next)=>{if(!workspaceReadiness.ready())return res.status(503).json({error:'V1.10 requires the explicit offline maintenance migration'});next();});
+const action=(fn:(req:any)=>any)=>(req:any,res:any)=>{try {res.json({success:true,...fn(req)});}catch(error:any){res.status(400).json({error:error.message});}};
+groupsRouter.get('/',action(()=>({groups:service.list(),automationSupported:false})));
+groupsRouter.post('/',action(req=>({group:service.save(undefined,req.body)})));
+groupsRouter.put('/:id',action(req=>({group:service.save(req.params.id,req.body)})));
+groupsRouter.get('/:id/prepared',action(req=>({prepared:service.prepared(req.params.id)})));
+groupsRouter.post('/:id/prepared',action(req=>({prepared:service.prepare(req.params.id,req.body)})));
+groupsRouter.get('/prepared/:id/package',action(req=>service.package(req.params.id)));
+groupsRouter.post('/prepared/:id/receipt',action(req=>({prepared:service.receipt(req.params.id,req.body)})));

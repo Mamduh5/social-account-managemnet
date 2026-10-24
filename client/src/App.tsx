@@ -14,6 +14,8 @@ import { InboxView } from './views/InboxView';
 import { ActivityView } from './views/ActivityView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { SettingsView } from './views/SettingsView';
+import { ContentAssistantView } from './views/ContentAssistantView';
+import { GroupsWorkspaceView } from './views/GroupsWorkspaceView';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<string>(new URLSearchParams(window.location.search).has('connectionAccount') ? 'accounts' : 'dashboard');
@@ -73,6 +75,8 @@ export function App() {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'accounts', label: 'Accounts & Categories', icon: Users },
     { id: 'publishing', label: 'Publishing Center', icon: Send },
+    { id: 'assistant', label: 'Content Assistant', icon: Sparkles },
+    { id: 'groups', label: 'Groups Planning', icon: Users },
     { id: 'branding', label: 'Branding Studio', icon: Sparkles },
     { id: 'inbox', label: 'Engagement Inbox', icon: MessageSquare },
     { id: 'activity', label: 'Activity Feed', icon: Activity },
@@ -238,6 +242,8 @@ export function App() {
           {activeTab === 'publishing' && (
             <PublishingView selectedCategory={selectedCategory} />
           )}
+          {activeTab === 'assistant' && <ContentAssistantView />}
+          {activeTab === 'groups' && <GroupsWorkspaceView />}
           {activeTab === 'branding' && (
             <BrandingStudioView 
               initialAccountId={targetBrandingAccountId} 

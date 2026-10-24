@@ -17,6 +17,8 @@ class EventService {
     this.clients = this.clients.filter((c) => c.id !== id);
   }
 
+  closeAll(){for(const client of this.clients){try{client.res.end();}catch{}}this.clients=[];}
+
   broadcast(event: string, data: any) {
     const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const client of this.clients) {
