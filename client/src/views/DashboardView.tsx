@@ -95,7 +95,12 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
           subValue={
             <p className="text-xs text-sage-400 flex items-center font-medium">
               <CheckCircle2 className="w-3.5 h-3.5 mr-1 shrink-0" />
-              {accounts.filter(a => a.health_status.includes('Healthy')).length} healthy sessions
+              {accounts.filter(a => {
+                if (a.status !== 'connected') return false;
+                if (a.connection_status === 'expired' || a.connection_status === 'connection_error' || a.connection_status === 'disconnected') return false;
+                if (a.health_status?.toLowerCase().includes('authorization required') || a.health_status?.toLowerCase().includes('expired')) return false;
+                return true;
+              }).length} healthy sessions
             </p>
           }
           icon={<Share2 className="w-5 h-5" />}

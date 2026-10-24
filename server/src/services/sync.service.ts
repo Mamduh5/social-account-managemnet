@@ -125,12 +125,13 @@ export class SyncService {
       return { success: false, metricsSynced: 0, commentsSynced: 0, status: 'skipped' };
     }
 
-    // Proactively refresh token if near expiry or expired
-    if (account.platform === 'tiktok') {
+    // Proactively refresh or revalidate token if near expiry or expired
+    if (account.platform === 'tiktok' || account.platform === 'facebook') {
       try {
         account = (await ensureFreshToken(account)) || account;
       } catch (err: any) {
-        const status = err.reason === 'invalid_grant' ? 'auth_required' : 'failed';
+        const isAuth = err.reason === 'invalid_grant' || err.reason === 'expired_token' || err.reason === 'invalid_token_metadata';
+        const status = isAuth ? 'auth_required' : 'failed';
         analyticsRepo.updateSyncState(accountId, 'all', status, err.message, 0);
         return { success: false, metricsSynced: 0, commentsSynced: 0, status, message: err.message };
       }

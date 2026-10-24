@@ -102,7 +102,17 @@ export function getConnector(account: any): AccountConnector {
         };
       if (account.connector_mode === 'browser_bridge')
         return bridgeConnector.verifyHealth(account);
-      if (!valid)
+      if (!valid) {
+        if (
+          account.platform === 'facebook' &&
+          !account.is_demo &&
+          !account.archived_at &&
+          account.connector_mode === 'official_api' &&
+          account.identity_verified_at &&
+          unseal(account.access_token)
+        ) {
+          return adapter.verifyHealth(authorized);
+        }
         return {
           status:
             account.token_expires_at &&
@@ -113,6 +123,7 @@ export function getConnector(account: any): AccountConnector {
             'Authorization required; local preparation is available',
           lastCheckedAt: new Date().toISOString(),
         };
+      }
       const health = await adapter.verifyHealth(authorized);
       return health;
     },

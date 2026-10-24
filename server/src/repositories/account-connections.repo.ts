@@ -54,6 +54,26 @@ export const accountConnectionsRepo = {
       'UPDATE accounts SET connection_status=?,health_status=COALESCE(?,health_status) WHERE id=?'
     ).run(status, health || null, id);
   },
+  revalidateConnection(id: string, update: { expiresAt: string; connectionStatus: string; healthStatus: string; scopes?: string[] }) {
+    db.prepare(`
+      UPDATE accounts 
+      SET token_expires_at = ?,
+          status = 'connected',
+          connection_status = ?,
+          health_status = ?,
+          granted_scopes_json = COALESCE(?, granted_scopes_json),
+          last_health_check = datetime('now'),
+          connection_revision = connection_revision + 1,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(
+      update.expiresAt,
+      update.connectionStatus,
+      update.healthStatus,
+      update.scopes ? JSON.stringify(update.scopes) : null,
+      id
+    );
+  },
   browserHandoff(id: string) {
     db.prepare(
       "UPDATE accounts SET connector_mode='browser_bridge',connection_status='limited',health_status='Browser-assisted setup; native identity and publication require manual confirmation' WHERE id=?"

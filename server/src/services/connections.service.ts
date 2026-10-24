@@ -657,41 +657,182 @@ async function executeRefreshConnection(id: string): Promise<any> {
   return accountsRepo.getAccountById(account.id);
 }
 
-export async function ensureFreshToken(account: any): Promise<any> {
-  if (account?.platform === 'tiktok' && !account.is_demo && !account.archived_at && account.connection_status === 'expired')
-    throw new OAuthFailure('token_validation', 'invalid_grant', 'TikTok authorization requires official reauthorization; automatic refresh of the expired connection is disabled.');
-  if (
-    !account ||
-    account.is_demo ||
-    account.archived_at ||
-    account.platform !== 'tiktok' ||
-    !account.refresh_token ||
-    !account.refresh_expires_at ||
-    Date.parse(account.refresh_expires_at) <= Date.now()
-  ) {
-    return account;
+export async function revalidateFacebookConnection(accountId: string): Promise<any> {
+  const account = accountsRepo.getAccountById(accountId) as any;
+  if (!account || account.is_demo || account.archived_at || account.platform !== 'facebook') return account;
+  if (!account.access_token) return account;
+
+  let token: string;
+  try {
+    const unsealed = unseal(account.access_token);
+    if (!unsealed) throw new Error('Unsealed token is empty');
+    token = unsealed;
+  } catch {
+    throw new OAuthFailure('token_encryption', 'decryption_failed', 'Could not decrypt stored Meta Page Access Token.');
   }
 
   const now = Date.now();
-  // Proactively refresh if expiring within 30 minutes, or already expired
-  const safetyThresholdMs = 30 * 60 * 1000;
-  const accessExpiry = Date.parse(account.token_expires_at);
-  const isExpiringSoon = !Number.isFinite(accessExpiry) || accessExpiry <= (now + safetyThresholdMs);
+  const v = version();
+  const appId = process.env.META_APP_ID;
+  const appSecret = process.env.META_APP_SECRET;
 
-  if (isExpiringSoon) {
-    try {
-      return await refreshConnection(account.id);
-    } catch (err: any) {
-      console.warn('[OAuth]', JSON.stringify({ stage: 'token_refresh', reason: err instanceof OAuthFailure ? err.reason : 'refresh_failed', httpStatus: err instanceof OAuthFailure ? err.provider.httpStatus : undefined }));
-      const current = accountsRepo.getAccountById(account.id) as any;
-      // A temporary proactive refresh failure can use a still-valid access token.
-      // An expired token or confirmed revocation must fail this cycle rather than
-      // send a known-unusable token and immediately attempt another refresh.
-      if (current && !current.archived_at && current.status === 'connected' &&
-          current.connection_status !== 'expired' && current.access_token &&
-          Date.parse(current.token_expires_at) > Date.now()) return current;
-      throw err;
+  if (!appId || !appSecret) {
+    throw new OAuthFailure('configuration', 'missing_credentials', 'Meta App ID or App Secret is missing from server environment.');
+  }
+
+  let debugInfo: any;
+  try {
+    const debugUrl = `https://graph.facebook.com/${v}/debug_token?` + new URLSearchParams({ input_token: token });
+    const debugRes = await fetch(debugUrl, {
+      headers: { Authorization: `Bearer ${appId}|${appSecret}` },
+      signal: AbortSignal.timeout(15000),
+    });
+    const debugData = (await debugRes.json()) as any;
+    if (debugData.error) {
+      const isRevoked = [190, 102, 10].includes(debugData.error.code) || debugData.error.error_subcode === 463;
+      if (isRevoked) {
+        registry.connectionStatus(account.id, 'expired', 'Meta authorization revoked or expired; reconnect through official authorization');
+        accountsRepo.updateHealthStatus(account.id, 'expired', 'Meta authorization revoked or expired; reconnect through official authorization');
+        throw new OAuthFailure('token_validation', 'invalid_grant', 'Meta reports token is revoked or expired. Reconnection required.');
+      }
+      throw new OAuthFailure('token_validation', 'provider_error', `Meta debug_token returned error: ${debugData.error.message || 'unknown'}`);
     }
+    debugInfo = debugData.data;
+  } catch (err: any) {
+    if (err instanceof OAuthFailure) throw err;
+    // Temporary provider or network failure: preserve existing connection state and credentials
+    console.warn('[OAuth]', JSON.stringify({ stage: 'token_revalidation', reason: 'temporary_provider_failure', error: err.message }));
+    return account;
+  }
+
+  if (!debugInfo || debugInfo.is_valid !== true) {
+    registry.connectionStatus(account.id, 'expired', 'Meta authorization revoked or expired; reconnect through official authorization');
+    accountsRepo.updateHealthStatus(account.id, 'expired', 'Meta authorization revoked or expired; reconnect through official authorization');
+    throw new OAuthFailure('token_validation', 'invalid_grant', 'Meta token is no longer valid. Reauthorization required.');
+  }
+
+  if (String(debugInfo.app_id) !== appId) {
+    throw new OAuthFailure('token_validation', 'app_mismatch', 'Meta token app ownership mismatch.');
+  }
+
+  if (Number.isSafeInteger(debugInfo.data_access_expires_at) && debugInfo.data_access_expires_at > 0 && debugInfo.data_access_expires_at * 1000 <= now) {
+    registry.connectionStatus(account.id, 'expired', 'Meta data access expired; official reauthorization required');
+    accountsRepo.updateHealthStatus(account.id, 'expired', 'Meta data access expired; official reauthorization required');
+    throw new OAuthFailure('token_validation', 'expired_token', 'Meta data access expired. Reconnection required.');
+  }
+
+  // Verify Page identity via /me
+  let meData: any;
+  try {
+    const meUrl = `https://graph.facebook.com/${v}/me?fields=id,name`;
+    const meRes = await fetch(meUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15000),
+    });
+    meData = (await meRes.json()) as any;
+    if (meData.error) {
+      throw new OAuthFailure('token_validation', 'identity_check_failed', meData.error.message);
+    }
+  } catch (err: any) {
+    if (err instanceof OAuthFailure) throw err;
+    console.warn('[OAuth]', JSON.stringify({ stage: 'token_revalidation', reason: 'identity_check_temporary_failure', error: err.message }));
+    return account;
+  }
+
+  if (!meData.id || (account.external_id && String(meData.id) !== String(account.external_id))) {
+    throw new OAuthFailure('identity_matching', 'identity_mismatch', 'Authorized Meta Page identity mismatch.');
+  }
+
+  // Scopes and permissions
+  const grantedScopes: string[] = Array.isArray(debugInfo.scopes) ? debugInfo.scopes : [];
+  const hasPublishing = grantedScopes.includes('pages_manage_posts') && grantedScopes.includes('pages_read_engagement');
+  const connStatus = hasPublishing ? 'connected' : 'limited';
+
+  // Calculate new bounded 24-hour verification window
+  const expiry = now + 24 * 60 * 60 * 1000;
+  const dataExpiry = Number.isSafeInteger(debugInfo.data_access_expires_at) && debugInfo.data_access_expires_at > 0
+    ? debugInfo.data_access_expires_at * 1000
+    : Infinity;
+  const effective = Math.min(expiry, dataExpiry);
+  const newExpiresAt = new Date(effective).toISOString();
+
+  registry.revalidateConnection(account.id, {
+    expiresAt: newExpiresAt,
+    connectionStatus: connStatus,
+    healthStatus: `Connected as Page: ${meData.name || account.name}`,
+    scopes: grantedScopes,
+  });
+
+  console.info('[OAuth]', JSON.stringify({
+    stage: 'token_revalidation',
+    reason: 'revalidated',
+    platform: 'facebook',
+    accountId: account.id,
+    expiresAt: newExpiresAt,
+  }));
+
+  return accountsRepo.getAccountById(account.id);
+}
+
+export async function ensureFreshToken(account: any): Promise<any> {
+  if (!account || account.is_demo || account.archived_at) return account;
+
+  if (account.platform === 'tiktok') {
+    if (account.connection_status === 'expired')
+      throw new OAuthFailure('token_validation', 'invalid_grant', 'TikTok authorization requires official reauthorization; automatic refresh of the expired connection is disabled.');
+    if (
+      !account.refresh_token ||
+      !account.refresh_expires_at ||
+      Date.parse(account.refresh_expires_at) <= Date.now()
+    ) {
+      return account;
+    }
+
+    const now = Date.now();
+    // Proactively refresh if expiring within 30 minutes, or already expired
+    const safetyThresholdMs = 30 * 60 * 1000;
+    const accessExpiry = Date.parse(account.token_expires_at);
+    const isExpiringSoon = !Number.isFinite(accessExpiry) || accessExpiry <= (now + safetyThresholdMs);
+
+    if (isExpiringSoon) {
+      try {
+        return await refreshConnection(account.id);
+      } catch (err: any) {
+        console.warn('[OAuth]', JSON.stringify({ stage: 'token_refresh', reason: err instanceof OAuthFailure ? err.reason : 'refresh_failed', httpStatus: err instanceof OAuthFailure ? err.provider?.httpStatus : undefined }));
+        const current = accountsRepo.getAccountById(account.id) as any;
+        // A temporary proactive refresh failure can use a still-valid access token.
+        // An expired token or confirmed revocation must fail this cycle rather than
+        // send a known-unusable token and immediately attempt another refresh.
+        if (current && !current.archived_at && current.status === 'connected' &&
+            current.connection_status !== 'expired' && current.access_token &&
+            Date.parse(current.token_expires_at) > Date.now()) return current;
+        throw err;
+      }
+    }
+    return account;
+  }
+
+  if (account.platform === 'facebook') {
+    if (!account.access_token || !account.identity_verified_at) return account;
+
+    const now = Date.now();
+    const safetyThresholdMs = 30 * 60 * 1000;
+    const accessExpiry = Date.parse(account.token_expires_at);
+    const isExpiringSoon = !Number.isFinite(accessExpiry) || accessExpiry <= (now + safetyThresholdMs);
+
+    if (isExpiringSoon) {
+      try {
+        return await revalidateFacebookConnection(account.id);
+      } catch (err: any) {
+        console.warn('[OAuth]', JSON.stringify({ stage: 'token_revalidation', reason: err instanceof OAuthFailure ? err.reason : 'revalidation_failed', httpStatus: err instanceof OAuthFailure ? err.provider?.httpStatus : undefined }));
+        const current = accountsRepo.getAccountById(account.id) as any;
+        if (current && !current.archived_at && current.status === 'connected' &&
+            current.connection_status !== 'expired' && current.access_token &&
+            Date.parse(current.token_expires_at) > Date.now()) return current;
+        throw err;
+      }
+    }
+    return account;
   }
 
   return account;

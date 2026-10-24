@@ -2,6 +2,7 @@ import fs from 'fs';
 import { ffmpegService, BrandKitOptions } from './ffmpeg.service.js';
 import { accountsRepo } from '../repositories/accounts.repo.js';
 import { bridgeConnector, getConnector } from '../connectors/registry.js';
+import { ensureFreshToken } from './connections.service.js';
 import { eventService } from './events.service.js';
 import { publishingRepo } from '../repositories/publishing.repo.js';
 import { activityRepo } from '../repositories/activity.repo.js';
@@ -116,8 +117,13 @@ export class QueueService {
       // Step B: Uploading via Account Connector
       this.updateDestinationStatus(job.id, 'uploading', 45);
 
-      const account = accountsRepo.getAccountById(job.account_id) as any;
+      let account = accountsRepo.getAccountById(job.account_id) as any;
       if (!account || account.archived_at) throw new Error('Account is archived or unavailable');
+      try {
+        account = (await ensureFreshToken(account)) || account;
+      } catch (err: any) {
+        console.warn('[QueueService] Token freshness check error:', err.message);
+      }
       const resolved = getConnector(account);
       const connector = !account.is_demo && !resolved.getCapabilities().canPublish ? bridgeConnector : resolved;
       const result = await connector.publishVideo(
