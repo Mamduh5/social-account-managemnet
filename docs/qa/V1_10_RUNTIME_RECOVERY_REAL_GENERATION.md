@@ -1,5 +1,7 @@
 # V1.10 runtime recovery and real draft generation
 
+> Historical implementation/recovery snapshot. The later authorized production migration, pinned V1.10 owner runtime and current-user startup are now verified in [V1.10 production rollout](V1_10_PRODUCTION_ROLLOUT.md). Earlier pending/no-commit/no-migration statements below describe their original phase.
+
 24 October 2026, Asia/Bangkok. **Owner runtime restored; real Gemini text generation demonstrated in the isolated review app. V1.10 production rollout remains pending.** No public posts/uploads/comments/replies/reactions, new live schedules, Group actions, TikTok publishing, production migrations, Cloudflare deployment, commits or pushes were performed.
 
 ## Current operating state

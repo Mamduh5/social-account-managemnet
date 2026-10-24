@@ -293,3 +293,5 @@ Assistant generation never executes publishing APIs. Approved assistant text tra
 | Regression and operations | test/v110_rollout.test.ts; tsconfig.operations.json; docs/qa/V1_10_PRODUCTION_ROLLOUT.md includes baseline, rollback, evidence and remaining platform acceptance |
 
 The owner keeps its original database, credentials, media and certificate; the review instance remains separate. Historical recovery records identify 12ae5d8, while current deployed revision/status are in the production rollout report. The current-user startup entry runs only owner backend/proxy, never the review app. General Page public publishing still needs separate Facebook acceptance.
+
+Verified owner deployment: cccf9390542199fb18ae442753eba87088c9b255 on loopback 3001/3443, original database migrated atomically after verified backup, current-user startup enabled. Automatic Facebook/TikTok boot synchronization and nine owner-browser checks passed; no live general-post dispatch was exercised. The configured draft provider retains its existing six-request cap (five used); no synthetic voice profiles were imported. See the production rollout report for exact evidence and limits.

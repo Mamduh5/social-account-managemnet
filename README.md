@@ -6,7 +6,7 @@ The separate [informational website](public-site/README.md) serves Terms, Privac
 
 ## Current runtime and real text generation — 24 October 2026
 
-The controlled owner rollout uses a frozen local Git release, the original owner database and private configuration on **http://127.0.0.1:3001** and **https://localhost:3443**. The authorized maintenance procedure creates and verifies a consistent backup before the atomic V1.10 migration. Current release, migration, synchronization and browser evidence are recorded in [V1.10 production rollout](docs/qa/V1_10_PRODUCTION_ROLLOUT.md).
+The controlled owner rollout uses a frozen local Git release, the original owner database and private configuration on **http://127.0.0.1:3001** and **https://localhost:3443**. The authorized maintenance procedure creates and verifies a consistent backup before the atomic V1.10 migration. The owner is now pinned to **cccf939**, with the V1.10 migration verified, automatic Facebook/TikTok boot synchronization successful, and current-user startup enabled. All three protected manual destinations remain unchanged. Detailed migration, startup and browser evidence are recorded in [V1.10 production rollout](docs/qa/V1_10_PRODUCTION_ROLLOUT.md).
 
 Use `npm run owner:start`, `owner:status`, `owner:stop`, `owner:startup` and `owner:disable` for the managed owner runtime. Startup is current-user only and runs the owner backend/proxy; it never starts review port 3195. Stop refuses active work. Startup holds ambiguous, interrupted or overdue publishing without resetting jobs. No administrator, firewall or public listener changes are required.
 

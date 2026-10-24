@@ -41,6 +41,63 @@ Reuse the existing explicit gemini_api_free / gemini-3.5-flash-lite configuratio
 
 Owner browser acceptance uses the actual registered Page, existing owner media thumbnails and new clearly labeled owner review drafts. It never copies review-instance examples/accounts into production and never queues content. Groups UI/capability checks must not invent membership or a real group address; full fixture handoff evidence remains separately identified if no owner group is registered. No private comment is sent to a model. Screenshots containing owner information stay in ignored private rollout artifacts.
 
-## Results
+## Verified results — 24 October 2026, Asia/Bangkok
 
-Preflight implementation and rollback procedure prepared. Live apply, exact release hash, private backup receipt, current-user startup entry test, owner browser results and final runtime/synchronization outcomes are recorded after those gates complete. A real reboot/sign-in test will not be claimed unless observed.
+**Owner V1.10 is running.** The deployed source checkpoint and local release commit are **cccf9390542199fb18ae442753eba87088c9b255**. Source and client assets are frozen under .data/releases/cccf9390542199fb18ae442753eba87088c9b255; release.json verifies 82 files. The client build's canonical Git input hashes match this commit exactly. Later documentation/browser-selector corrections do not change the deployed application. No Git push or Cloudflare deployment was performed.
+
+| Gate | Actual evidence |
+| --- | --- |
+| Automated suite | **229/229 PASS across 20 isolated test files**, zero failures; includes atomic rollback, manual-hold preservation, duplicate-port refusal, authenticated idle-only stop and startup ownership checks |
+| Application typecheck | **PASS**: npx tsc --noEmit |
+| Operations typecheck | **PASS**: npx tsc --project tsconfig.operations.json |
+| Isolated client build | **PASS**: npm run build:client with SCC_CLIENT_BUILD_DIR=.data/v110-rollout/client-candidate; client typecheck included; original client/dist untouched by this rollout |
+| Owner browser | **9 PASS**, zero page errors and zero prohibited mutation attempts; one additional persisted Group handoff check not run because no owner group is registered |
+| HTTP / HTTPS | Both **200**, version **1.10.0**, instance **owner**, exact deployed revision; HTTPS validated with the unchanged existing localhost certificate, including hostname verification |
+| Served bundle | Every served client file matches the pinned manifest SHA256 |
+| Runtime after installed-entry test | Backend **PID 16604**, proxy **PID 8164**; only 127.0.0.1:3001 and 127.0.0.1:3443 listen; review port 3195 remains closed |
+| Automatic sync | Successful automatic Facebook/TikTok boot sync on initial V1.10 launch and again after installed-entry cold start; latest 22:08:36 / 22:08:30 Bangkok. No manual sync or forced refresh was triggered. A subsequent 15-minute cycle was not required or claimed for this rollout |
+| Owner database | Original .data/social_command_center.db, migrated in place as one transaction; integrity **ok**, zero foreign-key violations |
+| Protected queue | **48 published / 9 failed / 3 awaiting_confirmation**, unchanged. No active, uncertain-dispatch or due job existed at maintenance. All original fields of the three protected rows compare exactly |
+| Credential boundary | Original environment digest, encrypted credentials, scopes and identity aliases unchanged; actual secret-value scan of runtime logs and frontend assets found **zero matches** |
+
+### Backup, migration and preservation
+
+The fresh consistent pre-migration backup is **.data/v110-rollout/owner-pre-v110-20261024-cccf939.db**. Its SHA256 is **4a747007d1efee07cd50177e5005472047bac23300887bd1fc93be5daf963eba**. Backup integrity is ok with zero foreign-key violations; backup-receipt.json was written before migration. The backup and control folders grant current user and SYSTEM access only. The original .env/encryption key and existing TLS certificate/key remain in place.
+
+All original row values across **14 tables** were compared inside the migration transaction before commit. The resulting schema contains **24 tables**. New workspace tables were empty immediately after migration except their default limits row: no review records, fixture accounts, provider examples or voice samples were copied. V1.9 nullable-statistics maintenance was already satisfied; no additional V1.9 migration was applied.
+
+| Existing data | Before | After owner browser / automatic sync |
+| --- | ---: | ---: |
+| Accounts / identity aliases | 8 / 5 | 8 / 5 |
+| Videos / branded variants | 23 / 15 | 23 / 15 |
+| Publishing posts / destinations | 30 / 60 | 30 / 60 |
+| Account analytics snapshots | 180 | 182 |
+| Post metric snapshots | 499 | 511 |
+
+All historical snapshots remain byte-equivalent as row projections. Added snapshots came from normal provider synchronization with existing provenance. Only the expected account sync timestamps/status/error/updated_at and published-destination last_synced_at advanced; all credentials, identities, publication status, remote IDs and receipts were preserved. **62 existing media files**, covering **67 stored references**, match their pre-maintenance sizes and SHA256 checksums.
+
+Protected destinations remain dest-mvf5hdwf-19hi, dest-mvf5j24q-ub0y and dest-mvf5j24r-rw4x. Their original fields compare exactly to the fresh baseline. No reset, retry, cancel, confirm, schedule change, upload or publication was performed.
+
+### Owner browser and assistant outcomes
+
+The actual owner app saved **four new explicitly labeled OWNER REVIEW — UNPUBLISHED drafts**: Thai text, one image, ordered multiple images and a link to the existing registered Page. Images were existing owner thumbnails uploaded only to local storage. Text approval was bound to its exact revision/destination; editing cleared approval and returned it to draft. All four end unapproved, unqueued and unscheduled. The owner application's original publication tables remain 30/60. These are new local review drafts, not imported review demonstrations.
+
+A fifth local item is an explicitly manual assistant draft, saved, approved and edited back to an unapproved revision. No model request or private-comment submission was made. The assistant exposes the tested **gemini_api_free / gemini-3.5-flash-lite** provider with generationAvailable=true, fixture=false, draftOnly=true and autonomousOutboundEnabled/automaticRepliesEnabled=false. The existing durable cap is **6 requests total; 5 used, 1 remaining**. Rollout usage is **0**. Missing configuration, provider failures, hostile-comment handling, reply non-execution and exhausted limits are covered by isolated automated tests. Actual synthetic model-generation evidence remains in the separate [real-provider report](V1_10_RUNTIME_RECOVERY_REAL_GENERATION.md); it is not relabeled as a new owner inference.
+
+Owner voice profiles remain **0**; the UI displays the provisional default. No claim of learned owner voice or image understanding is made. The owner Groups registry remains **0**. The actual owner UI shows manual/unverified boundaries and disables saving a handoff without an owner group. No fictional group, membership or permission was inserted. Full saved registry/package behavior passed the earlier separate isolated browser acceptance and current isolated service tests; persisted owner-group handoff remains unverified until owner-supplied group information exists. No native Group/thread was opened.
+
+Account and analytics views, existing Reel composer, video library and branding screen loaded successfully. The existing UI design is preserved. Private owner screenshots were inspected and remain under ignored .data/v110-rollout/browser. Two acceptance selectors were corrected to the existing Analytics heading and counted Video Library label; the checks resumed with the same saved drafts rather than creating duplicates. The final browser receipt contains 9 PASS plus the explicit Group limitation.
+
+### Installed current-user startup test
+
+Installed entry: **%APPDATA%/Microsoft/Windows/Start Menu/Programs/Startup/SocialCommandCenter.vbs**. It invokes the frozen release controller using the pinned Node path, explicit private configuration and fixed workspace. Startup is enabled. **npm run owner:disable** removes only this entry and leaves running services intact; use **npm run owner:stop** for an idle graceful stop. Re-enable with **npm run owner:startup**.
+
+The installed entry was invoked while the app was already running: backend/proxy PIDs remained **20008 / 1896**, with no duplicate scheduler. A deliberate idle graceful stop then completed. Invoking the installed VBS started fresh owned processes **16604 / 8164**, with backend ready before proxy startup. HTTP, strict TLS, process ownership and served-release checks passed afterward. The initial PowerShell health-probe wrapper stalled; only that verified test-probe process was ended, while independent Node HTTP/TLS checks and controller logs established successful startup. Owner services were untouched by ending the probe.
+
+**No real reboot/sign-in test was performed.** The mechanism has been tested through its actual installed entry point in the existing Windows session. No administrator/UAC elevation, service, public listener or firewall change occurred. Startup does not register or start the review app.
+
+### Private evidence and remaining live gates
+
+Private receipts are baseline.json, media-baseline.json, backup-receipt.json, migration-result.json, client-input.json, automated-tests.log, client-build.log, owner-verification.json, startup-test.json, final-receipts.json and browser/report.json under .data/v110-rollout. Owner configuration/process state and logs are under .data/runtime. None are tracked. Keep the backup and original key available; follow the rollback procedure above if future recovery is needed. Never restore this backup over the newer live synchronization/drafts without reconciliation.
+
+The local rollout, migration, owner startup and draft workflows are verified. **General Facebook Page text/image/multi-image/link public publishing still requires separately authorized live acceptance.** Group membership/permissions and an actual owner manual handoff, TikTok publishing, owner voice quality, further AI generation and a real Windows sign-in remain separate gates. No new public social action, account reauthorization, AI Video Pipeline change, paid fallback, credit-limit increase, deployment or push occurred.

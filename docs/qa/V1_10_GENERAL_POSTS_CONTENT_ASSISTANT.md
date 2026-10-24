@@ -1,5 +1,7 @@
 # V1.10 — General Page Posts and Draft-First Content Assistant
 
+> Historical implementation/recovery snapshot. The later authorized production migration, pinned V1.10 owner runtime and current-user startup are now verified in [V1.10 production rollout](V1_10_PRODUCTION_ROLLOUT.md). Earlier pending/no-commit/no-migration statements below describe their original phase.
+
 ## Current recovery update — 24 October 2026
 
 The owner application is restored on port 3001 from pinned owner revision 12ae5d8, with HTTPS on 3443. Automatic Facebook/TikTok boot and subsequent 15-minute sync cycles succeeded. The owner database was not migrated or replaced, and its three protected manual destinations remain exactly unchanged.
