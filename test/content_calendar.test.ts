@@ -17,6 +17,7 @@ import { accountsRepo } from '../server/src/repositories/accounts.repo.js';
 import { QueueService } from '../server/src/services/queue.service.js';
 import { storeImage } from '../server/src/services/image-media.service.js';
 import { seal } from '../server/src/services/token-protection.js';
+import { MetaFacebookConnector } from '../server/src/connectors/meta-facebook.js';
 import {
   calculateCampaignApprovalHash,
   parseBangkokScheduledTime,
@@ -29,6 +30,11 @@ const testPageId = 'calendar-test-page';
 const otherPageId = 'calendar-other-page';
 const videoId = 'calendar-test-reel';
 let testImage: any;
+
+function approveCurrentCampaign(campaignId:string) {
+  const review=calendarService.getCampaignReview(campaignId);
+  return calendarService.approveCampaign(campaignId,{accountId:review.account.id,expectedHash:review.expectedApprovalHash});
+}
 
 before(async () => {
   assert.ok(process.env.SCC_DATA_DIR && /test-runs/i.test(dataDir), 'This suite requires isolated SCC_DATA_DIR');
@@ -271,7 +277,7 @@ test('One-time campaign approval binds exact hash, revisions, account, and sched
   assert.equal(awaiting.status, 'awaiting_approval');
 
   // One-time batch approval
-  const approved = calendarService.approveCampaign(campaignId);
+  const approved = approveCurrentCampaign(campaignId);
   assert.equal(approved.campaign.status, 'active');
   assert.equal(approved.queuedCount, 2);
   assert.ok(approved.approvedHash);
@@ -306,7 +312,7 @@ test('Material edit invalidates campaign approval and reverts status to draft', 
   });
 
   const campaignId = plan.campaign.id;
-  calendarService.approveCampaign(campaignId);
+  approveCurrentCampaign(campaignId);
   let campaign = calendarService.getCampaignById(campaignId);
   assert.equal(campaign.status, 'active');
 
@@ -342,7 +348,7 @@ test('Pause campaign prevents scheduled jobs from dispatching; Resume campaign r
   });
 
   const campaignId = plan.campaign.id;
-  calendarService.approveCampaign(campaignId);
+  approveCurrentCampaign(campaignId);
 
   // Pause the campaign
   const paused = calendarService.pauseCampaign(campaignId);
@@ -383,7 +389,7 @@ test('Manual override: Publish Now immediately queues scheduled destination for 
     ],
   });
 
-  calendarService.approveCampaign(plan.campaign.id);
+  approveCurrentCampaign(plan.campaign.id);
   const item = calendarService.getCalendarItems({ campaignId: plan.campaign.id })[0];
 
   const result = await calendarService.publishItemNow(item.id);
@@ -435,7 +441,7 @@ function safetyCampaign(name:string) {
   return calendarService.createCampaignPlan({accountId:testPageId,name,days:7,startDate:'2026-12-01',origin:'gemini_prepared',items:[{title:name,contentType:'text',caption:'Exact saved campaign content',scheduledAt:'2026-12-01T10:00:00+07:00'}]});
 }
 test('queued material edit retains cancelled history and returns pending content to unapproved drafts',()=>{
- const plan=safetyCampaign('Safe material revision');calendarService.approveCampaign(plan.campaign.id);
+ const plan=safetyCampaign('Safe material revision');approveCurrentCampaign(plan.campaign.id);
  const original=calendarService.getCalendarItems({campaignId:plan.campaign.id})[0];
  const originalRow=publishingRepo.getDestinationById(original.id)!;
  const edited=calendarService.editItem(original.id,{caption:'Owner revised draft'});
@@ -444,11 +450,11 @@ test('queued material edit retains cancelled history and returns pending content
  assert.equal(edited.sourceType,'draft');assert.equal(edited.status,'draft');assert.equal(edited.caption,'Owner revised draft');
  const old=publishingRepo.getDestinationById(original.id)!;assert.equal(old.status,'cancelled');assert.equal(old.caption,originalRow.caption);
  assert.ok(!publishingRepo.getPendingQueueJobs(100).some(row=>row.id===old.id));
- const approved=calendarService.approveCampaign(plan.campaign.id);assert.equal(approved.queuedCount,1);
+ const approved=approveCurrentCampaign(plan.campaign.id);assert.equal(approved.queuedCount,1);
  assert.equal(publishingRepo.getDestinationById(original.id)!.status,'cancelled');
 });
 test('paused jobs that become overdue are review-held before resume can enable dispatch',()=>{
- const plan=safetyCampaign('Overdue pause resume');calendarService.approveCampaign(plan.campaign.id);calendarService.pauseCampaign(plan.campaign.id);
+ const plan=safetyCampaign('Overdue pause resume');approveCurrentCampaign(plan.campaign.id);calendarService.pauseCampaign(plan.campaign.id);
  const item=calendarService.getCalendarItems({campaignId:plan.campaign.id})[0];
  db.prepare("UPDATE publishing_posts SET scheduled_at='2020-01-01T00:00:00.000Z' WHERE id=?").run(item.postId);
  calendarService.resumeCampaign(plan.campaign.id);
@@ -456,7 +462,7 @@ test('paused jobs that become overdue are review-held before resume can enable d
  assert.ok(!publishingRepo.getPendingQueueJobs(100).some(row=>row.id===item.id));
 });
 test('uncertain publication and approved draft schedule cannot be blindly rewritten by Publish Now',async()=>{
- const plan=safetyCampaign('Uncertain override guard');calendarService.approveCampaign(plan.campaign.id);
+ const plan=safetyCampaign('Uncertain override guard');approveCurrentCampaign(plan.campaign.id);
  const item=calendarService.getCalendarItems({campaignId:plan.campaign.id})[0];
  db.prepare("UPDATE publishing_destinations SET status='failed',remote_post_id='saved-remote' WHERE id=?").run(item.id);
  const before=JSON.stringify(publishingRepo.getDestinationById(item.id));
@@ -469,7 +475,7 @@ test('uncertain publication and approved draft schedule cannot be blindly rewrit
  assert.equal(JSON.stringify(db.prepare('SELECT * FROM publishing_drafts WHERE id=?').get(draft.id)),old);
 });
 test('campaign creation cannot reuse an existing approved campaign identity',()=>{
- const plan=safetyCampaign('Immutable campaign id');calendarService.approveCampaign(plan.campaign.id);
+ const plan=safetyCampaign('Immutable campaign id');approveCurrentCampaign(plan.campaign.id);
  assert.throws(()=>calendarService.createCampaignPlan({id:plan.campaign.id,accountId:testPageId,name:'Overwrite',days:7,startDate:'2026-12-01',items:[{title:'X',contentType:'text',caption:'Changed',scheduledAt:'2026-12-01T10:00:00+07:00'}]}),/already exists/);
  assert.equal(calendarService.getCampaignById(plan.campaign.id).status,'active');
 });
@@ -477,7 +483,7 @@ test('campaign creation cannot reuse an existing approved campaign identity',()=
 
 test('immediate override cannot change a shared parent schedule or make sibling destinations due', async () => {
   const plan = safetyCampaign('Shared parent override guard');
-  calendarService.approveCampaign(plan.campaign.id);
+  approveCurrentCampaign(plan.campaign.id);
   const item = calendarService.getCalendarItems({ campaignId: plan.campaign.id })[0];
   db.prepare("INSERT INTO publishing_destinations (id,post_id,account_id,caption,status,content_type) VALUES (?, ?, ?, 'Independent sibling', 'scheduled', 'text')")
     .run('calendar-shared-parent-sibling', item.postId, otherPageId);
@@ -494,7 +500,7 @@ test('immediate override cannot change a shared parent schedule or make sibling 
 
 test('calendar cancellation refuses active or uncertain work and reports only confirmed cancellation', () => {
   const plan = safetyCampaign('Cancellation boundary');
-  calendarService.approveCampaign(plan.campaign.id);
+  approveCurrentCampaign(plan.campaign.id);
   const item = calendarService.getCalendarItems({ campaignId: plan.campaign.id })[0];
   for (const status of ['preparing', 'branding', 'uploading', 'awaiting_confirmation', 'published', 'failed', 'cancelled']) {
     db.prepare('UPDATE publishing_destinations SET status=? WHERE id=?').run(status, item.id);
@@ -526,7 +532,11 @@ test('individually approved immediate campaign draft cannot bypass batch approva
   const original = db.prepare('SELECT * FROM publishing_drafts WHERE id=?').get(item.id) as any;
   const payload = JSON.parse(original.payload_json); payload.scheduledAt = null;
   const edited = generalPostsService.save(payload, item.id, original.revision);
-  generalPostsService.approveBatch([{ id: edited.id, revision: edited.revision }]);
+  assert.throws(()=>generalPostsService.approveBatch([{ id: edited.id, revision: edited.revision }]),/campaign batch approval/);
+  assert.throws(()=>generalPostsService.queue(edited.id,edited.revision),/campaign batch approval/);
+  // Preserve coverage for a historical individually approved campaign draft.
+  const saved = db.prepare('SELECT payload_json FROM publishing_drafts WHERE id=?').get(item.id) as any;
+  db.prepare("UPDATE publishing_drafts SET status='approved',approved_revision=revision,approved_hash=? WHERE id=?").run(createHash('sha256').update(saved.payload_json).digest('hex'),item.id);
   const snapshot = () => JSON.stringify({
     draft: db.prepare('SELECT * FROM publishing_drafts WHERE id=?').get(item.id),
     campaign: calendarService.getCampaignById(plan.campaign.id),
@@ -536,4 +546,128 @@ test('individually approved immediate campaign draft cannot bypass batch approva
   const before = snapshot();
   await assert.rejects(() => calendarService.publishItemNow(item.id), /campaign batch approval/);
   assert.equal(snapshot(), before);
+});
+
+test('two healthy Pages keep campaigns, approval scopes and new account enrollment independent', () => {
+  const pageA = safetyCampaign('Page A independent campaign');
+  const pageABefore = JSON.stringify(calendarService.getCampaignById(pageA.campaign.id));
+  db.prepare("UPDATE accounts SET access_token=?,identity_verified_at=?,token_expires_at=?,granted_scopes_json=?,connection_status='connected' WHERE id=?")
+    .run(seal('mock-independent-page-b'),new Date().toISOString(),new Date(Date.now()+7*86400000).toISOString(),JSON.stringify(['pages_manage_posts','pages_read_engagement']),otherPageId);
+  assert.equal(JSON.stringify(calendarService.getCampaignById(pageA.campaign.id)),pageABefore,'connecting Page B cannot enroll it in Page A campaign');
+  assert.equal(calendarService.getCalendarItems({campaignId:pageA.campaign.id}).length,1);
+  const pageB = calendarService.createCampaignPlan({accountId:otherPageId,name:'Page B entertainment drafts',days:7,startDate:'2026-12-01',origin:'gemini_prepared',items:[{title:'Imaginary object story',contentType:'text',caption:'An explicitly imaginary creative concept',scheduledAt:'2026-12-02T10:00:00+07:00'}]});
+  approveCurrentCampaign(pageA.campaign.id);
+  const approvedA = calendarService.getCalendarItems({campaignId:pageA.campaign.id});
+  assert.ok(approvedA.every(item=>item.accountId===testPageId&&item.status==='scheduled'));
+  assert.equal(calendarService.getCampaignById(pageB.campaign.id).status,'draft');
+  assert.ok(calendarService.getCalendarItems({accountId:otherPageId,campaignId:pageB.campaign.id}).every(item=>item.status==='draft'&&item.accountId===otherPageId));
+  assert.throws(()=>approveCurrentCampaign(pageA.campaign.id),/cannot be approved/);
+  assert.equal(calendarService.getCalendarItems({campaignId:pageA.campaign.id}).length,1,'repeat approval cannot duplicate publications');
+});
+
+test('campaign approval rejects a saved multi-Page draft without approving or queueing either Page', () => {
+  const plan = safetyCampaign('Exact single Page approval');
+  const item = plan.items[0];
+  const original = generalPostsService.get(item.id);
+  const changed = generalPostsService.save({...original,destinations:[original.destinations[0],{accountId:otherPageId,caption:'Different Page',hashtags:''}]},item.id,item.revision);
+  const before = JSON.stringify({draft:generalPostsService.get(item.id),campaign:calendarService.getCampaignById(plan.campaign.id),posts:db.prepare('SELECT count(*) n FROM publishing_posts').get(),destinations:db.prepare('SELECT count(*) n FROM publishing_destinations').get()});
+  assert.throws(()=>approveCurrentCampaign(plan.campaign.id),/exactly one destination matching its Page/);
+  assert.equal(changed.status,'draft');
+  assert.equal(JSON.stringify({draft:generalPostsService.get(item.id),campaign:calendarService.getCampaignById(plan.campaign.id),posts:db.prepare('SELECT count(*) n FROM publishing_posts').get(),destinations:db.prepare('SELECT count(*) n FROM publishing_destinations').get()}),before);
+});
+
+test('bounded campaign plans reject excess publications and dates outside the Bangkok window atomically', () => {
+  const input = {accountId:testPageId,name:'Bounded seven days',days:7,startDate:'2026-12-01',maxPublications:1,items:[{title:'Within window',contentType:'text',caption:'Owner content',scheduledAt:'2026-12-01T00:00:00+07:00'}]};
+  const counts = () => JSON.stringify({campaigns:db.prepare('SELECT count(*) n FROM publishing_campaigns').get(),drafts:db.prepare('SELECT count(*) n FROM publishing_drafts').get()});
+  const before = counts();
+  assert.throws(()=>calendarService.createCampaignPlan({...input,items:[...input.items,...input.items]}),/maximum authorized publications/);
+  for(const scheduledAt of ['2026-11-30T23:59:59+07:00','2026-12-08T00:00:00+07:00']) {
+    assert.throws(()=>calendarService.createCampaignPlan({...input,items:[{...input.items[0],scheduledAt}]}),/7-day Asia\/Bangkok window/);
+  }
+  assert.equal(counts(),before);
+  const plan = calendarService.createCampaignPlan(input);
+  const draft = generalPostsService.get(plan.items[0].id);
+  const beforeEdit = JSON.stringify(draft);
+  assert.throws(()=>calendarService.editItem(draft.id,{scheduledAt:'2026-12-08T10:00:00+07:00'}),/7-day Asia\/Bangkok window/);
+  assert.equal(JSON.stringify(generalPostsService.get(draft.id)),beforeEdit);
+  generalPostsService.save({...draft,scheduledAt:'2026-12-08T10:00:00+07:00'},draft.id,draft.revision);
+  assert.throws(()=>approveCurrentCampaign(plan.campaign.id),/7-day Asia\/Bangkok window/,'approval revalidates schedules edited through another supported workflow');
+});
+
+test('calendar Reel branding binds the saved kit and compatible variant; later Page branding cannot rewrite approval', () => {
+  const account = accountsRepo.getAccountById(testPageId)!;
+  const previousKit = account.brand_kit_json || null;
+  const kit = {watermarkType:'moving_text',text:'@development-page',movementPreset:'smooth_sine',fontSize:26,opacity:0.85,signatureText:'Development Page'};
+  db.prepare('UPDATE accounts SET brand_kit_json=? WHERE id=?').run(JSON.stringify(kit),testPageId);
+  const variantPath = path.join(dataDir,'renders','calendar-compatible-variant.mp4');
+  fs.mkdirSync(path.dirname(variantPath),{recursive:true});fs.writeFileSync(variantPath,'isolated-branded-fixture');
+  const variant = {id:'calendar-compatible-variant',videoId,presetName:'Page kit',movementPreset:'smooth_sine',watermarkText:kit.text,filePath:variantPath,fileSize:25,duration:5,width:720,height:1280,aspectRatio:'9:16',brandKitJson:JSON.stringify(kit)};
+  publishingRepo.insertBrandedVideo(variant);
+  const planInput = {accountId:testPageId,name:'Exact Reel branding',days:7,startDate:'2026-12-01',items:[{title:'Approved Page Reel',contentType:'reel',caption:'Exact video and Page kit',videoId,selectedVariantId:variant.id,applyBranding:true,scheduledAt:'2026-12-01T10:00:00+07:00'}]};
+  try {
+    const plan = calendarService.createCampaignPlan(planInput);
+    const draft = generalPostsService.get(plan.items[0].id);
+    assert.equal(draft.destinations[0].selectedVariantId,variant.id);
+    assert.deepEqual(draft.destinations[0].brandingOverride,kit);
+    approveCurrentCampaign(plan.campaign.id);
+    const queued = calendarService.getCalendarItems({campaignId:plan.campaign.id})[0];
+    const destination = publishingRepo.getDestinationById(queued.id)!;
+    assert.equal(destination.selected_variant_id,variant.id);
+    assert.deepEqual(JSON.parse(destination.branding_override_json!),kit);
+    db.prepare('UPDATE accounts SET brand_kit_json=? WHERE id=?').run(JSON.stringify({...kit,text:'@entertainment-page'}),testPageId);
+    assert.deepEqual(JSON.parse(publishingRepo.getDestinationById(queued.id)!.branding_override_json!),kit,'scheduled output keeps its exact approved Page kit');
+    assert.throws(()=>calendarService.createCampaignPlan(planInput),/not compatible with the saved Page brand kit/);
+    assert.throws(()=>calendarService.createCampaignPlan({...planInput,items:[{...planInput.items[0],videoId:'different-master'}]}),/selected master video/);
+    const manual = generalPostsService.save({title:'Manual exact branding',contentType:'reel',videoId,destinations:[{accountId:testPageId,caption:'Owner text',applyBranding:true,brandingOverride:kit}]});
+    generalPostsService.approveBatch([{id:manual.id,revision:manual.revision}]);
+    const edited = generalPostsService.save({...manual,destinations:[{...manual.destinations[0],brandingOverride:{...kit,text:'@revised-brand'}}]},manual.id,manual.revision);
+    assert.equal(edited.status,'draft');assert.equal(edited.approvedRevision,null);
+    assert.throws(()=>generalPostsService.queue(edited.id,edited.revision),/exact current content revision/);
+  } finally {db.prepare('UPDATE accounts SET brand_kit_json=? WHERE id=?').run(previousKit,testPageId);}
+});
+
+test('a missing explicitly selected render fails before upload; explicit original mode keeps the master path', async () => {
+  const absentPath=path.join(dataDir,'renders','intentionally-missing-variant.mp4');
+  publishingRepo.insertBrandedVideo({id:'calendar-missing-variant',videoId,presetName:'Missing fixture',movementPreset:'smooth_sine',watermarkText:'Page',filePath:absentPath,fileSize:1,duration:5,width:720,height:1280,aspectRatio:'9:16',brandKitJson:'{}'});
+  const publish=MetaFacebookConnector.prototype.publishVideo;
+  const previousFetch=globalThis.fetch;
+  const uploadedPaths:string[]=[];
+  let providerCalls=0;
+  try {
+    globalThis.fetch=async()=>{providerCalls++;throw new Error('External calls are blocked in this fixture');};
+    MetaFacebookConnector.prototype.publishVideo=async (_account,payload)=>{uploadedPaths.push(payload.videoPath);return {success:true,remotePostId:'fixture-original',remotePostUrl:'https://www.facebook.com/reel/fixture-original',verificationStatus:'confirmed'};};
+    const missing=publishingService.createPost({videoId,title:'Missing chosen render',destinations:[{accountId:testPageId,selectedVariantId:'calendar-missing-variant'}]});
+    const missingDestination=publishingRepo.getPostDestinationRows(missing.postId)[0];
+    const queue=new QueueService();
+    await (queue as any).executeDestinationJob(publishingRepo.getPendingQueueJobs(1000).find(job=>job.id===missingDestination.id));
+    const failed=publishingRepo.getDestinationById(missingDestination.id)!;
+    assert.equal(failed.status,'failed');assert.match(failed.error_message || '',/Selected branded variant is unavailable/);
+    assert.deepEqual(uploadedPaths,[]);assert.equal(providerCalls,0,'missing chosen render fails before token/provider work');
+    const original=publishingService.createPost({videoId,title:'Explicit original master',destinations:[{accountId:testPageId,selectedVariantId:'original',applyBranding:false}]});
+    const originalDestination=publishingRepo.getPostDestinationRows(original.postId)[0];
+    await (queue as any).executeDestinationJob(publishingRepo.getPendingQueueJobs(1000).find(job=>job.id===originalDestination.id));
+    assert.deepEqual(uploadedPaths,[publishingRepo.getVideoById(videoId)!.file_path]);
+    assert.equal(publishingRepo.getDestinationById(originalDestination.id)?.status,'published');
+  } finally {MetaFacebookConnector.prototype.publishVideo=publish;globalThis.fetch=previousFetch;}
+});
+
+test('campaign approval requires the exact reviewed Page snapshot and rejects unseen content or branding edits', () => {
+  const plan=safetyCampaign('Owner reviewed snapshot');
+  const first=calendarService.getCampaignReview(plan.campaign.id);
+  const publicationsBefore=(db.prepare('SELECT count(*) n FROM publishing_posts').get() as any).n;
+  assert.throws(()=>calendarService.approveCampaign(plan.campaign.id,undefined as any),/exact current snapshot/);
+  assert.throws(()=>calendarService.approveCampaign(plan.campaign.id,{accountId:otherPageId,expectedHash:first.expectedApprovalHash}),/exact current snapshot/);
+  calendarService.editItem(plan.items[0].id,{caption:'Unseen changed content'});
+  assert.throws(()=>calendarService.approveCampaign(plan.campaign.id,{accountId:testPageId,expectedHash:first.expectedApprovalHash}),/changed since review/);
+  const next=calendarService.getCampaignReview(plan.campaign.id);
+  const previousKit=accountsRepo.getAccountById(testPageId)!.brand_kit_json || null;
+  try {
+    db.prepare('UPDATE accounts SET brand_kit_json=? WHERE id=?').run(JSON.stringify({text:'New owner branding'}),testPageId);
+    assert.throws(()=>calendarService.approveCampaign(plan.campaign.id,{accountId:testPageId,expectedHash:next.expectedApprovalHash}),/changed since review/);
+    assert.equal((db.prepare('SELECT count(*) n FROM publishing_posts').get() as any).n,publicationsBefore,'stale approval must not queue any destination');
+    const fresh=calendarService.getCampaignReview(plan.campaign.id);
+    const approved=calendarService.approveCampaign(plan.campaign.id,{accountId:fresh.account.id,expectedHash:fresh.expectedApprovalHash});
+    assert.equal(approved.approvedHash,fresh.expectedApprovalHash);
+    assert.equal(approved.queuedCount,1);
+  } finally {db.prepare('UPDATE accounts SET brand_kit_json=? WHERE id=?').run(previousKit,testPageId);}
 });

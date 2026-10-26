@@ -90,6 +90,10 @@ export class QueueService {
       // Step A: Video Version & Branding Resolution
       let finalVideoPath = job.original_video_path;
 
+      if (job.selected_variant_id && job.selected_variant_id !== 'original' && (!job.branded_video_path || !fs.existsSync(job.branded_video_path))) {
+        throw new Error('Selected branded variant is unavailable; owner review is required before publication');
+      }
+
       if (job.branded_video_path && fs.existsSync(job.branded_video_path)) {
         // Pre-rendered branded variant explicitly selected and verified on disk
         finalVideoPath = job.branded_video_path;

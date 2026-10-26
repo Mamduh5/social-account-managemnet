@@ -52,6 +52,7 @@ export const InboxView: React.FC<Props> = ({ selectedCategory }) => {
           Real Dialogue
         </span>
       </div>
+      <p className="text-xs text-slate-400">For Gemini-prepared replies, open Content Assistant, select the exact Page and review its source comment. Saved suggestions require owner approval and a separate Send Reply action; automatic replies are disabled.</p>
 
       {/* Header and Stats */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface-card p-5 sm:p-6 rounded-2xl border border-border shadow-xs">

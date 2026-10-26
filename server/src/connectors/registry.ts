@@ -143,6 +143,10 @@ export function getConnector(account: any): AccountConnector {
       capabilities.canReply
         ? adapter.replyComment(authorized, id, text)
         : (account.connector_mode === 'browser_bridge' ? bridgeConnector.replyComment(account, id, text) : blocked()),
+    verifyCommentReply: async (_a, replyId, commentId, text) =>
+      capabilities.canReadComments && account.platform==='facebook'
+        ? metaConnector.verifyCommentReply(authorized,replyId,commentId,text)
+        : {confirmed:false,replyId},
     reactComment: async (_a, id, reaction) =>
       capabilities.canReact
         ? adapter.reactComment(authorized, id, reaction)

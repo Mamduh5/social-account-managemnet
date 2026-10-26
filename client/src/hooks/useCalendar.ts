@@ -48,11 +48,11 @@ export function useCalendar(initialAccountId?: string) {
     loadData();
   }, [loadData]);
 
-  const handleApproveCampaign = async (campaignId: string) => {
+  const handleApproveCampaign = async (campaignId: string, review:{accountId:string;expectedHash:string}) => {
     setActionLoading(true);
     setError(null);
     try {
-      await calendarApi.approveCampaign(campaignId);
+      await calendarApi.approveCampaign(campaignId,review);
       await loadData();
     } catch (err: any) {
       setError(err.message || 'Failed to approve campaign');

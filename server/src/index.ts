@@ -33,6 +33,7 @@ import {bridgeRouter} from './routes/bridge.routes.js';
 import {eventsRouter} from './routes/events.routes.js';
 import {runtimeControlRouter} from './routes/runtime.routes.js';
 import {calendarRouter} from './routes/calendar.routes.js';
+import {operatorRouter} from './routes/operator-workspace.routes.js';
 
 const app=express(),server=http.createServer(app);
 const port=Number(process.env.PORT||3001),managed=process.env.SCC_OWNER_MANAGED==='true';
@@ -42,7 +43,7 @@ app.use(localAccess);
 app.use(cors({origin:['http://localhost:5180','http://127.0.0.1:5180']}));
 app.use(express.json());
 app.get('/api/health',(_req,res)=>res.status(ready&&!stopping?200:503).json({
- status:ready&&!stopping?'ok':'starting',ready,app:'Social Command Center',version:'1.11.0',
+ status:ready&&!stopping?'ok':'starting',ready,app:'Social Command Center',version:'1.12.0',
  releaseRevision:process.env.SCC_RELEASE_REVISION||null,instance:managed?'owner':process.env.SCC_ISOLATED_TEST==='true'?'review':'standalone',
  instanceId:process.env.SCC_RUNTIME_INSTANCE_ID||null,publishingHold,syncEnabled:ready&&!stopping&&!paused,
  timestamp:new Date().toISOString(),timezone:'Asia/Bangkok'
@@ -65,6 +66,7 @@ async function boot(){
  app.get('/api/connectors/capabilities',(_req,res)=>res.json({capabilities:emptyCapabilities,notice:'Actual capabilities are resolved per account. Local preparation does not grant API permissions.'}));
  app.use('/api/assistant',assistantRouter);app.use('/api/groups',groupsRouter);
  app.use('/api/calendar',calendarRouter);
+ app.use('/api/operator',operatorRouter);
  app.use('/api/publishing',generalPublishingRouter);app.use('/api/publishing',publishingRouter);
  app.use('/api/branding',brandingRouter);app.use('/api/inbox',inboxRouter);app.use('/api/activity',activityRouter);app.use('/api/analytics',analyticsRouter);app.use('/api/pipeline',pipelineRouter);app.use('/api/bridge',bridgeRouter);app.use('/api/events',eventsRouter);
  if(managed)app.use('/api/internal/runtime',runtimeControlRouter({token:process.env.SCC_RUNTIME_CONTROL_TOKEN||'',busy,shutdown}));

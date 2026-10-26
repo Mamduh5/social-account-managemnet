@@ -2,6 +2,12 @@
 
 Self-hosted multi-account Page and video publishing preparation, video distribution, moving-watermark branding, engagement triage and provenance-aware analytics for Facebook Pages and TikTok accounts.
 
+## V1.12 prepared source and current owner runtime — 27 October 2026
+
+V1.12 extends the existing calendar, publishing queue, Content Assistant and Groups workspace. External creative assistants (including Codex) can prepare Page-specific drafts without an application model request. Import Prepared Plan uses a Page/voice/branding fingerprint, stable campaign ID and the existing bounded calendar validation. Replies remain draft-and-approve with durable submission holds and exact official-API receipt checks. Group handoffs remain manual and unverified. See [V1.12 acceptance, prepared owner drafts and remaining gates](docs/qa/V1_12_SOCIAL_AUTOPILOT.md).
+
+Live read-only verification found the owner on frozen **V1.11 `7ed0860`**, with normal synchronization enabled. The older V1.10 status and preparation reports below describe earlier observations. V1.12 source has **not** replaced that release: no owner restart or migration is authorized. The first Codex-prepared Page A test is saved as an unapproved, unscheduled text draft; Page B has a separate draft-only seven-concept plan. No new social post/reply, campaign activation or application generation occurred.
+
 The separate [informational website](public-site/README.md) serves Terms, Privacy and Support pages plus a narrowly scoped TikTok OAuth redirect relay. It has no access to the management API, database, credentials or media. The existing owner-managed deployment and legal review boundaries are described in its [deployment guide](public-site/DEPLOYMENT.md) and [owner review](public-site/OWNER_REVIEW.md). This validation performs no deployment.
 
 ## Current runtime and real text generation — 24 October 2026

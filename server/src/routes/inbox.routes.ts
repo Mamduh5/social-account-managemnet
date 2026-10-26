@@ -4,6 +4,8 @@ import { getConnector } from '../connectors/registry.js';
 import { inboxRepo } from '../repositories/inbox.repo.js';
 import { activityRepo } from '../repositories/activity.repo.js';
 import { syncService } from '../services/sync.service.js';
+import { contentWorkspaceRepo as workspace } from '../repositories/content-workspace.repo.js';
+import { replyDraftsService } from '../services/reply-drafts.service.js';
 
 export const inboxRouter = Router();
 
@@ -50,9 +52,20 @@ inboxRouter.post('/comments/:id/reply', async (req, res) => {
 
   const comment = inboxRepo.getCommentWithAccount(req.params.id);
   if (!comment) return res.status(404).json({ error: 'Comment not found' });
+  if (workspace.ready() && workspace.auditTrail(`reply-comment:${comment.account_id}:${comment.id}`).some((entry:any)=>entry.action==='reply_submission_intent'))
+    return res.status(409).json({error:'A reviewed reply submission already exists for this comment. Reconcile it in Content Assistant; sending again is blocked.'});
 
   const account = accountsRepo.getAccountById(comment.account_id);
   if (!account) return res.status(404).json({ error: 'Account not found' });
+
+  if (account.platform==='facebook' && !account.is_demo && workspace.ready()) {
+    try {
+      const result=await replyDraftsService.sendManual(comment.id,{accountId:account.id,text});
+      if (!result.success) return res.status(409).json({error:result.notice,nativeUrl:comment.native_url,...result});
+      activityRepo.logEvent({type:'comment_replied',accountId:account.id,title:'Verified Facebook Page reply',message:'Owner-written reply identity, parent comment and exact text verified through the official API.',severity:'info'});
+      return res.json(result);
+    } catch (error:any) { return res.status(400).json({error:error.message,nativeUrl:comment.native_url}); }
+  }
 
   const connector = getConnector(account);
   const result = await connector.replyComment(account, comment.external_comment_id, text);

@@ -75,7 +75,7 @@ export class PublishingService {
       return {
         id: `dest-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
         accountId: dest.accountId,
-        caption: dest.caption || title,
+        caption: dest.caption ?? title,
         hashtags: dest.hashtags || '',
         applyBranding,
         brandingOverrideJson: dest.brandingOverride ? JSON.stringify(dest.brandingOverride) : null,

@@ -123,6 +123,8 @@ export const planItemSchema = z.object({
     .max(10)
     .default([]),
   videoId: z.string().optional(),
+  selectedVariantId: z.string().min(1).max(100).nullable().optional(),
+  applyBranding: z.boolean().optional(),
   scheduledAt: z.string().min(1, 'Scheduled publication time is required'),
 });
 export type PlanItemInput = z.infer<typeof planItemSchema>;

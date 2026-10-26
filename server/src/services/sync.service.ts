@@ -121,6 +121,7 @@ export class SyncService {
     commentsSynced: number;
     status: string;
     message?: string;
+    commentsStatus?: string;
   }> {
     let account: any = accountsRepo.getAccountById(accountId);
     if (!account || account.archived_at || account.is_demo) {
@@ -151,6 +152,8 @@ export class SyncService {
     let accountMetricsSynced = 0;
     let syncError: string | undefined;
     let apiFailure: string | undefined;
+    let commentsFailure: string | undefined;
+    let commentReads=0;
     let refreshAttempted = false;
 
     // 1. Sync Account-Level Metrics
@@ -305,6 +308,7 @@ export class SyncService {
       try {
         if (capabilities.canReadComments) {
           const comments = await connector.fetchComments(account, { postId: dest.remote_post_id, limit: 50 });
+          commentReads++;
           for (const cmt of comments) {
             const { isNew } = inboxRepo.upsertComment({
               account_id: account.id,
@@ -339,18 +343,21 @@ export class SyncService {
           }
         }
       } catch (err: any) {
-        console.warn(`[SyncService] Comments sync failed for destination ${dest.id}:`, err.message);
+        commentsFailure='Comment synchronization failed; existing comments were preserved. Verify Page permissions and provider availability.';
+        console.warn(`[SyncService] Comments sync failed for destination ${dest.id}.`);
       }
     }
 
     const isAuthorized = hasActiveApiAuthorization(account);
     const hasSyncedData = (metricsSynced + commentsSynced + accountMetricsSynced) > 0;
+    const commentsStatus=commentsFailure?'failed':!capabilities.canReadComments?'auth_required':commentReads?'success':'unavailable';
+    if (destinations.length) analyticsRepo.updateSyncState(accountId,'comments',commentsStatus,commentsFailure || (commentsStatus==='auth_required'?'Official comment-reading permissions are unavailable.':commentsStatus==='unavailable'?'No supported comment source was read.':undefined),commentsSynced);
     const finalStatus = syncError
       ? 'auth_required'
-      : (apiFailure && !hasSyncedData
+      : commentsFailure ? 'failed' : (apiFailure && !hasSyncedData
         ? 'failed'
         : (isAuthorized || hasSyncedData ? 'success' : 'auth_required'));
-    const finalMessage = syncError || (apiFailure && !hasSyncedData ? apiFailure : (isAuthorized || hasSyncedData ? undefined : 'Official API authorization required for automated synchronization. Connect live credentials in Accounts or record verified observations.'));
+    const finalMessage = syncError || commentsFailure || (apiFailure && !hasSyncedData ? apiFailure : (isAuthorized || hasSyncedData ? undefined : 'Official API authorization required for automated synchronization. Connect live credentials in Accounts or record verified observations.'));
 
     analyticsRepo.updateSyncState(accountId, 'all', finalStatus, finalMessage, metricsSynced + commentsSynced + accountMetricsSynced);
 
@@ -366,11 +373,12 @@ export class SyncService {
     });
 
     return {
-      success: (isAuthorized || hasSyncedData) && !syncError && (!apiFailure || hasSyncedData),
+      success: (isAuthorized || hasSyncedData) && !syncError && !commentsFailure && (!apiFailure || hasSyncedData),
       metricsSynced,
       commentsSynced,
       status: finalStatus,
       message: finalMessage,
+      commentsStatus,
     };
   }
 

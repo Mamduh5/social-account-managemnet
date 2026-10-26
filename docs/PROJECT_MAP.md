@@ -2,6 +2,8 @@
 
 > **Comprehensive architectural reference, component map, and task-to-file navigation guide for the Social Command Center.**
 
+V1.12 adds `services/operator-workspace.service.ts` and `routes/operator-workspace.routes.ts` for sanitized Page briefs and idempotent external draft imports, reusing the calendar and its approval rules. `services/reply-drafts.service.ts` stores reply intents/receipts in the existing workspace audit; `repositories/groups-handoff.repo.ts` captures immutable manual Group context without a schema migration. Current acceptance and owner-runtime boundaries: [V1.12 report](qa/V1_12_SOCIAL_AUTOPILOT.md).
+
 ---
 
 ## 1. High-Level System Architecture

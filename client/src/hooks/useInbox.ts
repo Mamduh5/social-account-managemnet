@@ -103,13 +103,16 @@ export function useInbox(selectedCategory: string) {
     setSyncNotice(null);
     try {
       const res = await api.syncInbox(accountFilter || undefined);
-      if (res.success && res.result?.status === 'success') {
+      const results=res.result?.results?Object.values(res.result.results) as any[]:[res.result];
+      const commentReads=results.filter(result=>result?.commentsStatus==='success').length;
+      const allCommentsRead=results.length>0 && commentReads===results.length;
+      if (res.success && res.result?.status === 'success' && allCommentsRead) {
         setSyncNotice({
-          text: res.result.message || 'Comments synchronized successfully.',
+          text: `Comments read successfully for ${commentReads} account(s). An empty supported response is valid.`,
           isError: false,
         });
       } else {
-        const msg = res.message || res.result?.message || 'Official API authorization required for automated comment synchronization. Use Open Native Account for native moderation.';
+        const msg = results.find(result=>result?.commentsStatus==='failed')?.message || (allCommentsRead?res.message || res.result?.message:`Comments read for ${commentReads} account(s); ${results.length-commentReads} unavailable or require comment-reading permission. Account metrics do not establish comment synchronization.`) || 'Official API authorization required for automated comment synchronization. Use Open Native Account for native moderation.';
         setSyncNotice({
           text: msg,
           isError: true,

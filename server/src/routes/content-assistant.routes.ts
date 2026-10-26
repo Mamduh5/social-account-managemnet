@@ -2,11 +2,17 @@ import {contentWorkspaceRepo as workspaceReadiness} from '../repositories/conten
 import { Router } from 'express';
 import { contentAssistantService as service } from '../services/content-assistant.service.js';
 import { contentWorkspaceRepo as repo } from '../repositories/content-workspace.repo.js';
+import { replyDraftsService as replies } from '../services/reply-drafts.service.js';
 
 export const assistantRouter=Router();
 assistantRouter.use((_req,res,next)=>{if(!workspaceReadiness.ready())return res.status(503).json({error:'V1.10 requires the explicit offline maintenance migration'});next();});
 const sync=(fn:(req:any)=>any)=>(req:any,res:any)=>{try {res.json({success:true,...fn(req)});}catch(error:any){res.status(400).json({error:error.message});}};
 assistantRouter.get('/status',sync(()=>service.status()));
+assistantRouter.get('/reply-context',sync(req=>service.replyContext({accountId:req.query.accountId,commentId:req.query.commentId})));
+assistantRouter.post('/reply-drafts',sync(req=>({draft:service.replyDraft(req.body)})));
+assistantRouter.get('/drafts/:id/reply-receipt',sync(req=>replies.status(req.params.id,req.query.accountId as string)));
+assistantRouter.post('/drafts/:id/send-reply',async(req,res)=>{try {res.json(await replies.send(req.params.id,req.body));}catch(error:any){res.status(400).json({error:error.message});}});
+assistantRouter.post('/drafts/:id/reply-receipt',async(req,res)=>{try {res.json(await replies.reconcile(req.params.id,req.body));}catch(error:any){res.status(400).json({error:error.message});}});
 assistantRouter.get('/profiles/:accountId',sync(req=>service.profile(req.params.accountId)));
 assistantRouter.put('/profiles/:accountId',sync(req=>service.saveProfile(req.params.accountId,req.body)));
 assistantRouter.get('/drafts',sync(req=>({drafts:repo.drafts(typeof req.query.accountId==='string'?req.query.accountId:undefined)})));

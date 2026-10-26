@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Calendar as CalendarIcon,
   Clock,
@@ -31,8 +31,10 @@ import {
   CampaignPlanInput,
   CampaignSummary,
   PlanItemInput,
+  CampaignReview,
 } from '../types/calendar';
 import { PostContentType } from '../types/general-posts';
+import { calendarApi } from '../api/calendar';
 
 interface Props {
   selectedCategory?: string;
@@ -44,10 +46,7 @@ export const CalendarView: React.FC<Props> = () => {
     (a) => !a.archived_at && a.platform === 'facebook' && a.account_type === 'page'
   );
 
-  // Default to the connected dev Page if available
-  const defaultPage =
-    facebookPages.find((p) => p.name === 'แก้บัคยาวๆๆ' || p.id === 'acc-f50fc6bc-b89b-4f4f-99ff-9f3c4fcbfac5') ||
-    facebookPages[0];
+  const defaultPage = facebookPages[0];
 
   const {
     items,
@@ -72,23 +71,28 @@ export const CalendarView: React.FC<Props> = () => {
   } = useCalendar(defaultPage?.id);
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [reviewingCampaignId,setReviewingCampaignId] = useState<string | null>(null);
   const [editingItem, setEditingItem] = useState<CalendarItem | null>(null);
   const [editCaption, setEditCaption] = useState('');
   const [editHashtags, setEditHashtags] = useState('');
   const [editTime, setEditTime] = useState('');
   const [activeTab, setActiveTab] = useState<'calendar' | 'campaigns'>('calendar');
+  const [selectedCampaignId, setSelectedCampaignId] = useState('');
 
   // Active target account
   const currentAccount = accounts.find((a) => a.id === (selectedAccountId || defaultPage?.id));
 
   // Active campaign for selected account
   const activeCampaign = useMemo(() => {
+    const selected = campaigns.find(c => c.id === selectedCampaignId && c.accountId === (selectedAccountId || defaultPage?.id));
+    if (selected) return selected;
     return campaigns.find(
       (c) =>
         c.accountId === (selectedAccountId || defaultPage?.id) &&
         ['draft', 'awaiting_approval', 'active', 'paused'].includes(c.status)
     );
-  }, [campaigns, selectedAccountId, defaultPage?.id]);
+  }, [campaigns, selectedAccountId, defaultPage?.id, selectedCampaignId]);
 
   // Group items by Bangkok date string (YYYY-MM-DD)
   const groupedByDay = useMemo(() => {
@@ -109,6 +113,7 @@ export const CalendarView: React.FC<Props> = () => {
 
     // Place items in corresponding buckets
     for (const item of items) {
+      if (selectedCampaignId && activeCampaign?.id === selectedCampaignId && item.campaignId !== selectedCampaignId) continue;
       let dateKey = 'Unscheduled';
       if (item.scheduledAt) {
         dateKey = new Intl.DateTimeFormat('en-CA', {
@@ -125,7 +130,7 @@ export const CalendarView: React.FC<Props> = () => {
     }
 
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
-  }, [items, selectedDays]);
+  }, [items, selectedDays, selectedCampaignId, activeCampaign?.id]);
 
   const handleOpenEdit = (item: CalendarItem) => {
     setEditingItem(item);
@@ -238,6 +243,7 @@ export const CalendarView: React.FC<Props> = () => {
           <div className="flex items-center gap-1.5 bg-surface border border-border rounded-xl px-2.5 py-1.5 text-xs">
             <span className="text-slate-400">Page:</span>
             <select
+              aria-label="Calendar Page"
               value={selectedAccountId || defaultPage?.id || ''}
               onChange={(e) => setSelectedAccountId(e.target.value)}
               className="bg-transparent font-semibold text-slate-200 outline-none cursor-pointer"
@@ -284,6 +290,9 @@ export const CalendarView: React.FC<Props> = () => {
           >
             <Plus className="w-3.5 h-3.5" />
             New Campaign Plan
+          </button>
+          <button onClick={()=>setImportModalOpen(true)} disabled={!currentAccount} className="px-3.5 py-1.5 bg-surface hover:bg-surface-hover border border-border text-slate-200 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer disabled:opacity-50">
+            <Sparkles className="w-3.5 h-3.5" /> Import Prepared Plan
           </button>
 
           <button
@@ -338,6 +347,15 @@ export const CalendarView: React.FC<Props> = () => {
       </div>
 
       {/* Campaign Approval & Status Banner */}
+      {campaigns.length > 1 && (
+        <label className="flex items-center gap-2 text-xs text-slate-300">
+          Campaign to review
+          <select aria-label="Campaign to review" value={campaigns.some(c=>c.id===selectedCampaignId) ? selectedCampaignId : ''} onChange={e=>setSelectedCampaignId(e.target.value)} className="bg-surface border border-border rounded-xl p-2 text-slate-200">
+            <option value="">All Page items</option>
+            {campaigns.filter(c=>c.accountId===(selectedAccountId || defaultPage?.id)).map(c=><option key={c.id} value={c.id}>{c.name} ({c.status})</option>)}
+          </select>
+        </label>
+      )}
       {activeCampaign ? (
         <div className="bg-surface-card border border-border/80 rounded-2xl p-4 shadow-sm space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -347,20 +365,24 @@ export const CalendarView: React.FC<Props> = () => {
                 <h3 className="text-sm font-bold text-slate-100">{activeCampaign.name}</h3>
                 {getStatusBadge(activeCampaign.status)}
                 <span className="text-[10px] px-2 py-0.5 rounded bg-surface text-slate-400 border border-border">
-                  {activeCampaign.origin === 'gemini_prepared' ? '✨ Gemini Prepared' : '👤 Manual'}
+                  {activeCampaign.origin === 'gemini_prepared' ? '✨ Prepared externally' : '👤 Manual'}
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1">
+                Page: <strong className="text-slate-200">{activeCampaign.accountName} ({activeCampaign.accountHandle})</strong> •{' '}
                 {activeCampaign.days}-Day Plan ({activeCampaign.startDate} to {activeCampaign.endDate}) •{' '}
                 {activeCampaign.itemsCount} total posts ({activeCampaign.publishedCount} published,{' '}
                 {activeCampaign.scheduledCount} scheduled, {activeCampaign.draftCount} drafts)
+              </p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Approval schedules this Page's exact saved captions, media and times, up to {activeCampaign.maxPublications} publications. Other Pages remain independent.
               </p>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
               {['draft', 'awaiting_approval'].includes(activeCampaign.status) && (
                 <button
-                  onClick={() => approveCampaign(activeCampaign.id)}
+                  onClick={() => setReviewingCampaignId(activeCampaign.id)}
                   disabled={actionLoading}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-emerald-600/20 active:scale-95 disabled:opacity-50"
                 >
@@ -491,9 +513,14 @@ export const CalendarView: React.FC<Props> = () => {
                         <h4 className="text-xs font-semibold text-slate-100 line-clamp-1 mt-1">
                           {item.title}
                         </h4>
+                        <p className="text-[10px] text-slate-400">{item.accountName} ({item.accountHandle}){item.campaignName ? ` • ${item.campaignName}` : ''}</p>
                         <p className="text-[11px] text-slate-300 line-clamp-3 leading-relaxed whitespace-pre-wrap">
                           {item.caption}
                         </p>
+                        <details className="text-[11px] text-slate-300 mt-1">
+                          <summary className="cursor-pointer text-terracotta-400">Review full caption</summary>
+                          <p className="whitespace-pre-wrap break-words mt-1">{item.caption}</p>
+                        </details>
                         {item.hashtags && (
                           <p className="text-[10px] text-terracotta-400 font-medium line-clamp-1">
                             {item.hashtags}
@@ -542,7 +569,7 @@ export const CalendarView: React.FC<Props> = () => {
                         {item.receipt?.remotePostUrl && (
                           <div className="mt-2 p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-[10px] text-emerald-300 space-y-0.5">
                             <div className="flex items-center justify-between">
-                              <span className="font-semibold">Facebook Verified Post</span>
+                              <span className="font-semibold">{item.status === 'published' && item.receipt.confirmationSource === 'api' && item.receipt.verificationStatus === 'confirmed' ? 'Facebook API verified post' : 'Saved publication receipt'}</span>
                               <a
                                 href={item.receipt.remotePostUrl}
                                 target="_blank"
@@ -555,6 +582,7 @@ export const CalendarView: React.FC<Props> = () => {
                             <div className="text-[9px] text-slate-400 font-mono truncate">
                               ID: {item.receipt.remotePostId}
                             </div>
+                            <div className="text-[9px] text-slate-400">Source: {item.receipt.confirmationSource || 'unavailable'} • Verification: {item.receipt.verificationStatus || 'unverified'}</div>
                           </div>
                         )}
 
@@ -571,7 +599,7 @@ export const CalendarView: React.FC<Props> = () => {
                         <div className="flex items-center gap-1">
                           {item.origin === 'gemini_prepared' ? (
                             <span className="text-terracotta-400 font-semibold flex items-center gap-0.5">
-                              <Sparkles className="w-2.5 h-2.5" /> Gemini
+                              <Sparkles className="w-2.5 h-2.5" /> Prepared
                             </span>
                           ) : (
                             <span className="text-slate-400 flex items-center gap-0.5">
@@ -705,6 +733,8 @@ export const CalendarView: React.FC<Props> = () => {
       )}
 
       {/* Create Plan Modal */}
+      {reviewingCampaignId && <CampaignReviewModal campaignId={reviewingCampaignId} onClose={()=>setReviewingCampaignId(null)} onApprove={async review=>{await approveCampaign(review.campaign.id,{accountId:review.account.id,expectedHash:review.expectedApprovalHash});setReviewingCampaignId(null);}} />}
+      {importModalOpen && currentAccount && <PreparedPlanModal accountId={currentAccount.id} accountName={`${currentAccount.name} (${currentAccount.handle})`} onClose={()=>setImportModalOpen(false)} onImported={async()=>{await refresh();setImportModalOpen(false);}} />}
       {createModalOpen && (
         <CreatePlanModal
           accountId={selectedAccountId || defaultPage?.id || ''}
@@ -720,6 +750,73 @@ export const CalendarView: React.FC<Props> = () => {
   );
 };
 
+const CampaignReviewModal:React.FC<{campaignId:string;onClose:()=>void;onApprove:(review:CampaignReview)=>Promise<void>}> = ({campaignId,onClose,onApprove}) => {
+  const [review,setReview]=useState<CampaignReview | null>(null);
+  const [error,setError]=useState('');
+  const [busy,setBusy]=useState(false);
+  const load=async()=>{setBusy(true);setError('');setReview(null);try{setReview(await calendarApi.getCampaignReview(campaignId));}catch(e:any){setError(e.message);}finally{setBusy(false);}};
+  useEffect(()=>{void load();},[campaignId]);
+  return <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"><div role="dialog" aria-modal="true" aria-label="Review Exact Campaign" className="bg-surface-card border border-border rounded-2xl max-w-3xl w-full p-5 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
+    <div className="flex items-center justify-between"><h3 className="text-sm font-bold text-slate-100">Review Exact Campaign</h3><button onClick={onClose} aria-label="Close campaign review"><X className="w-4 h-4 text-slate-400" /></button></div>
+    {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
+    {review ? <>
+      <p className="text-xs text-slate-200">Publishing as <strong>{review.account.name} ({review.account.handle})</strong> • Graph ID: {review.account.graphId || 'unverified'}</p>
+      <p className="text-xs text-slate-400">{review.campaign.name} • {review.items.length} items • Maximum {review.campaign.maxPublications} publications • {review.campaign.startDate} to {review.campaign.endDate} (Asia/Bangkok)</p>
+      <p className="text-xs text-amber-300">Approval schedules these exact saved revisions. Changes to the content, Page identity, media, branding or schedule require a fresh review.</p>
+      <div className="space-y-3">{review.items.map(item=><article key={item.id} className="border border-border rounded-xl p-3 space-y-2 text-xs text-slate-300">
+        <h4 className="font-bold text-slate-100">{item.title}</h4><p>{item.contentType} • Revision {item.revision} • {item.scheduledAtBangkok || 'No schedule'}</p>
+        <p className="whitespace-pre-wrap break-words">{item.caption}</p>{item.hashtags && <p className="whitespace-pre-wrap">{item.hashtags}</p>}
+        {item.media.length>0 && <div className="flex gap-2 overflow-x-auto">{item.media.map(media=><img key={media.id} src={media.previewUrl || media.url} alt={media.altText || 'Selected image'} className="w-24 h-24 rounded-lg object-cover" />)}</div>}
+        {item.videoId && <p>Selected master video: {item.videoTitle || item.videoId} ({item.videoId})</p>}
+        <details><summary className="cursor-pointer">Exact media and branding details</summary><pre className="whitespace-pre-wrap break-words text-[10px] mt-1">{JSON.stringify(item.approvalDetails,null,2)}</pre></details>
+      </article>)}</div>
+    </> : <p className="text-xs text-slate-400">{busy?'Loading current campaign snapshot...':'Reload the current campaign before approving.'}</p>}
+    <div className="flex justify-end gap-2"><button onClick={onClose} className="px-3 py-2 text-xs text-slate-300">Cancel</button><button onClick={load} disabled={busy} className="px-3 py-2 text-xs text-slate-300 border border-border rounded-xl">Reload Review</button><button disabled={!review||busy} onClick={async()=>{if(!review)return;setBusy(true);try{await onApprove(review);}catch(e:any){setError(e.message);setReview(null);}finally{setBusy(false);}}} className="px-4 py-2 bg-emerald-600 rounded-xl text-white text-xs font-bold disabled:opacity-50">Approve Reviewed Campaign</button></div>
+  </div></div>;
+};
+
+const PreparedPlanModal: React.FC<{accountId:string;accountName:string;onClose:()=>void;onImported:()=>Promise<void>}> = ({accountId,accountName,onClose,onImported}) => {
+  const [context,setContext] = useState<any>(null);
+  const [prepared,setPrepared] = useState('');
+  const [error,setError] = useState('');
+  const [busy,setBusy] = useState(false);
+  const [copied,setCopied] = useState(false);
+  useEffect(()=>{
+    let active=true;
+    fetch(`/api/operator/pages/${encodeURIComponent(accountId)}/context`).then(async response=>{
+      const body=await response.json();
+      if(!response.ok) throw new Error(body.error || 'Page brief unavailable');
+      if(active)setContext(body);
+    }).catch(e=>{if(active)setError(e.message);});
+    return ()=>{active=false;};
+  },[accountId]);
+  const importPlan=async()=>{
+    setBusy(true);setError('');
+    try {
+      const body=JSON.parse(prepared);
+      if(body.plan?.accountId!==accountId)throw new Error('Prepared plan must use the selected Page account ID');
+      if(!body.contextFingerprint)throw new Error('Paste the prepared plan with its Page contextFingerprint');
+      const response=await fetch('/api/operator/plans',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.error || 'Prepared plan could not be saved');
+      await onImported();
+    } catch(e:any){setError(e.message || 'Paste valid prepared-plan JSON');}
+    finally{setBusy(false);}
+  };
+  return <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div role="dialog" aria-modal="true" aria-label="Import Prepared Plan" className="bg-surface-card border border-border rounded-2xl max-w-2xl w-full p-5 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
+      <div className="flex items-center justify-between"><h3 className="font-bold text-sm text-slate-100">Import Prepared Plan</h3><button onClick={onClose} aria-label="Close prepared plan" className="text-slate-400"><X className="w-4 h-4" /></button></div>
+      <p className="text-xs text-slate-200">Destination Page: <strong>{accountName}</strong></p>
+      <p className="text-xs text-slate-400">Use this Page brief with your creative operator, such as Codex or Gemini in Antigravity. Paste the prepared plan here to save unapproved campaign drafts. Review and approval remain separate owner actions.</p>
+      {error && <p role="alert" className="text-xs text-rose-300 p-2 rounded-lg bg-rose-500/10">{error}</p>}
+      <details className="text-xs text-slate-300"><summary className="cursor-pointer">Page brief and available media</summary><pre className="text-[10px] bg-background p-2 mt-2 rounded-lg whitespace-pre-wrap break-words max-h-48 overflow-y-auto">{context?JSON.stringify(context,null,2):'Loading Page brief...'}</pre></details>
+      <button disabled={!context} onClick={async()=>{try{await navigator.clipboard.writeText(JSON.stringify(context,null,2));setCopied(true);}catch{setError('Copy the Page brief from the expanded text.');}}} className="px-3 py-1.5 bg-surface border border-border rounded-xl text-xs text-slate-200 disabled:opacity-50">{copied?'Page Brief Copied':'Copy Page Brief'}</button>
+      <label className="block text-xs text-slate-300">Prepared plan JSON<textarea aria-label="Prepared plan JSON" value={prepared} onChange={e=>setPrepared(e.target.value)} rows={10} placeholder={'{"contextFingerprint":"from Page brief","plan":{"accountId":"'+accountId+'",...}}'} className="mt-1 w-full bg-background border border-border rounded-xl p-2.5 text-slate-200 font-mono text-[11px]" /></label>
+      <div className="flex justify-end gap-2"><button onClick={onClose} className="px-3 py-2 text-xs text-slate-300">Cancel</button><button onClick={importPlan} disabled={busy||!context||!prepared.trim()} className="px-4 py-2 rounded-xl bg-terracotta-600 text-white text-xs font-bold disabled:opacity-50">{busy?'Saving Drafts...':'Save Prepared Drafts'}</button></div>
+    </div>
+  </div>;
+};
+
 interface CreatePlanModalProps {
   accountId: string;
   accountName: string;
@@ -733,10 +830,9 @@ const CreatePlanModal: React.FC<CreatePlanModalProps> = ({
   onClose,
   onCreate,
 }) => {
-  const [name, setName] = useState('7-Day Debugging & Dev Progress');
-  const [editorialScope, setEditorialScope] = useState(
-    'Social Command Center development progress, verified fixes, and integration experiments.'
-  );
+  const [name, setName] = useState('');
+  const [editorialScope, setEditorialScope] = useState('');
+  const [captions, setCaptions] = useState('');
   const [days, setDays] = useState<7 | 14 | 30>(7);
   const [startDate, setStartDate] = useState(() => {
     return new Intl.DateTimeFormat('en-CA', {
@@ -746,91 +842,27 @@ const CreatePlanModal: React.FC<CreatePlanModalProps> = ({
       day: '2-digit',
     }).format(new Date());
   });
-  const [origin, setOrigin] = useState<'gemini_prepared' | 'manual'>('gemini_prepared');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Genuine development topics for แก้บัคยาวๆๆ
-  const sampleTopics = [
-    {
-      day: 1,
-      type: 'text' as PostContentType,
-      title: 'แก้บัค SQLite WAL-safe Atomic Rollback ใน V1.10',
-      caption:
-        'บันทึกการแก้บัค: การอัปเดตสคีมาฐานข้อมูลใน V1.10 ถูกปรับให้ทำงานภายใต้ Transaction เดียวแบบ Atomic 100% เพื่อป้องกันปัญหา Foreign Key และรับรองว่าหากเกิดความล้มเหลวระหว่างทาง ข้อมูลเดิมจะไม่ได้รับผลกระทบ 🌱 #SocialCommandCenter #SoftwareEngineering #Sqlite',
-      hashtags: '#SocialCommandCenter #SoftwareEngineering #BugFix',
-    },
-    {
-      day: 2,
-      type: 'text' as PostContentType,
-      title: 'ข้อสังเกตการตรวจเช็คอายุ Meta Page Token รายวัน',
-      caption:
-        'จากการทดสอบระบบ Authorization ของ Meta Graph API พบว่า Page Access Token มีอายุใช้งานระยะยาวและ Social Command Center มีกลไก Revalidation อัตโนมัติทุก 24 ชั่วโมง เพื่อให้มั่นใจว่าสิทธิ์การเผยแพร่ยังคงสมบูรณ์ 🔒 #MetaGraphApi #OAuth #FacebookPage',
-      hashtags: '#MetaGraphApi #Security #OAuth',
-    },
-    {
-      day: 3,
-      type: 'link' as PostContentType,
-      title: 'สถาปัตยกรรม Draft-First Publishing เพื่อความปลอดภัยของบัญชี',
-      caption:
-        'ทำไม Social Command Center จึงใช้แนวคิด Draft-First? เพราะทุกโพสต์ต้องผ่านการ Review และ Approve ก่อนส่งเข้าคิว ป้องกันการ Replay โดยไม่ตั้งใจได้อย่างเด็ดขาด 📝 #ContentSafety #DraftFirst #SystemDesign',
-      linkUrl: 'https://github.com/facebook/graph-api',
-      hashtags: '#DraftFirst #Architecture #ContentSafety',
-    },
-    {
-      day: 4,
-      type: 'text' as PostContentType,
-      title: 'การคำนวณ Safe-Area สำหรับ Moving Watermark 9:16 vs 16:9',
-      caption:
-        'สูตรคณิตศาสตร์ใน Branding Engine: การคำนวณตำแหน่งลายน้ำเคลื่อนไหวให้หลบ Safe Area บน Facebook (16:9) และ TikTok (9:16) ป้องกันไม่ให้ข้อความไปทับกับ UI ปุ่ม Like และ Comment ของแอป 📐 #FFmpeg #Watermark #BrandingEngine',
-      hashtags: '#FFmpeg #Branding #VideoEngineering',
-    },
-    {
-      day: 5,
-      type: 'text' as PostContentType,
-      title: 'การทดลองระบบตั้งเวลา Local Loop vs Meta-Native Schedule',
-      caption:
-        'ผลการทดลอง: การใช้ SQLite julianday loop ควบคู่กับการ Hold งานที่ค้างตอนบูตเซิร์ฟเวอร์ ช่วยป้องกันการส่งโพสต์ซ้ำได้อย่างน่าเชื่อถือเมื่อเครื่องพีซีปิดอยู่ ⏱️ #PublishingScheduler #SelfHosted #Reliability',
-      hashtags: '#PublishingScheduler #Automation #Reliability',
-    },
-    {
-      day: 6,
-      type: 'text' as PostContentType,
-      title: 'บันทึกการตรวจสอบสิทธิ์ TikTok Display API บน Personal Account',
-      caption:
-        'การเชื่อมต่อกับ TikTok Official Display API: บัญชีประเภท Personal Account สามารถดึงสถิติพื้นฐานและรายการวิดีโอได้จริง แต่ฟังก์ชันการตอบคอมเมนต์ต้องเป็นไปตามเงื่อนไขของแพลตฟอร์ม 📊 #TikTokApi #DisplayApi #Analytics',
-      hashtags: '#TikTokApi #SocialMediaAnalytics',
-    },
-    {
-      day: 7,
-      type: 'text' as PostContentType,
-      title: 'สรุปการทดสอบระบบ One-Time Campaign Approval V1.11',
-      caption:
-        'สำเร็จไปอีกขั้นกับฟีเจอร์ One-Time Campaign Approval: เจ้าของระบบสามารถตรวจสอบแคมเปญทั้งหมด 7-30 วัน และอนุมัติพร้อมกันในคลิกเดียว พร้อมปุ่ม Pause และระบบ Audit Hash ตรวจจับการแก้ไขเนื้อหา 🚀 #Milestone #V111 #EngineeringProgress',
-      hashtags: '#V111 #ContentCalendar #EngineeringProgress',
-    },
-  ];
 
   const handleSubmit = async () => {
     setLoading(true);
     setError(null);
     try {
-      // Build items based on days
       const items: PlanItemInput[] = [];
       const start = new Date(`${startDate}T10:00:00+07:00`);
-
-      const count = days === 7 ? 7 : days === 14 ? 14 : 30;
+      const enteredCaptions = captions.split('\n').map(value => value.trim()).filter(Boolean);
+      if (!enteredCaptions.length || enteredCaptions.length > days) throw new Error(`Enter between 1 and ${days} captions, one per line.`);
+      const count = enteredCaptions.length;
       for (let i = 0; i < count; i++) {
-        const topic = sampleTopics[i % sampleTopics.length];
         const postDate = new Date(start.getTime() + i * 86400000);
         const scheduledTimeBangkok = `${postDate.toISOString().slice(0, 10)}T10:00:00+07:00`;
 
         items.push({
-          title: `Day ${i + 1}: ${topic.title}`,
-          contentType: topic.type,
-          caption: topic.caption,
-          hashtags: topic.hashtags,
-          linkUrl: topic.linkUrl,
+          title: `Day ${i + 1}: ${enteredCaptions[i].slice(0, 100)}`,
+          contentType: 'text',
+          caption: enteredCaptions[i],
+          hashtags: '',
           attachments: [],
           scheduledAt: scheduledTimeBangkok,
         });
@@ -842,7 +874,7 @@ const CreatePlanModal: React.FC<CreatePlanModalProps> = ({
         editorialScope,
         days,
         startDate,
-        origin,
+        origin: 'manual',
         maxPublications: count,
         items,
       });
@@ -919,37 +951,15 @@ const CreatePlanModal: React.FC<CreatePlanModalProps> = ({
           </div>
 
           <div>
-            <label className="font-semibold text-slate-300 block mb-1">Content Origin</label>
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name="origin"
-                  checked={origin === 'gemini_prepared'}
-                  onChange={() => setOrigin('gemini_prepared')}
-                />
-                <span className="flex items-center gap-1">
-                  <Sparkles className="w-3 h-3 text-terracotta-400" /> Gemini Prepared
-                </span>
-              </label>
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name="origin"
-                  checked={origin === 'manual'}
-                  onChange={() => setOrigin('manual')}
-                />
-                <span className="flex items-center gap-1">
-                  <User className="w-3 h-3 text-slate-400" /> Manual Owner Entry
-                </span>
-              </label>
-            </div>
+            <label htmlFor="campaign-captions" className="font-semibold text-slate-300 block mb-1">Manual captions (one per day, one per line)</label>
+            <textarea id="campaign-captions" value={captions} onChange={e=>setCaptions(e.target.value)} rows={5} className="w-full bg-background border border-border rounded-xl p-2 text-slate-200 outline-none focus:border-terracotta-500" />
+            <p className="text-[10px] text-slate-400 mt-1">Only your entered content is saved. Use Import Prepared Plan for externally prepared captions and selected media.</p>
           </div>
 
           <div className="p-3 bg-surface border border-border rounded-xl text-[11px] text-slate-300 space-y-1">
             <span className="font-semibold text-slate-200 block">Draft-First Guarantee:</span>
             <span>
-              All {days} items will be prepared as drafts. Nothing will be published or queued until you explicitly click "Approve Entire Campaign".
+              Your entered captions will be saved as manual drafts. Nothing will be published or queued until you explicitly click "Approve Entire Campaign".
             </span>
           </div>
         </div>

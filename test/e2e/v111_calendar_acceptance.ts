@@ -273,6 +273,8 @@ async function runAcceptance() {
 
   // Click batch approval
   await approveButton.click();
+  await page.getByRole('dialog',{name:'Review Exact Campaign'}).waitFor();
+  await page.getByRole('button',{name:'Approve Reviewed Campaign',exact:true}).click();
   await wait(1000);
 
   // Verify status changed to active and Pause button appears

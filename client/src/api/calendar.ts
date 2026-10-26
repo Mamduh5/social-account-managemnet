@@ -3,6 +3,7 @@ import {
   CalendarItem,
   CampaignPlanInput,
   CampaignSummary,
+  CampaignReview,
 } from '../types/calendar';
 
 const BASE_URL = '/api/calendar';
@@ -71,13 +72,16 @@ export const calendarApi = {
   },
 
   approveCampaign(
-    campaignId: string
+    campaignId: string,
+    review: {accountId:string;expectedHash:string}
   ): Promise<{ campaign: CampaignSummary; queuedCount: number; approvedHash: string }> {
     return request<{ campaign: CampaignSummary; queuedCount: number; approvedHash: string }>(
       `/campaigns/${encodeURIComponent(campaignId)}/approve`,
-      { method: 'POST' }
+      { method: 'POST',body:JSON.stringify(review) }
     );
   },
+
+  getCampaignReview(campaignId:string):Promise<CampaignReview>{return request<CampaignReview>(`/campaigns/${encodeURIComponent(campaignId)}/review`);},
 
   pauseCampaign(campaignId: string): Promise<{ campaign: CampaignSummary }> {
     return request<{ campaign: CampaignSummary }>(

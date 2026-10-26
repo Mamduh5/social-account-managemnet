@@ -71,10 +71,12 @@ calendarRouter.post(
 calendarRouter.post(
   '/campaigns/:id/approve',
   wrap((req: any, res: any) => {
-    const result = calendarService.approveCampaign(req.params.id);
+    const result = calendarService.approveCampaign(req.params.id, {accountId:req.body?.accountId,expectedHash:req.body?.expectedHash});
     res.json(result);
   })
 );
+
+calendarRouter.get('/campaigns/:id/review',wrap((req:any,res:any)=>res.json(calendarService.getCampaignReview(req.params.id))));
 
 calendarRouter.post(
   '/campaigns/:id/pause',

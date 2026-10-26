@@ -8,7 +8,16 @@ export function publicLink(value:string):string {
   if(!['http:','https:'].includes(url.protocol)||url.username||url.password||!host.includes('.')||isIP(host)||isIP(host.replace(/^\[|\]$/g,''))||host==='localhost'||/(?:^|\.)(?:localhost|local|internal|test|invalid)$/.test(host)) throw new Error('Link must use a public HTTP(S) hostname without credentials');
   return url.toString();
 }
-const destination=z.object({accountId:z.string().min(1).max(100),caption:z.string().max(60000).default(''),hashtags:z.string().max(2000).default(''),linkUrl:z.string().max(2048).optional(),attachments:z.array(z.object({mediaId:z.string().min(1).max(100),altText:z.string().max(1000).default('')})).max(10).default([]),selectedVariantId:z.string().nullable().optional(),applyBranding:z.boolean().optional()});
+const literalBrandText=z.string().max(1000).refine(value=>!value.includes('\0'),'Branding text must not contain null characters');
+export const brandingOverrideInput=z.object({
+  mode:z.enum(['none','moving','moving_and_caption','caption']).optional(),
+  watermarkType:z.enum(['moving_text','static_text','logo_overlay']).optional(),
+  text:literalBrandText.optional(),signatureText:literalBrandText.optional(),
+  fontSize:z.number().finite().optional(),opacity:z.number().finite().optional(),
+  speedSeconds:z.number().finite().optional(),intervalSeconds:z.number().finite().optional(),
+  safeArea:z.object({top:z.number().nonnegative().optional(),bottom:z.number().nonnegative().optional(),left:z.number().nonnegative().optional(),right:z.number().nonnegative().optional()}).optional(),
+}).passthrough();
+const destination=z.object({accountId:z.string().min(1).max(100),caption:z.string().max(60000).default(''),hashtags:z.string().max(2000).default(''),linkUrl:z.string().max(2048).optional(),attachments:z.array(z.object({mediaId:z.string().min(1).max(100),altText:z.string().max(1000).default('')})).max(10).default([]),selectedVariantId:z.string().nullable().optional(),applyBranding:z.boolean().optional(),brandingOverride:brandingOverrideInput.optional()});
 export const draftInput=z.object({title:z.string().trim().min(1).max(300),contentType:z.enum(postTypes),assistantSource:z.object({draftId:z.string().min(1).max(100),revision:z.number().int().positive()}).optional(),videoId:z.string().optional(),scheduledAt:z.string().nullable().optional(),destinations:z.array(destination).min(1).max(50)});
 export type DraftInput=z.infer<typeof draftInput>;
 export function normalizeDraft(raw:unknown):DraftInput {
@@ -26,7 +35,7 @@ export function normalizeDraft(raw:unknown):DraftInput {
     if(new Set(d.attachments.map(a=>a.mediaId)).size!==count) throw new Error('An image may appear only once per destination');
     if(data.contentType==='link') {if(!d.linkUrl) throw new Error('A link is required');d.linkUrl=publicLink(d.linkUrl);} else delete d.linkUrl;
     if(data.contentType==='text'&&!d.caption.trim()) throw new Error('Text posts require text');
-    if(data.contentType!=='reel') {delete d.selectedVariantId;d.applyBranding=false;}
+    if(data.contentType!=='reel') {delete d.selectedVariantId;delete d.brandingOverride;d.applyBranding=false;}
   }
   return data;
 }

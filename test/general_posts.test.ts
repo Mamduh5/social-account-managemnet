@@ -61,6 +61,12 @@ test('text draft saves and reloads Unicode without video, attachments, queue wor
   assert.deepEqual(generalPostsRepo.auditFor(row.id).map((a:any) => a.action), ['created']);
 });
 
+test('approved Reel preserves an explicitly empty caption instead of publishing its title',()=>{
+  const result=queued({title:'Internal reviewed title is not the caption',contentType:'reel',videoId,destinations:[{accountId:pageA,caption:'',hashtags:'',applyBranding:false}]});
+  assert.equal(result.draft.destinations[0].caption,'');
+  assert.equal(result.destination.caption,'');
+});
+
 test('material text edits and destination changes invalidate approval and stale revisions', () => {
   const row = approved(text());
   const edited = drafts.save(text(pageA, 'แก้ไขแล้ว'), row.id, row.revision);

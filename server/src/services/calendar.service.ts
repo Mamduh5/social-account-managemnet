@@ -19,8 +19,32 @@ import { generalPostsService, pagePostCapabilities } from './general-posts.servi
 import { publishingService } from './publishing.service.js';
 import { activityRepo } from '../repositories/activity.repo.js';
 import { eventService } from './events.service.js';
+import { brandingOverrideInput } from '../domain/general-posts.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+const canonical = (value: unknown) => JSON.stringify(value, (_key,entry)=>entry && typeof entry === 'object' && !Array.isArray(entry) ? Object.fromEntries(Object.entries(entry).sort(([a],[b])=>a.localeCompare(b))) : entry);
+
+function effectivePageBranding(account: any) {
+  const stored = JSON.parse(account.brand_kit_json || '{}');
+  return brandingOverrideInput.parse({watermarkType:'moving_text',text:account.handle,movementPreset:'smooth_sine',fontSize:26,opacity:0.85,...stored,signatureText:stored.signatureText === undefined ? account.name : stored.signatureText});
+}
+
+function requireCompatibleVariant(videoId: string | undefined, variantId: string | null | undefined, brandKit: unknown) {
+  if (!variantId || variantId === 'original') return;
+  const variant = publishingRepo.getBrandedVideoById(variantId);
+  if (!variant || variant.video_id !== videoId) throw new Error('Branded variant does not belong to the selected master video');
+  if (canonical(JSON.parse(variant.brand_kit_json)) !== canonical(brandKit)) {
+    throw new Error('Selected variant branding is not compatible with the saved Page brand kit; render this Page branding instead');
+  }
+}
+
+function requireCampaignSchedule(scheduledAt: string | null | undefined, campaign: { startDate: string; days: number }) {
+  const start = Date.parse(`${campaign.startDate}T00:00:00+07:00`);
+  const scheduled = scheduledAt ? Date.parse(scheduledAt) : NaN;
+  if (!Number.isFinite(scheduled) || scheduled < start || scheduled >= start + campaign.days * 86400000) {
+    throw new Error(`Every campaign post must have a schedule within its ${campaign.days}-day Asia/Bangkok window`);
+  }
+}
 
 export class CalendarService {
   requireReady() {
@@ -111,7 +135,12 @@ export class CalendarService {
 
     // 2. Validate Items & Capabilities
     const normalizedItems = normalizePlanItems(parsed.items, parsed.accountId);
+    if (normalizedItems.length > parsed.maxPublications) {
+      throw new Error('Campaign post count exceeds maximum authorized publications');
+    }
     for (const item of normalizedItems) {
+      requireCampaignSchedule(item.scheduledAtUtc, parsed);
+      if (item.contentType === 'reel') requireCompatibleVariant(item.videoId,item.selectedVariantId,effectivePageBranding(account));
       if (!caps.supportedPostTypes.includes(item.contentType)) {
         throw new Error(
           `Post "${item.title}" uses type "${item.contentType}" which is unsupported for this destination`
@@ -157,6 +186,9 @@ export class CalendarService {
               hashtags: item.hashtags,
               linkUrl: item.linkUrl,
               attachments: item.attachments || [],
+              selectedVariantId: item.selectedVariantId,
+              applyBranding: item.applyBranding,
+              brandingOverride: item.contentType === 'reel' ? effectivePageBranding(account) : undefined,
             },
           ],
         };
@@ -192,6 +224,21 @@ export class CalendarService {
     return this.getCampaignById(campaignId);
   }
 
+  getCampaignReview(campaignId: string) {
+    const campaign = this.getCampaignById(campaignId);
+    const row = accountsRepo.getAccountById(campaign.accountId);
+    if (!row || row.archived_at) throw new Error('Destination account not found or is archived');
+    const account = {id:row.id,name:row.name,handle:row.handle,graphId:row.external_id,connectionRevision:row.connection_revision,identityVerifiedAt:row.identity_verified_at,brandKit:JSON.parse(row.brand_kit_json || '{}')};
+    const items = calendarRepo.getCalendarItems({campaignId}).filter(item=>item.status!=='cancelled').map(item=>{
+      const draft = item.sourceType === 'draft' ? generalPostsRepo.get(item.draftId!) : null;
+      const destination = item.sourceType === 'destination' ? publishingRepo.getDestinationById(item.id) : null;
+      return {...item,approvalDetails:draft ? JSON.parse(draft.payload_json) : {caption:item.caption,hashtags:item.hashtags,media:item.media,videoId:item.videoId,selectedVariantId:destination?.selected_variant_id,applyBranding:!!destination?.apply_branding,brandingOverride:destination?.branding_override_json ? JSON.parse(destination.branding_override_json) : null}};
+    });
+    const contentHash=calculateCampaignApprovalHash({campaignId,accountId:campaign.accountId,items:items.map(item=>({id:item.id,revision:item.revision,payloadHash:hash(JSON.stringify(item.approvalDetails)),scheduledAt:item.scheduledAt || ''}))});
+    const expectedApprovalHash=hash(JSON.stringify({campaign:{id:campaign.id,accountId:campaign.accountId,name:campaign.name,editorialScope:campaign.editorialScope,startDate:campaign.startDate,days:campaign.days,maxPublications:campaign.maxPublications,status:campaign.status},account,contentHash}));
+    return {campaign,account,items,expectedApprovalHash};
+  }
+
   /**
    * One-time campaign approval:
    * 1. Validates all drafts in the campaign.
@@ -200,7 +247,7 @@ export class CalendarService {
    * 4. Approves drafts and queues them into publishing queue with status: 'scheduled'.
    * 5. Sets campaign status to 'active'.
    */
-  approveCampaign(campaignId: string): {
+  approveCampaign(campaignId: string, review: {accountId:string;expectedHash:string}): {
     campaign: CampaignSummary;
     queuedCount: number;
     approvedHash: string;
@@ -209,6 +256,10 @@ export class CalendarService {
     const campaign = this.getCampaignById(campaignId);
     if (!['draft', 'awaiting_approval'].includes(campaign.status)) {
       throw new Error(`Campaign cannot be approved from status: ${campaign.status}`);
+    }
+    const currentReview=this.getCampaignReview(campaignId);
+    if (!review || review.accountId!==campaign.accountId || !review.expectedHash || review.expectedHash!==currentReview.expectedApprovalHash) {
+      throw new Error('Campaign or Page changed since review; reload and approve the exact current snapshot');
     }
 
     const items = calendarRepo.getCalendarItems({ campaignId }).filter(item => item.status !== 'cancelled');
@@ -233,38 +284,31 @@ export class CalendarService {
     }
 
     // Build hash binding
-    const hashData: Array<{ id: string; revision: number; payloadHash: string; scheduledAt: string }> = [];
     for (const item of draftItems) {
       const rawDraft = generalPostsRepo.get(item.draftId!);
       if (!rawDraft) throw new Error(`Draft ${item.draftId} not found`);
-      hashData.push({
-        id: rawDraft.id,
-        revision: rawDraft.revision,
-        payloadHash: hash(rawDraft.payload_json),
-        scheduledAt: item.scheduledAt || '',
-      });
+      const payload = JSON.parse(rawDraft.payload_json);
+      if (payload.destinations?.length !== 1 || payload.destinations[0].accountId !== campaign.accountId) {
+        throw new Error('Campaign approval requires exactly one destination matching its Page');
+      }
+      requireCampaignSchedule(payload.scheduledAt, campaign);
+      if (payload.contentType === 'reel') {
+        requireCompatibleVariant(payload.videoId,payload.destinations[0].selectedVariantId,payload.destinations[0].brandingOverride);
+      }
     }
-
-    for (const item of items.filter(item => item.sourceType === 'destination')) {
-      const destination = publishingRepo.getDestinationById(item.id) as any;
-      hashData.push({id:item.id,revision:item.revision,payloadHash:hash(JSON.stringify(destination)),scheduledAt:item.scheduledAt || ''});
-    }
-    const approvedHash = calculateCampaignApprovalHash({
-      campaignId,
-      accountId: campaign.accountId,
-      items: hashData,
-    });
+    const approvedHash = currentReview.expectedApprovalHash;
 
     let queuedCount = 0;
     db.transaction(() => {
       // 1. Batch approve drafts
       generalPostsService.approveBatch(
-        draftItems.map((d) => ({ id: d.draftId!, revision: d.revision }))
+        draftItems.map((d) => ({ id: d.draftId!, revision: d.revision })),
+        { campaignId }
       );
 
       // 2. Queue all approved drafts into publishing destinations with campaign_id
       for (const item of draftItems) {
-        const queued = generalPostsService.queue(item.draftId!, item.revision);
+        const queued = generalPostsService.queue(item.draftId!, item.revision, { campaignId });
         const destinations = publishingRepo.getPostDestinationRows(queued.postId);
         for (const dest of destinations) {
           calendarRepo.setDestinationCampaign(dest.id, campaignId, campaign.origin);
@@ -423,6 +467,7 @@ export class CalendarService {
       if (updates.linkUrl !== undefined) dest.linkUrl = updates.linkUrl;
       if (updates.scheduledAt !== undefined) {
         payload.scheduledAt = parseBangkokScheduledTime(updates.scheduledAt);
+        if (draft.campaign_id) requireCampaignSchedule(payload.scheduledAt, this.getCampaignById(draft.campaign_id));
       }
 
       // Material edit clears approval!

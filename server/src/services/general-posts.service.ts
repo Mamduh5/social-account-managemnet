@@ -22,6 +22,10 @@ export class GeneralPostsService {
       const account=accountsRepo.getAccountById(d.accountId) as any;
       if(!account||account.archived_at)throw new Error('Select an active registered destination account');
       if(data.contentType!=='reel'&&(account.platform!=='facebook'||account.account_type!=='page'))throw new Error('General posts are supported only for Facebook Pages');
+      if(data.contentType==='reel'&&d.selectedVariantId&&d.selectedVariantId!=='original'){
+        const variant=publishingRepo.getBrandedVideoById(d.selectedVariantId);
+        if(!variant||variant.video_id!==data.videoId)throw new Error('Branded variant does not belong to the selected master video');
+      }
       for(const a of d.attachments){const image=imageById(a.mediaId);if(!image)throw new Error('Image not found');verifiedImagePath(image);}
     }
     if(data.contentType==='reel'&&!publishingRepo.getVideoById(data.videoId!))throw new Error('Video not found');
@@ -46,19 +50,21 @@ export class GeneralPostsService {
     }
     repo.save(draftId,data,id?revision:undefined);const row=repo.get(draftId);repo.audit(draftId,row.revision,id?'edited':'created',hash(row.payload_json),lineage);return draftDto(row);});
   }
-  approveBatch(items:{id:string,revision:number}[]){
+  approveBatch(items:{id:string,revision:number}[],campaignContext?:{campaignId:string}){
     this.requireReady();if(!Array.isArray(items)||!items.length||items.length>50)throw new Error('Select 1–50 draft revisions');
     return repo.transaction(()=>items.map(item=>{
       const row=repo.get(item.id);if(!row||row.revision!==item.revision||row.status==='queued')throw new Error('Draft changed or already queued');
+      if(row.campaign_id!== (campaignContext?.campaignId || null) && (row.campaign_id || campaignContext))throw new Error('Use campaign batch approval for campaign drafts');
       const data=this.validate(JSON.parse(row.payload_json));
       for(const d of data.destinations){if(!pagePostCapabilities(accountsRepo.getAccountById(d.accountId)).supportedPostTypes.includes(data.contentType))throw new Error('Destination does not support this post type');}
       repo.approve(item.id,item.revision,hash(row.payload_json));repo.audit(item.id,item.revision,'approved',hash(row.payload_json),{accountIds:data.destinations.map(d=>d.accountId)});return draftDto(repo.get(item.id));
     }));
   }
   reject(id:string,revision:number){this.requireReady();return repo.transaction(()=>{const row=repo.get(id);if(!row)throw new Error('Draft not found');repo.reject(id,revision);repo.audit(id,revision,'rejected',hash(row.payload_json));return draftDto(repo.get(id));});}
-  queue(id:string,revision:number){
+  queue(id:string,revision:number,campaignContext?:{campaignId:string}){
     this.requireReady();return repo.transaction(()=>{
       const row=repo.get(id);
+      if(row && row.campaign_id!== (campaignContext?.campaignId || null) && (row.campaign_id || campaignContext))throw new Error('Use campaign batch approval to queue campaign drafts');
       if(!row||row.status!=='approved'||row.revision!==revision||row.approved_revision!==revision||row.approved_hash!==hash(row.payload_json))throw new Error('Approve the exact current content revision and destinations before scheduling');
       const data=this.validate(JSON.parse(row.payload_json));
       if(data.scheduledAt&&Date.parse(data.scheduledAt)<=Date.now())throw new Error('Scheduled time must be a valid future date');

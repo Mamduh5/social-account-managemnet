@@ -73,6 +73,14 @@ export interface CalendarItem {
   errorMessage?: string | null;
   createdAt: string;
   updatedAt: string;
+  approvalDetails?: unknown;
+}
+
+export interface CampaignReview {
+  campaign: CampaignSummary;
+  account: {id:string;name:string;handle:string;graphId?:string|null};
+  items: CalendarItem[];
+  expectedApprovalHash: string;
 }
 
 export interface CampaignSummary {
@@ -110,6 +118,8 @@ export interface PlanItemInput {
   linkUrl?: string;
   attachments?: Array<{ mediaId: string; altText?: string }>;
   videoId?: string;
+  selectedVariantId?: string | null;
+  applyBranding?: boolean;
   scheduledAt: string;
 }
 

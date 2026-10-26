@@ -371,15 +371,15 @@ export class MetaFacebookConnector implements AccountConnector {
   }
 
   async fetchComments(account: any, options?: { postId?: string; limit?: number }): Promise<CommentFetchResult[]> {
-    if (!account.access_token) return [];
+    if (!account.access_token) throw new Error('Facebook comment reading requires an authorized Page token.');
     const targetId = options?.postId || account.external_id || 'me';
     const fields = 'id,from,message,created_time,like_count,comment_count,parent,comments{id,from,message,created_time,like_count}';
-    const url = `${this.baseUrl}/${this.apiVersion}/${targetId}/comments?fields=${encodeURIComponent(fields)}&access_token=${account.access_token}&limit=${options?.limit || 50}`;
+    const url = `${this.baseUrl}/${this.apiVersion}/${targetId}/comments?fields=${encodeURIComponent(fields)}&limit=${options?.limit || 50}`;
     
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      const res = await fetch(url, { headers:{Authorization:`Bearer ${account.access_token}`},signal: AbortSignal.timeout(15000) });
       const json = await res.json() as any;
-      if (json.error || !json.data) return [];
+      if (!res.ok || json.error || !Array.isArray(json.data)) throw new Error('Comment API response unavailable');
       
       const results: CommentFetchResult[] = [];
       for (const c of json.data) {
@@ -412,7 +412,8 @@ export class MetaFacebookConnector implements AccountConnector {
       }
       return results;
     } catch {
-      return [];
+      // Provider messages and network diagnostics can contain credentials or request URLs.
+      throw new Error('Facebook comment synchronization failed; verify granted permissions and provider availability. Existing comments were preserved.');
     }
   }
 
@@ -444,6 +445,19 @@ export class MetaFacebookConnector implements AccountConnector {
     } catch (err: any) {
       return { success: false, errorMessage: err.message };
     }
+  }
+
+  async verifyCommentReply(account: any, replyId: string, commentId: string, text: string) {
+    const unverified={confirmed:false,replyId};
+    if (!account.access_token || !/^[0-9_]+$/.test(replyId) || !/^[0-9_]+$/.test(commentId)) return unverified;
+    const url=new URL(`${this.baseUrl}/${this.apiVersion}/${replyId}`);
+    url.searchParams.set('fields','id,message,from,parent');
+    try {
+      const response=await fetch(url,{headers:{Authorization:`Bearer ${account.access_token}`},signal:AbortSignal.timeout(15000)});
+      const json=await response.json() as any;
+      if (!response.ok || json.error || String(json.id)!==replyId || json.message!==text || String(json.from?.id)!==String(account.external_id) || String(json.parent?.id)!==commentId) return unverified;
+      return {confirmed:true,replyId,remoteUrl:`https://www.facebook.com/${replyId}`};
+    } catch { return unverified; }
   }
 
   async reactComment(

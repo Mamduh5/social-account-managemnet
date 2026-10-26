@@ -117,6 +117,8 @@ export interface AccountConnector {
   publishPost?(account: any, payload: PagePostPayload, onProgress?: (pct: number, stage: string) => void): Promise<PublishResult>;
   fetchComments(account: any, options?: { postId?: string; limit?: number }): Promise<CommentFetchResult[]>;
   replyComment(account: any, commentId: string, text: string): Promise<{ success: boolean; replyId?: string; errorMessage?: string }>;
+  /** Read-only verification of one saved reply. Missing fields never establish success. */
+  verifyCommentReply?(account: any, replyId: string, commentId: string, text: string): Promise<{ confirmed: boolean; replyId: string; remoteUrl?: string }>;
   reactComment(account: any, commentId: string, reaction: string): Promise<{ success: boolean; errorMessage?: string }>;
   fetchInsights(account: any, timeframe?: string): Promise<any>;
   fetchPostMetrics?(account: any, remotePostId: string, remotePostUrl?: string): Promise<PostMetricsResult | null>;

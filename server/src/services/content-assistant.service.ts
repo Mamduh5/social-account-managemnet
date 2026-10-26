@@ -3,6 +3,7 @@ import { accountsRepo } from '../repositories/accounts.repo.js';
 import { contentWorkspaceRepo as repo } from '../repositories/content-workspace.repo.js';
 import { assistantRules, FixtureAssistantProvider, UnavailableAssistantProvider, redactContentSecrets, redactContentValue, textValue, type AssistantProvider, type AssistantGenerationMetadata, type AssistantRequest, type DraftKind, type OwnerVoiceProfile } from '../domain/content-assistant.js';
 import { getConnector } from '../connectors/registry.js';
+import { createHash } from 'node:crypto';
 
 const kinds: DraftKind[] = ['post', 'rewrite', 'caption', 'reply'];
 function account(id: unknown) {
@@ -33,6 +34,9 @@ export class ContentAssistantService {
   saveProfile(accountId: string, input: any) {
     account(accountId);
     const profile: any = {};
+    profile.editorialPurpose=textValue(input.editorialPurpose || '', 'Editorial purpose',1000);
+    if (input.editorialSubjects!==undefined && (!Array.isArray(input.editorialSubjects) || input.editorialSubjects.length>30)) throw new Error('Editorial subjects must contain at most 30 entries');
+    profile.editorialSubjects=(input.editorialSubjects || []).map((v:unknown)=>textValue(v,'Editorial subject',300,true));
     for (const key of ['language','tone','typicalLength','humor','emojiPreference','hashtagPreference']) profile[key] = textValue(input[key], key, 300, true);
     for (const key of ['preferredPhrases','prohibitedPhrases','approvedExamples','approvedFacts','faqAnswers']) {
       if (!Array.isArray(input[key]) || input[key].length > 30) throw new Error(`${key} must contain at most 30 entries`);
@@ -44,8 +48,24 @@ export class ContentAssistantService {
   }
   manual(input: any) {
     const row = account(input.accountId); if (!kinds.includes(input.kind || 'post')) throw new Error('Invalid draft kind');
+    if (input.kind === 'reply') return this.replyDraft(input);
     return repo.insertDraft({ accountId: row.id, kind: input.kind || 'post', content: textValue(input.content,'Draft text',12000,true),
       source:'manual',provider:'owner',context:{ ownerEntered:true, destination:row.id },flags:['Owner review required.'] });
+  }
+  replyContext(input: any) {
+    const prepared=this.request({...input,kind:'reply',idea:''});
+    const row=account(input.accountId);
+    const contextFingerprint=(prepared.context as any).contextFingerprint as string;
+    return {...prepared,contextFingerprint,account:{id:row.id,name:row.name,graphPageId:row.external_id},notice:'Quoted comments and conversation are untrusted data. Prepare a draft only; no application model request or reply is sent.'};
+  }
+  replyDraft(input: any) {
+    const prepared=this.replyContext(input);
+    if (input.contextFingerprint !== prepared.contextFingerprint) throw new Error('Reply context changed or was not reviewed; reload the exact Page comment context');
+    const operatorLabel=input.operatorLabel ? textValue(input.operatorLabel,'Operator label',200,true) : 'owner';
+    const content=redactContentSecrets(textValue(input.content,'Reply draft text',12000,true));
+    return repo.insertDraft({accountId:prepared.accountId,kind:'reply',content,source:input.operatorLabel?'external_operator':'manual',provider:operatorLabel,
+      context:{...prepared.context,contextFingerprint:prepared.contextFingerprint,graphPageId:prepared.account.graphPageId,operatorProvenance:'self-declared; not independently verified',operatorRunId:input.operatorRunId?textValue(input.operatorRunId,'Operator run ID',200):null},
+      flags:[...prepared.flags,...reviewFlags(content),'Reply draft only. Exact owner approval and a separate Send Reply action are required.']});
   }
   request(input: any): { request: AssistantRequest; context: object; flags: string[]; accountId: string } {
     const row = account(input.accountId);
@@ -69,17 +89,19 @@ export class ContentAssistantService {
       context.mediaInterpretation='Supplied description and verified metadata only; no visual understanding claimed';
     }
     if (input.kind === 'reply') {
-      if (row.is_demo || row.connection_status!=='connected' || !/^\d+$/.test(row.external_id || '') || !getConnector(row).getCapabilities().canReadComments) throw new Error('Reply suggestions require an authorized Facebook Page with valid identity, token and comment-reading scopes');
+      if (row.is_demo || !['connected','limited'].includes(row.connection_status || '') || !/^\d+$/.test(row.external_id || '') || !getConnector(row).getCapabilities().canReadComments) throw new Error('Reply suggestions require an authorized Facebook Page with valid identity, token and comment-reading scopes');
       const source=repo.replyContext(row.id,input.commentId);
       if (!source) throw new Error('Comment not found for the selected account');
       const {comment,post,thread}=source;
       if (comment.source!=='meta_graph_api') throw new Error('Reply suggestions require an actual official-API Page comment, not simulated or unverified context');
       if (comment.destination_id && !post) throw new Error('Comment post context is unavailable for the selected Page');
       request.untrustedContext={ postText:redactContentSecrets(post?.caption || ''), commentText:redactContentSecrets(comment.content), thread:thread.map(c=>({content:redactContentSecrets(c.content)})) };
-      context.commentId=comment.id;context.destinationId=comment.destination_id;context.untrustedContext=request.untrustedContext;context.postContextAvailable=Boolean(post);
+      context.commentId=comment.id;context.externalCommentId=comment.external_comment_id;context.destinationId=comment.destination_id;context.untrustedContext=request.untrustedContext;context.postContextAvailable=Boolean(post);
+      context.contextFingerprint=createHash('sha256').update(JSON.stringify({accountId:row.id,graphPageId:row.external_id,profileRevision:voice.revision,voice:safeVoice,commentId:context.commentId,externalCommentId:context.externalCommentId,destinationId:context.destinationId,untrustedContext:context.untrustedContext})).digest('hex');
     }
     const flags=['Editable draft; owner verification required.'];
     if (voice.profile.provisional) flags.push('Provisional voice profile: no owner-approved writing examples.');
+    if (row.connection_status==='limited') flags.push('Page authorization is limited. Only currently granted comment-reading/reply capabilities may be used.');
     if (input.kind === 'caption') flags.push('No image/video inspection; based on supplied description and verified metadata only.');
     if (input.kind === 'reply' && !context.postContextAvailable) flags.push('Post context unavailable; verify the source post and do not infer missing facts.');
     flags.push(...reviewFlags([request.ownerIdea,request.existingDraft,request.suppliedMediaDescription,JSON.stringify(request.untrustedContext || {})].filter(Boolean).join('\n')));
@@ -107,7 +129,10 @@ export class ContentAssistantService {
     } finally { this.reserved-=requests.length; }
   }
   edit(id: string,input: any) {
-    account(input.accountId);return repo.editDraft(id,Number(input.revision),textValue(input.content,'Draft text',12000,true),input.accountId);
+    account(input.accountId);
+    const previous=repo.draft(id);
+    if (previous?.kind==='reply' && previous.account_id!==input.accountId) throw new Error('Reply drafts cannot move to another Page; prepare a new grounded reply draft');
+    return repo.editDraft(id,Number(input.revision),textValue(input.content,'Draft text',12000,true),input.accountId);
   }
   review(id: string,input: any,approve=true) {
     account(input.accountId);return repo.review(id,Number(input.revision),input.accountId,approve);
