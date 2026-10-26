@@ -372,6 +372,7 @@ export class CalendarService {
       if (dest.status !== 'scheduled' || dest.remote_post_id || (dest as any).remote_post_url || (dest as any).submission_state || dest.error_message) {
         throw new Error('Only an unsubmitted scheduled item without a review hold can be published now');
       }
+      if (publishingRepo.getPostDestinationRows(dest.post_id).length !== 1) throw new Error('Use the publishing workflow for a post with multiple destinations');
       const campaignId = (dest as any).campaign_id;
       if (campaignId && this.getCampaignById(campaignId).status !== 'active') throw new Error('Campaign must be active before an immediate override');
       const account = accountsRepo.getAccountById(dest.account_id);
@@ -398,6 +399,7 @@ export class CalendarService {
     const draft = generalPostsRepo.get(itemId);
     if (draft) {
       if (draft.status !== 'approved') throw new Error('Draft must be approved before immediate publication');
+      if (draft.campaign_id) throw new Error('Use campaign batch approval before queuing a campaign draft');
       if (JSON.parse(draft.payload_json).scheduledAt) throw new Error('Schedule is part of approval; edit and approve the exact immediate draft first');
       const queued = generalPostsService.queue(itemId, draft.revision);
       return { success: true, message: `Draft queued immediately as post ${queued.postId}` };
@@ -471,7 +473,10 @@ export class CalendarService {
     this.requireReady();
     const dest = publishingRepo.getDestinationById(itemId);
     if (dest) {
-      publishingRepo.cancelDestination(itemId);
+      if (dest.status !== 'scheduled' || dest.remote_post_id || (dest as any).remote_post_url || (dest as any).submission_state || dest.error_message) {
+        throw new Error('Only an unsubmitted scheduled item without a review hold can be cancelled here');
+      }
+      if (!publishingService.cancelDestination(itemId)) throw new Error('Item changed before cancellation; reload its current status');
       return { success: true };
     }
     const draft = generalPostsRepo.get(itemId);

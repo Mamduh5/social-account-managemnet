@@ -11,6 +11,7 @@ import { initializeCalendarSchema } from '../server/src/db/calendar-schema.js';
 import { calendarRepo } from '../server/src/repositories/calendar.repo.js';
 import { calendarService } from '../server/src/services/calendar.service.js';
 import { generalPostsService } from '../server/src/services/general-posts.service.js';
+import { publishingService } from '../server/src/services/publishing.service.js';
 import { publishingRepo } from '../server/src/repositories/publishing.repo.js';
 import { accountsRepo } from '../server/src/repositories/accounts.repo.js';
 import { QueueService } from '../server/src/services/queue.service.js';
@@ -471,4 +472,68 @@ test('campaign creation cannot reuse an existing approved campaign identity',()=
  const plan=safetyCampaign('Immutable campaign id');calendarService.approveCampaign(plan.campaign.id);
  assert.throws(()=>calendarService.createCampaignPlan({id:plan.campaign.id,accountId:testPageId,name:'Overwrite',days:7,startDate:'2026-12-01',items:[{title:'X',contentType:'text',caption:'Changed',scheduledAt:'2026-12-01T10:00:00+07:00'}]}),/already exists/);
  assert.equal(calendarService.getCampaignById(plan.campaign.id).status,'active');
+});
+
+
+test('immediate override cannot change a shared parent schedule or make sibling destinations due', async () => {
+  const plan = safetyCampaign('Shared parent override guard');
+  calendarService.approveCampaign(plan.campaign.id);
+  const item = calendarService.getCalendarItems({ campaignId: plan.campaign.id })[0];
+  db.prepare("INSERT INTO publishing_destinations (id,post_id,account_id,caption,status,content_type) VALUES (?, ?, ?, 'Independent sibling', 'scheduled', 'text')")
+    .run('calendar-shared-parent-sibling', item.postId, otherPageId);
+  const before = JSON.stringify({
+    parent: db.prepare('SELECT * FROM publishing_posts WHERE id=?').get(item.postId),
+    destinations: publishingRepo.getPostDestinationRows(item.postId!),
+  });
+  await assert.rejects(() => calendarService.publishItemNow(item.id), /multiple destinations/);
+  assert.equal(JSON.stringify({
+    parent: db.prepare('SELECT * FROM publishing_posts WHERE id=?').get(item.postId),
+    destinations: publishingRepo.getPostDestinationRows(item.postId!),
+  }), before, 'neither the shared schedule nor any sibling row may change');
+});
+
+test('calendar cancellation refuses active or uncertain work and reports only confirmed cancellation', () => {
+  const plan = safetyCampaign('Cancellation boundary');
+  calendarService.approveCampaign(plan.campaign.id);
+  const item = calendarService.getCalendarItems({ campaignId: plan.campaign.id })[0];
+  for (const status of ['preparing', 'branding', 'uploading', 'awaiting_confirmation', 'published', 'failed', 'cancelled']) {
+    db.prepare('UPDATE publishing_destinations SET status=? WHERE id=?').run(status, item.id);
+    const before = JSON.stringify(publishingRepo.getDestinationById(item.id));
+    assert.throws(() => calendarService.cancelItem(item.id), /unsubmitted scheduled/);
+    assert.equal(JSON.stringify(publishingRepo.getDestinationById(item.id)), before);
+  }
+  db.prepare("UPDATE publishing_destinations SET status='scheduled' WHERE id=?").run(item.id);
+  for (const [column, value] of [['remote_post_id', 'saved-remote'], ['remote_post_url', 'https://www.facebook.com/saved-remote'], ['submission_state', 'feed_submitting'], ['error_message', 'Owner review required']]) {
+    db.prepare('UPDATE publishing_destinations SET ' + column + '=? WHERE id=?').run(value, item.id);
+    const before = JSON.stringify(publishingRepo.getDestinationById(item.id));
+    assert.throws(() => calendarService.cancelItem(item.id), /unsubmitted scheduled/);
+    assert.equal(JSON.stringify(publishingRepo.getDestinationById(item.id)), before);
+    db.prepare('UPDATE publishing_destinations SET ' + column + '=NULL WHERE id=?').run(item.id);
+  }
+  const cancel = publishingService.cancelDestination;
+  try {
+    publishingService.cancelDestination = () => false;
+    assert.throws(() => calendarService.cancelItem(item.id), /changed before cancellation/);
+    assert.equal(publishingRepo.getDestinationById(item.id)?.status, 'scheduled');
+  } finally { publishingService.cancelDestination = cancel; }
+  assert.deepEqual(calendarService.cancelItem(item.id), { success: true });
+  assert.equal(publishingRepo.getDestinationById(item.id)?.status, 'cancelled');
+});
+
+test('individually approved immediate campaign draft cannot bypass batch approval or lose campaign attribution', async () => {
+  const plan = safetyCampaign('Campaign draft immediate guard');
+  const item = calendarService.getCalendarItems({ campaignId: plan.campaign.id })[0];
+  const original = db.prepare('SELECT * FROM publishing_drafts WHERE id=?').get(item.id) as any;
+  const payload = JSON.parse(original.payload_json); payload.scheduledAt = null;
+  const edited = generalPostsService.save(payload, item.id, original.revision);
+  generalPostsService.approveBatch([{ id: edited.id, revision: edited.revision }]);
+  const snapshot = () => JSON.stringify({
+    draft: db.prepare('SELECT * FROM publishing_drafts WHERE id=?').get(item.id),
+    campaign: calendarService.getCampaignById(plan.campaign.id),
+    posts: (db.prepare('SELECT count(*) n FROM publishing_posts').get() as any).n,
+    destinations: (db.prepare('SELECT count(*) n FROM publishing_destinations').get() as any).n,
+  });
+  const before = snapshot();
+  await assert.rejects(() => calendarService.publishItemNow(item.id), /campaign batch approval/);
+  assert.equal(snapshot(), before);
 });
