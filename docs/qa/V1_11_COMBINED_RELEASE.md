@@ -4,7 +4,7 @@
 
 ## Current readiness
 
-Source, regressions, actual FFmpeg exports, isolated browser acceptance, verified online backup and copy-only migration rehearsal are complete. The frozen candidate manifest and managed startup smoke receipt are recorded in the final preparation receipt below after packaging. Owner remains on V1.10 `cccf9390542199fb18ae442753eba87088c9b255` at loopback 3001/3443 with normal synchronization enabled.
+**READY FOR CONTROLLED-UPGRADE APPROVAL.** Source, regressions, actual FFmpeg exports, isolated browser acceptance, verified online backup, copy-only migration rehearsal and frozen managed startup checks are complete. The exact candidate and receipts are recorded below. Owner remains on V1.10 `cccf9390542199fb18ae442753eba87088c9b255` at loopback 3001/3443 with normal synchronization enabled.
 
 The local commits separate calendar functionality, text-only branding, final calendar safety guards and release tooling. The incoming 42 dirty/untracked files were copied and hashed in `.data/v111-integration/20261026/preparation-baseline/` before edits. An unused npm parent-package self-link introduced by installation was preserved in that snapshot and removed from client dependencies; no client source imported it. No original V1.11 or watermark implementation was reset or discarded.
 
@@ -68,4 +68,19 @@ Rollback is prepared before activation. Retain the untouched V1.10 release, orig
 
 ## Final preparation receipt
 
-The exact packaged revision, manifest verification and frozen managed smoke result will be appended here after package preparation. No owner activation is part of this report.
+Candidate release: **`7ed0860969885d96bd44c55f1ec33274e6d1b906`**, frozen under `.data/releases/7ed0860969885d96bd44c55f1ec33274e6d1b906/`. All **93** source/client manifest files match. The captured client source tree, including the shared branding layout, matches that commit. Package receipt says `prepareOnly=true`, `ownerConfigured=false`.
+
+Local engineering commits:
+
+- `28c18a3` - V1.11 calendar and explicit schema gate/migration.
+- `017639a` - text-only branding, lower customizable captions and visual acceptance.
+- `3a22930` - shared-parent, cancellation and campaign-attribution safety guards; copy-only preparation CLI.
+- `7ed0860` - guarded packaging, owner backup/verification, frozen smoke and rollout/rollback documentation.
+
+The final documentation receipt is a later documentation-only commit; it does not change the packaged source or client.
+
+Frozen smoke: `.data/v111-integration/20261026/frozen-smoke/run-iqULfh/receipt.json`. Exact1.11.0/revision, calendar/capability/branding APIs and every served client asset passed on disposable3198. The managed legacyV1.10 fixture correctly refused startup before calendar DDL. No provider fetch, campaign approval or queue action occurred. Both owned test processes stopped; the offline rehearsal database hash remained unchanged.
+
+Final owner checks: `owner/final-verification.json` and `running-owner-verification.json` under the preparation directory. HTTP and strict certificate-validated localhost HTTPS are ready; the original owner instance, V1.10 pointer and all82 old frozen manifest files are unchanged. Automatic synchronization remains enabled. Existing publication history, all19 variant records/files,23 master records,98 media files, saved presets, credentials, identities and the three manual rows pass preservation checks. Provider config and generation ledger fingerprints are unchanged. Candidate configuration differs only in `releaseRoot`, `releaseRevision` and `clientDist`; it has not replaced the owner config.
+
+Machine-readable final readiness: `.data/v111-integration/20261026/final-readiness.json`. No owner migration, restart/deployment, public social action, Gemini request or Git push was performed. **Stop here for owner upgrade approval; campaign approval remains a separate decision.**
