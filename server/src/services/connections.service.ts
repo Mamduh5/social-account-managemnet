@@ -391,9 +391,14 @@ export async function completeAuthorization(
       if (account.external_id && !items.some(matchesRegisteredPage)) {
         stage = 'identity_matching';
         if (!account.identity_verified_at && /^\d+$/.test(account.external_id)) {
-          const canonical = await jsonFetch(`https://graph.facebook.com/${version()}/${account.external_id}?fields=id`, { headers });
-          const match = items.find(i => i.id === canonical.id);
-          if (match) match.registeredId = account.external_id;
+          try {
+            const canonical = await jsonFetch(`https://graph.facebook.com/${version()}/${account.external_id}?fields=id`, { headers });
+            const match = items.find(i => i.id === canonical?.id);
+            if (match) match.registeredId = account.external_id;
+          } catch {
+            // Direct Graph API node resolution can fail (e.g. GraphMethodException code 100 subcode 33 on New Pages Experience IDs).
+            // Do not crash the OAuth exchange if speculative canonical resolution fails.
+          }
         }
         if (!items.some(i => matchesRegisteredPage(i) || i.registeredId === account.external_id))
           throw new OAuthFailure(stage, 'existing_page_not_returned', 'Meta did not return the registered or previously verified Page. Reconnect and include that Page in consent.');

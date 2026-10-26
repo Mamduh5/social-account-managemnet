@@ -211,3 +211,85 @@ test('HTTP callback and start validate exact callback origin, expose safe diagno
   assert.equal(failure.status, 400); assert.match(message, /state_validation/);
   for (const secret of [...forbidden, 'raw-state-secret']) assert.equal(message.includes(secret), false);
 });
+
+test('multiple Facebook Pages authorized through one developer application with NPE resolution failure and duplicate identity protection', async () => {
+  const account2Id = saveRegisteredAccount({
+    platform: 'facebook',
+    name: 'Second Page',
+    handle: 'https://www.facebook.com/profile.php?id=61595592674364',
+    externalId: '61595592674364',
+  });
+
+  const multiPageHandler = (url: string, init: RequestInit) => {
+    if (url.includes('/61595592674364?fields=id')) {
+      return response({
+        error: {
+          message: "Unsupported get request. Object with ID '61595592674364' does not exist...",
+          type: 'GraphMethodException',
+          code: 100,
+          error_subcode: 33,
+        },
+      }, 400);
+    }
+    if (url.includes('/me/accounts')) {
+      return response({
+        data: [
+          { id: '409347032254077', name: 'Original Page', access_token: 'fixture-page-1-token', tasks: ['CREATE_CONTENT'] },
+          { id: '1428270437036294', name: 'Second Page', access_token: 'fixture-page-2-token', tasks: ['CREATE_CONTENT'] },
+        ],
+      });
+    }
+    return provider(url, init);
+  };
+
+  handler = multiPageHandler;
+
+  // Case 1: Without trusted alias, speculative lookup returns 400 subcode 33.
+  // It is caught gracefully and reports existing_page_not_returned (not uncaught provider_rejected).
+  let flow = startAuthorization(account2Id, '', { publishing: true });
+  let state = new URL(flow.authorizationUrl).searchParams.get('state')!;
+  await assert.rejects(
+    completeAuthorization('facebook', { code: 'fixture-code-secret', state }, flow.browserSecret),
+    /identity_matching.*Meta did not return the registered or previously verified Page/
+  );
+
+  // Case 2: Establish trusted runtime alias for Page 2 (1428270437036294) on Account 2
+  accountConnectionsRepo.claimIdentity('facebook', 'external:1428270437036294', account2Id);
+
+  flow = startAuthorization(account2Id, '', { publishing: true });
+  state = new URL(flow.authorizationUrl).searchParams.get('state')!;
+  await completeAuthorization('facebook', { code: 'fixture-code-secret', state }, flow.browserSecret);
+
+  // Candidates list must contain both authorized pages
+  const candidates = getConnectionCandidates(account2Id, flow.browserSecret);
+  assert.equal(candidates.length, 2);
+  assert.ok(candidates.some(c => c.id === '409347032254077'));
+  assert.ok(candidates.some(c => c.id === '1428270437036294'));
+
+  // Case 3: Attempting to select Page 1 (409347032254077) must fail
+  // because Page 1 does not match Account 2's registered identity or alias
+  assert.throws(
+    () => selectAuthorizedIdentity(account2Id, flow.browserSecret, { externalId: '409347032254077', confirmIdentity: true }),
+    /identity_matching.*does not match the registered external ID/
+  );
+
+  // Attempting to register another account directly with Page 1's external ID fails immediately
+  assert.throws(
+    () => saveRegisteredAccount({ platform: 'facebook', name: 'Third Page', handle: '@page3', externalId: '409347032254077' }),
+    /already registered/
+  );
+
+  // Case 4: Selecting Page 2 (1428270437036294) succeeds and links Account 2
+  selectAuthorizedIdentity(account2Id, flow.browserSecret, { externalId: '1428270437036294', confirmIdentity: true });
+
+  const acc2 = accountsRepo.getAccountById(account2Id) as any;
+  assert.equal(acc2.external_id, '1428270437036294');
+  assert.equal(acc2.status, 'connected');
+  assert.equal(unseal(acc2.access_token), 'fixture-page-2-token');
+
+  // Verify Account 1 remains intact, connected, and unchanged
+  const acc1 = accountsRepo.getAccountById(id) as any;
+  assert.equal(acc1.external_id, '409347032254077');
+  assert.equal(acc1.status, 'connected');
+  assert.equal(unseal(acc1.access_token), 'fixture-page-token');
+});
