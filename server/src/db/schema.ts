@@ -1,5 +1,6 @@
 import {initializeContentWorkspace} from './content-workspace.js';
 import {initializeGeneralPublishingSchema} from './general-posts-schema.js';
+import {initializeCalendarSchema} from './calendar-schema.js';
 import { db } from './database.js';
 
 export function initializeDatabase() {
@@ -279,5 +280,11 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_sync_states_acc ON sync_states(account_id);
   `);
   // Existing installations require an explicit offline V1.10 migration.
-  if (!hadPublishingPosts) {initializeGeneralPublishingSchema(db); initializeContentWorkspace();}
+  if (!hadPublishingPosts) {
+    initializeGeneralPublishingSchema(db);
+    initializeContentWorkspace();
+    initializeCalendarSchema(db);
+  }
+  // Existing databases require the explicit, copy-rehearsed V1.11 migration.
+  // Even a ready V1.10 database must not acquire calendar tables during boot.
 }

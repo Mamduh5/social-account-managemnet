@@ -26,7 +26,7 @@ export class PublishingRepository {
     query += ' ORDER BY v.created_at DESC';
 
     const videos = db.prepare(query).all(...params) as any[];
-    
+
     // Attach branded variants to each video
     const getBranded = db.prepare('SELECT * FROM branded_videos WHERE video_id = ? ORDER BY created_at DESC');
     for (const v of videos) {
@@ -239,7 +239,7 @@ export class PublishingRepository {
       LEFT JOIN videos v ON p.video_id = v.id
       JOIN accounts a ON pd.account_id = a.id
       LEFT JOIN categories c ON a.category_id = c.id
-      ORDER BY 
+      ORDER BY
         CASE pd.status
           WHEN 'uploading' THEN 1
           WHEN 'branding' THEN 2
@@ -360,24 +360,37 @@ export class PublishingRepository {
     `).run(reason, id);
   }
 
+  private hasCampaigns(): boolean {
+    return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='publishing_campaigns'").get();
+  }
+
   getDueScheduledDestinations(): { id: string; post_id: string }[] {
+    const hasCamp = this.hasCampaigns();
+    const campaignFilter = hasCamp ? 'LEFT JOIN publishing_campaigns c ON pd.campaign_id = c.id' : '';
+    const campaignClause = hasCamp ? "AND (pd.campaign_id IS NULL OR c.status = 'active')" : '';
     return db.prepare(`
       SELECT pd.id, pd.post_id
       FROM publishing_destinations pd
       JOIN publishing_posts p ON pd.post_id = p.id
+      ${campaignFilter}
       WHERE pd.status = 'scheduled'
       AND julianday(p.scheduled_at) <= julianday('now')
+      ${campaignClause}
     `).all() as any[];
   }
 
   getPendingQueueJobs(limit: number = 2): any[] {
+    const hasCamp = this.hasCampaigns();
+    const campaignFilter = hasCamp ? 'LEFT JOIN publishing_campaigns c ON pd.campaign_id = c.id' : '';
+    const campaignClause = hasCamp ? "AND (pd.campaign_id IS NULL OR c.status = 'active')" : '';
     return db.prepare(`
-      SELECT 
+      SELECT
         pd.id, pd.post_id, pd.account_id, pd.caption, pd.hashtags,
         pd.apply_branding, pd.branding_override_json, pd.branded_video_path,
         pd.selected_variant_id, pd.status,
         pd.retry_count, pd.max_retries, pd.remote_post_id,
         ${generalPostsReady(db)?"pd.submission_state, pd.content_type, pd.link_url":"NULL as submission_state, 'reel' as content_type, NULL as link_url"},
+        ${hasCamp ? "pd.campaign_id, pd.origin" : "NULL as campaign_id, 'manual' as origin"},
         p.title, p.scheduled_at,
         v.file_path as original_video_path,
         a.platform, a.name as account_name, a.handle as account_handle,
@@ -386,9 +399,11 @@ export class PublishingRepository {
       JOIN publishing_posts p ON pd.post_id = p.id
       LEFT JOIN videos v ON p.video_id = v.id
       JOIN accounts a ON pd.account_id = a.id
+      ${campaignFilter}
       WHERE pd.status IN ('preparing', 'branding')
       AND (pd.error_message IS NULL OR pd.error_message NOT LIKE 'Interrupted by server restart%')
       AND (p.scheduled_at IS NULL OR julianday(p.scheduled_at) <= julianday('now'))
+      ${campaignClause}
       LIMIT ?
     `).all(limit) as any[];
   }

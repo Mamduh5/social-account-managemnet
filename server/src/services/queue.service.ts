@@ -1,3 +1,4 @@
+import { calendarRepo } from '../repositories/calendar.repo.js';
 import {generalPostsRepo} from '../repositories/general-posts.repo.js';
 import {verifiedImagePath} from './image-media.service.js';
 import fs from 'fs';
@@ -77,6 +78,7 @@ export class QueueService {
     const current = publishingRepo.getDestinationById(job.id);
     if (!current || !['preparing', 'branding'].includes(current.status) || current.error_message?.startsWith('Interrupted by server restart')) return;
     if (job.scheduled_at && (!Number.isFinite(Date.parse(job.scheduled_at)) || Date.parse(job.scheduled_at) > Date.now())) return;
+    if (job.campaign_id && (!calendarRepo.ready() || calendarRepo.getCampaignById(job.campaign_id)?.status !== 'active')) return;
     this.inFlight.add(job.id);
     try {
       const initialAccount = accountsRepo.getAccountById(job.account_id) as any;

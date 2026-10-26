@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { api } from './api/client';
 import { Category } from './types';
-import { 
-  LayoutDashboard, Users, Send, MessageSquare, Activity, 
-  BarChart3, Sparkles, Settings, Radio, Plus, Menu, X, Sun, Moon 
+import {
+  LayoutDashboard, Users, Send, Calendar, MessageSquare, Activity,
+  BarChart3, Sparkles, Settings, Radio, Plus, Menu, X, Sun, Moon
 } from 'lucide-react';
 
 import { DashboardView } from './views/DashboardView';
@@ -16,6 +16,7 @@ import { AnalyticsView } from './views/AnalyticsView';
 import { SettingsView } from './views/SettingsView';
 import { ContentAssistantView } from './views/ContentAssistantView';
 import { GroupsWorkspaceView } from './views/GroupsWorkspaceView';
+import { CalendarView } from './views/CalendarView';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<string>(new URLSearchParams(window.location.search).has('connectionAccount') ? 'accounts' : 'dashboard');
@@ -75,6 +76,7 @@ export function App() {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'accounts', label: 'Accounts & Categories', icon: Users },
     { id: 'publishing', label: 'Publishing Center', icon: Send },
+    { id: 'calendar', label: 'Content Calendar', icon: Calendar },
     { id: 'assistant', label: 'Content Assistant', icon: Sparkles },
     { id: 'groups', label: 'Groups Planning', icon: Users },
     { id: 'branding', label: 'Branding Studio', icon: Sparkles },
@@ -233,11 +235,14 @@ export function App() {
             <DashboardView onNavigate={(tab) => setActiveTab(tab)} selectedCategory={selectedCategory} />
           )}
           {activeTab === 'accounts' && (
-            <AccountsView 
+            <AccountsView
               onNavigateToBranding={handleNavigateToBranding}
               onPreparePublication={(id) => { sessionStorage.setItem('prepareAccountId', id); setActiveTab('publishing'); }}
-              selectedCategory={selectedCategory} 
+              selectedCategory={selectedCategory}
             />
+          )}
+          {activeTab === 'calendar' && (
+            <CalendarView selectedCategory={selectedCategory} />
           )}
           {activeTab === 'publishing' && (
             <PublishingView selectedCategory={selectedCategory} />
@@ -245,9 +250,9 @@ export function App() {
           {activeTab === 'assistant' && <ContentAssistantView />}
           {activeTab === 'groups' && <GroupsWorkspaceView />}
           {activeTab === 'branding' && (
-            <BrandingStudioView 
-              initialAccountId={targetBrandingAccountId} 
-              selectedCategory={selectedCategory} 
+            <BrandingStudioView
+              initialAccountId={targetBrandingAccountId}
+              selectedCategory={selectedCategory}
             />
           )}
           {activeTab === 'inbox' && (
