@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../api/client';
 import { Account, BrandKit, VideoItem, BrandedVideo } from '../types';
 import { 
@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { WatermarkCanvas } from '../components/branding/WatermarkCanvas';
 import { WatermarkControls } from '../components/branding/WatermarkControls';
+import { resolveBrandingMode } from '../../../server/src/domain/branding-layout';
 
 interface Props {
   initialAccountId?: string;
@@ -17,24 +18,27 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
   const [selectedAccountId, setSelectedAccountId] = useState<string>(initialAccountId || '');
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [selectedVideoId, setSelectedVideoId] = useState<string>('');
+  const currentVideoId = useRef(selectedVideoId);
+  currentVideoId.current = selectedVideoId;
+  const variantsRequest = useRef(0);
   const [variants, setVariants] = useState<BrandedVideo[]>([]);
   const [loadingVariants, setLoadingVariants] = useState(false);
   
-  // Brand Kit State
+  // Account defaults and per-video overrides are deliberately separate.
   const [brandKit, setBrandKit] = useState<BrandKit>({
-    watermarkType: 'moving_text',
-    text: '@SocialCommandCenter',
-    movementPreset: 'smooth_sine',
-    speedSeconds: 12,
-    intervalSeconds: 6,
-    fontSize: 24,
-    opacity: 0.85,
-    fontColor: '#FFFFFF',
-    boxBgColor: '#000000',
-    boxBgOpacity: 0.45,
-    safeArea: { top: 120, bottom: 280, left: 40, right: 120 },
-    enableSignature: true,
-    signatureText: 'Social Command Center',
+    watermarkType: 'moving_text', text: '', movementPreset: 'smooth_sine',
+    speedSeconds: 12, intervalSeconds: 6, fontSize: 26, opacity: 0.85,
+    fontColor: '#FFFFFF', signatureText: '',
+  });
+  const [captionOverride, setCaptionOverride] = useState<string | null>(null);
+  const effectiveBrandKit: BrandKit = captionOverride === null ? brandKit : { ...brandKit, signatureText: captionOverride };
+  const renderKey = JSON.stringify([selectedVideoId, selectedAccountId, effectiveBrandKit]);
+  const latestRenderKey = useRef(renderKey);
+  latestRenderKey.current = renderKey;
+  const kitForAccount = (account: Account): BrandKit => ({
+    watermarkType: 'moving_text', text: account.handle, movementPreset: 'smooth_sine',
+    fontSize: 26, opacity: 0.85, ...account.brandKit,
+    signatureText: account.brandKit?.signatureText === undefined ? account.name : account.brandKit.signatureText,
   });
 
   const [saving, setSaving] = useState(false);
@@ -49,15 +53,16 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
   } | null>(null);
 
   const loadVariants = useCallback(async (vidId: string) => {
-    if (!vidId) return;
+    if (!vidId || vidId !== currentVideoId.current) return;
+    const request = ++variantsRequest.current;
     setLoadingVariants(true);
     try {
       const res = await api.getBrandedVariants(vidId);
-      setVariants(res.variants || []);
+      if (request === variantsRequest.current && vidId === currentVideoId.current) setVariants(res.variants || []);
     } catch (err) {
       console.error('Failed to load variants:', err);
     } finally {
-      setLoadingVariants(false);
+      if (request === variantsRequest.current && vidId === currentVideoId.current) setLoadingVariants(false);
     }
   }, []);
 
@@ -72,40 +77,39 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
       const vids = vidRes.videos || [];
       setVideos(vids);
 
-      const targetId = selectedAccountId || accs[0]?.id;
+      const targetId = initialAccountId || accs[0]?.id;
       if (targetId) {
         setSelectedAccountId(targetId);
         const acc = accs.find((a: Account) => a.id === targetId);
-        if (acc?.brandKit) {
-          setBrandKit(acc.brandKit);
-        }
+        if (acc) setBrandKit(kitForAccount(acc));
       }
 
-      if (vids.length > 0 && !selectedVideoId) {
+      if (vids.length > 0) {
         setSelectedVideoId(vids[0].id);
-        loadVariants(vids[0].id);
+
       }
     } catch (err) {
       console.error(err);
     }
-  }, [selectedAccountId, selectedVideoId, loadVariants]);
+  }, [initialAccountId, loadVariants]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
   useEffect(() => {
-    if (selectedVideoId) {
-      loadVariants(selectedVideoId);
-    }
+    setCaptionOverride(null);
+    setVariants([]);
+    if (selectedVideoId) loadVariants(selectedVideoId);
   }, [selectedVideoId, loadVariants]);
+
+  useEffect(() => { setRenderedPreview(null); }, [renderKey]);
 
   const handleSelectAccount = (accId: string) => {
     setSelectedAccountId(accId);
     const acc = accounts.find(a => a.id === accId);
-    if (acc?.brandKit) {
-      setBrandKit(acc.brandKit);
-    }
+    if (acc) setBrandKit(kitForAccount(acc));
+    setCaptionOverride(null);
     setRenderedPreview(null);
   };
 
@@ -116,7 +120,7 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
       await api.updateBrandKit(selectedAccountId, brandKit);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
-      await loadData();
+      setAccounts(prev => prev.map(account => account.id === selectedAccountId ? { ...account, brandKit: { ...brandKit } } : account));
     } catch (err) {
       console.error(err);
     } finally {
@@ -129,9 +133,10 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
     setRendering(true);
     setRenderError(null);
     setRenderedPreview(null);
+    const requestedKey = renderKey;
     try {
-      const res = await api.renderPreview(selectedVideoId, brandKit, `${brandKit.movementPreset}_watermark`);
-      if (res.previewUrl) {
+      const res = await api.renderPreview(selectedVideoId, effectiveBrandKit, `${resolveBrandingMode(effectiveBrandKit)}_${brandKit.movementPreset}`);
+      if (res.previewUrl && latestRenderKey.current === requestedKey) {
         setRenderedPreview({
           previewUrl: res.previewUrl,
           downloadUrl: res.downloadUrl || res.previewUrl,
@@ -187,7 +192,7 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
         <div className="flex items-center gap-3 self-start sm:self-auto shrink-0">
           <button
             onClick={handleSaveBrandKit}
-            disabled={saving}
+            disabled={saving || !selectedAccountId}
             className="px-4 py-2 bg-terracotta-600 hover:bg-terracotta-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-terracotta-600/25 transition-all cursor-pointer active:scale-95"
           >
             <Save className="w-3.5 h-3.5" />
@@ -242,6 +247,24 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
             brandKit={brandKit}
             setBrandKit={setBrandKit}
           />
+          <div className="bg-surface-card border border-border rounded-2xl p-5 space-y-3 text-xs">
+            <label className="flex items-center gap-2 font-semibold text-slate-300 cursor-pointer">
+              <input type="checkbox" checked={captionOverride !== null}
+                onChange={e => setCaptionOverride(e.target.checked ? brandKit.signatureText ?? '' : null)}
+                className="accent-terracotta-600" />
+              Use Per-Video Caption Override
+            </label>
+            {captionOverride !== null && (
+              <div>
+                <label htmlFor="video-brand-caption" className="block font-semibold text-slate-300 mb-1">Per-Video Bottom Caption</label>
+                <input id="video-brand-caption" type="text" value={captionOverride}
+                  onChange={e => setCaptionOverride(e.target.value)}
+                  placeholder="Custom brand name, slogan, or call-to-action"
+                  className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-terracotta-500" />
+              </div>
+            )}
+            <p className="text-[11px] text-slate-400">Applies to this render and live preview in both bottom-caption modes. Save Brand Kit saves the account default above. Changing the account or video clears this override.</p>
+          </div>
         </div>
 
         {/* Right Column: Interactive Simulator & FFmpeg Test Render (6 cols) */}
@@ -251,10 +274,10 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
             <div className="flex items-center justify-between mb-3.5">
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                  <Eye className="w-4 h-4 text-terracotta-400" /> Live Watermark Motion Simulator
+                  <Eye className="w-4 h-4 text-terracotta-400" /> Live Branding Preview
                 </h3>
                 <p className="text-[11px] text-slate-400">
-                  Real-time preview rendered within platform safe boundaries ({is169 ? 'Facebook 16:9' : 'TikTok 9:16'})
+                  Live preview over the selected master video; safe-area guides are optional ({is169 ? 'Facebook 16:9' : 'TikTok 9:16'})
                 </p>
               </div>
               <span className="text-[10px] bg-terracotta-500/15 text-terracotta-300 border border-terracotta-500/25 px-2 py-0.5 rounded-md font-mono">
@@ -265,7 +288,10 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
             {/* Canvas element */}
             <div className="flex justify-center bg-black/75 p-4 sm:p-5 rounded-2xl border border-border shadow-inner">
               <WatermarkCanvas
-                brandKit={brandKit}
+                brandKit={effectiveBrandKit}
+                sourceUrl={activeVideo?.streamUrl || (activeVideo ? `/api/publishing/videos/${encodeURIComponent(activeVideo.id)}/stream` : undefined)}
+                sourceWidth={activeVideo?.width}
+                sourceHeight={activeVideo?.height}
                 aspectRatio={is169 ? '16:9' : '9:16'}
                 width={is169 ? 440 : 320}
                 height={is169 ? 248 : 568}
@@ -280,11 +306,12 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
               <span>Test Render with Backend FFmpeg</span>
             </h3>
             <p className="text-[11px] text-slate-400 mb-3.5">
-              Executes real FFmpeg moving watermark render onto a separate output file. Master video remains strictly untouched.
+              Renders the selected branding mode into a separate output file. Master video remains strictly untouched.
             </p>
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 mb-4">
               <select
+                aria-label="Master Video"
                 value={selectedVideoId}
                 onChange={(e) => setSelectedVideoId(e.target.value)}
                 className="flex-1 bg-surface border border-border rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-terracotta-500 cursor-pointer text-xs"

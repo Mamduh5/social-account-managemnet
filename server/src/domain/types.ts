@@ -28,6 +28,7 @@ export interface SafeAreaConfig {
 }
 
 export interface BrandKitConfig {
+  mode?: import('./branding-layout.js').BrandingMode;
   watermarkType: 'moving_text' | 'static_text' | 'logo_overlay';
   text?: string;
   logoPath?: string;

@@ -83,6 +83,8 @@ export function publicAccount(account: any) {
       movementPreset: 'smooth_sine',
       fontSize: 24,
       opacity: 0.85,
+      // A label defaults to this account, while saved legacy captions (including empty text) win.
+      signatureText: account.name,
       safeArea: { top: 120, bottom: 280, left: 40, right: 120 },
       ...JSON.parse(account.brand_kit_json || '{}'),
     },

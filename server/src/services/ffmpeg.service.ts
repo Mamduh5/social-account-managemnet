@@ -1,8 +1,10 @@
-import { spawn, spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import { rendersDir, uploadsDir } from '../db/database.js';
+import { rendersDir } from '../db/database.js';
+import { brandingElements, getBrandingLayout } from '../domain/branding-layout.js';
+import type { BrandingMode } from '../domain/branding-layout.js';
 
 export interface VideoMetadata {
   duration: number;
@@ -16,6 +18,7 @@ export interface VideoMetadata {
 }
 
 export interface BrandKitOptions {
+  mode?: BrandingMode;
   watermarkType: 'moving_text' | 'static_text' | 'logo_overlay';
   text?: string;
   logoPath?: string;
@@ -39,15 +42,13 @@ export interface BrandKitOptions {
 
 export class FFmpegService {
   private fontPath: string;
+  private activeRenders = new Map<string, Promise<string>>();
 
   constructor() {
-    // Escape Windows font path for FFmpeg filter graph
-    const winFont = 'C:/Windows/Fonts/arial.ttf';
-    if (fs.existsSync('C:\\Windows\\Fonts\\arial.ttf')) {
-      this.fontPath = winFont.replace(/:/g, '\\:');
-    } else {
-      this.fontPath = 'arial';
-    }
+    // One Unicode face for Thai and English keeps glyph metrics consistent with
+    // the Tahoma Canvas preview. No font substitution for Thai combining marks.
+    const candidates = ['C:/Windows/Fonts/tahoma.ttf', '/usr/share/fonts/truetype/noto/NotoSansThai-Regular.ttf'];
+    this.fontPath = candidates.find(file => fs.existsSync(file)) || 'Tahoma';
   }
 
   async computeFileSha256(filePath: string): Promise<string> {
@@ -146,80 +147,51 @@ export class FFmpegService {
   }
 
   buildWatermarkFilter(brandKit: BrandKitOptions, metadata: VideoMetadata): string {
-    // Helper to safely escape characters that break FFmpeg filter parsing (colons, single quotes, backslashes, percent)
-    const escapeText = (str: string) => str
-      .replace(/\\/g, '\\\\')
-      .replace(/:/g, '\\:')
-      .replace(/'/g, "\\'")
-      .replace(/%/g, '\\%');
-
-    const text = escapeText(brandKit.text || '@SocialCommand');
-    const fontSize = brandKit.fontSize || 26;
-    const opacity = brandKit.opacity ?? 0.85;
-    const boxOpacity = brandKit.boxBgOpacity ?? 0.45;
-    const boxBorder = 8;
-    const safeTop = brandKit.safeArea?.top ?? (metadata.aspectRatio === '9:16' ? 120 : 60);
-    const safeBottom = brandKit.safeArea?.bottom ?? (metadata.aspectRatio === '9:16' ? 280 : 80);
-    const safeLeft = brandKit.safeArea?.left ?? 40;
-    const safeRight = brandKit.safeArea?.right ?? 80;
-
-    // Compensate for box border padding so the black background never protrudes into safe area margins
-    const effSafeTop = safeTop + boxBorder;
-    const effSafeBottom = safeBottom + boxBorder;
-    const effSafeLeft = safeLeft + boxBorder;
-    const effSafeRight = safeRight + boxBorder;
-
-    let xExpr = '';
-    let yExpr = '';
-
-    const preset = brandKit.movementPreset || 'smooth_sine';
-
-    if (preset === 'smooth_sine') {
-      const period = brandKit.speedSeconds || 14;
-      // Smooth sinusoidal oscillation between safe boundaries
-      xExpr = `'${effSafeLeft} + (w - tw - ${effSafeLeft + effSafeRight}) * (1 + sin(2*PI*t/${period})) / 2'`;
-      yExpr = `'${effSafeTop} + (h - th - ${effSafeTop + effSafeBottom}) * (1 + cos(2*PI*t/${period})) / 2'`;
-    } else if (preset === 'corner_jump') {
-      const interval = brandKit.intervalSeconds || 6;
-      const cycle = interval * 4;
-      // Discrete quadrant hopping every interval seconds
-      xExpr = `'if(lt(mod(t\\,${cycle})\\,${interval})\\, ${effSafeLeft}\\, if(lt(mod(t\\,${cycle})\\,${interval * 2})\\, w-tw-${effSafeRight}\\, if(lt(mod(t\\,${cycle})\\,${interval * 3})\\, w-tw-${effSafeRight}\\, ${effSafeLeft})))'`;
-      yExpr = `'if(lt(mod(t\\,${cycle})\\,${interval})\\, ${effSafeTop}\\, if(lt(mod(t\\,${cycle})\\,${interval * 2})\\, ${effSafeTop}\\, if(lt(mod(t\\,${cycle})\\,${interval * 3})\\, h-th-${effSafeBottom}\\, h-th-${effSafeBottom})))'`;
-    } else if (preset === 'diagonal_bounce') {
-      const period = brandKit.speedSeconds || 10;
-      xExpr = `'${effSafeLeft} + abs(mod(t*100\\, (w - tw - ${effSafeLeft + effSafeRight}) * 2) - (w - tw - ${effSafeLeft + effSafeRight}))'`;
-      yExpr = `'${effSafeTop} + abs(mod(t*60\\, (h - th - ${effSafeTop + effSafeBottom}) * 2) - (h - th - ${effSafeTop + effSafeBottom}))'`;
-    } else {
-      // Static corner (default top-right)
-      xExpr = `'w - tw - ${effSafeRight}'`;
-      yExpr = `'${effSafeTop}'`;
+    const elements = brandingElements(brandKit);
+    if (elements.mode === 'none') return '';
+    const layout = getBrandingLayout(brandKit, metadata);
+    if ((elements.moving && (brandKit.text ?? '@SocialCommand') &&
+      (layout.movingSafeArea.top + layout.movingSafeArea.bottom + layout.fontSize * 1.6 > metadata.height ||
+       layout.movingSafeArea.left + layout.movingSafeArea.right + layout.fontSize > metadata.width)) ||
+      (elements.caption && brandKit.signatureText &&
+       layout.safeArea.top + layout.captionBottom + layout.captionFontSize * 1.6 + layout.captionPadding > metadata.height)) {
+      throw new Error('Safe-area margins leave no room for this branding. Reduce the margins or font size.');
     }
-
-    let fontFile = this.fontPath;
-    if (/[ก-๙]/.test(brandKit.text || '') && fs.existsSync('C:\\Windows\\Fonts\\tahoma.ttf')) {
-      fontFile = 'C\\:/Windows/Fonts/tahoma.ttf';
+    // Escape AVOption values, then filtergraph syntax. spawn() bypasses shells.
+    // expansion=none makes percent signs and %{...} literal owner text.
+    const option = (value: string) => value
+      .replace(/[\\':]/g, '\\$&')
+      .replace(/[\\'\[\],;]/g, '\\$&');
+    const num = (value: number) => Number(value.toFixed(4));
+    const font = `fontfile=${option(this.fontPath)}:text_shaping=1:expansion=none:ft_load_flags=default`;
+    const color = /^#[0-9a-f]{6}$/i.test(brandKit.fontColor || '') ? brandKit.fontColor! : 'white';
+    const opacity = Number.isFinite(brandKit.opacity) ? Math.max(0, Math.min(1, brandKit.opacity!)) : 0.85;
+    const s = layout.movingSafeArea;
+    const minX = num(s.left), minY = num(s.top);
+    const dx = `max(0,w-tw-${num(s.left + s.right)})`;
+    const dy = `max(0,h-th-${num(s.top + s.bottom)})`;
+    const period = Number.isFinite(brandKit.speedSeconds) ? Math.max(1, brandKit.speedSeconds!) : 14;
+    const interval = Number.isFinite(brandKit.intervalSeconds) ? Math.max(1, brandKit.intervalSeconds!) : 6;
+    let x = `${minX}+${dx}`, y = `${minY}`;
+    if (brandKit.movementPreset === 'smooth_sine' || !brandKit.movementPreset) {
+      x = `${minX}+${dx}*(1+sin(2*PI*t/${period}))/2`;
+      y = `${minY}+${dy}*(1+cos(2*PI*t/${period}))/2`;
+    } else if (brandKit.movementPreset === 'corner_jump') {
+      x = `${minX}+if(lt(mod(t,${interval * 4}),${interval}),0,if(lt(mod(t,${interval * 4}),${interval * 3}),${dx},0))`;
+      y = `${minY}+if(gte(mod(t,${interval * 4}),${interval * 2}),${dy},0)`;
+    } else if (brandKit.movementPreset === 'diagonal_bounce') {
+      x = `${minX}+abs(mod(t*${num(100 * layout.scale)},max(1,${dx}*2))-${dx})`;
+      y = `${minY}+abs(mod(t*${num(60 * layout.scale)},max(1,${dy}*2))-${dy})`;
     }
-
     const filters: string[] = [];
-    const fontColor = brandKit.fontColor || 'white';
-
-    // Main moving watermark
-    filters.push(
-      `drawtext=fontfile='${fontFile}':text='${text}':fontsize=${fontSize}:fontcolor=${fontColor}@${opacity}:box=1:boxcolor=black@${boxOpacity}:boxborderw=${boxBorder}:x=${xExpr}:y=${yExpr}`
-    );
-
-    // Optional digital signature / footer text (bottom safe zone)
-    if (brandKit.enableSignature && brandKit.signatureText) {
-      const sigText = escapeText(brandKit.signatureText);
-      let sigFont = fontFile;
-      if (/[ก-๙]/.test(brandKit.signatureText) && fs.existsSync('C:\\Windows\\Fonts\\tahoma.ttf')) {
-        sigFont = 'C\\:/Windows/Fonts/tahoma.ttf';
-      }
-      filters.push(
-        `drawtext=fontfile='${sigFont}':text='${sigText}':fontsize=${Math.max(14, fontSize - 10)}:fontcolor=white@0.6:box=1:boxcolor=black@0.3:boxborderw=4:x=(w-tw)/2:y=h-th-${Math.max(20, safeBottom / 4)}`
-      );
+    if (elements.moving && (brandKit.text ?? '@SocialCommand')) {
+      filters.push(`drawtext=${font}:text=${option(brandKit.text ?? '@SocialCommand')}:fontsize=${num(layout.fontSize)}:fontcolor=${color}@${opacity}:box=0:borderw=${layout.outline}:bordercolor=black@${num(0.7 * opacity)}:shadowcolor=black@${num(0.4 * opacity)}:shadowx=${layout.shadow}:shadowy=${layout.shadow}:x='${x}':y='${y}'`);
     }
-
+    // The existing fixed, centered signature is the bottom brand label. Its
+    // text remains signatureText for saved-kit compatibility; no CTA fallback.
+    if (elements.caption && brandKit.signatureText) {
+      filters.push(`drawtext=${font}:text=${option(brandKit.signatureText)}:fontsize=${num(layout.captionFontSize)}:fontcolor=white:box=0:borderw=${layout.outline}:bordercolor=black@0.7:shadowcolor=black@0.4:shadowx=${layout.shadow}:shadowy=${layout.shadow}:x=(w-tw)/2:y=h-th-${num(layout.captionBottom)}`);
+    }
     return filters.join(',');
   }
 
@@ -235,10 +207,12 @@ export class FFmpegService {
     const metadata = await this.probeVideo(sourceVideoPath);
     const filterStr = this.buildWatermarkFilter(brandKit, metadata);
 
-    // Compute deterministic cache key so we don't re-render identical outputs
+    // Include immutable content and renderer version: old variants stay usable,
+    // changed masters at the same path cannot reuse stale branding.
+    const hashBefore = await this.computeFileSha256(sourceVideoPath);
     const hash = crypto
       .createHash('sha256')
-      .update(sourceVideoPath + JSON.stringify(brandKit) + filterStr)
+      .update('branding-quality-v3-text-only\0' + hashBefore + JSON.stringify(brandKit) + filterStr)
       .digest('hex')
       .substring(0, 16);
 
@@ -249,65 +223,71 @@ export class FFmpegService {
       throw new Error(`IMMUTABILITY VIOLATION: Output path matches source path! ${outPath}`);
     }
 
+    const active = this.activeRenders.get(outPath);
+    if (active) {
+      const completed = await active;
+      onProgress?.(100);
+      return completed;
+    }
     if (fs.existsSync(outPath) && fs.statSync(outPath).size > 1000) {
-      if (onProgress) onProgress(100);
+      onProgress?.(100);
       return outPath;
     }
+    const render = this.writeBrandedVariant(sourceVideoPath, outPath, metadata, filterStr, hashBefore, onProgress);
+    this.activeRenders.set(outPath, render);
+    try {
+      return await render;
+    } finally {
+      if (this.activeRenders.get(outPath) === render) this.activeRenders.delete(outPath);
+    }
+  }
 
-    // Record master video SHA256 before render to ensure immutability
-    const hashBefore = await this.computeFileSha256(sourceVideoPath);
-
-    return new Promise((resolve, reject) => {
-      const audioArgs = metadata.hasAudio ? ['-c:a', 'copy'] : ['-an'];
-
-      const proc = spawn('ffmpeg', [
-        '-i', sourceVideoPath,
-        '-vf', filterStr,
-        '-c:v', 'libx264',
-        '-preset', 'fast',
-        '-crf', '22',
-        ...audioArgs,
-        outPath,
-        '-y'
-      ]);
-
-      const totalSeconds = metadata.duration || 10;
-
-      proc.stderr.on('data', (data) => {
-        const line = data.toString();
-        const timeMatch = line.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/);
-        if (timeMatch && onProgress) {
-          const hours = Number(timeMatch[1]);
-          const mins = Number(timeMatch[2]);
-          const secs = Number(timeMatch[3]);
-          const currentSecs = hours * 3600 + mins * 60 + secs;
-          const pct = Math.min(99, Math.round((currentSecs / totalSeconds) * 100));
-          onProgress(pct);
-        }
-      });
-
-      proc.on('close', async (code) => {
-        if (code === 0 && fs.existsSync(outPath)) {
-          try {
-            // Strictly verify that master video was not modified
-            const hashAfter = await this.computeFileSha256(sourceVideoPath);
-            if (hashBefore !== hashAfter) {
-              return reject(new Error('CRITICAL INTEGRITY FAILURE: Master video was altered during rendering!'));
+  private async writeBrandedVariant(
+    sourceVideoPath: string, outPath: string, metadata: VideoMetadata,
+    filterStr: string, hashBefore: string, onProgress?: (progressPct: number) => void
+  ): Promise<string> {
+    // Never expose partial bytes under a cache key or overwrite a completed
+    // variant while FFmpeg is still working. Concurrent callers join one job.
+    const stagingPath = path.resolve(rendersDir, `.${path.basename(outPath, '.mp4')}.${crypto.randomUUID()}.staging.mp4`);
+    try {
+      if (!filterStr) {
+        // No overlay means byte-for-byte passthrough, not an empty -vf/encode.
+        await fs.promises.copyFile(sourceVideoPath, stagingPath);
+        if (await this.computeFileSha256(stagingPath) !== hashBefore) throw new Error('CRITICAL INTEGRITY FAILURE: No-watermark copy does not match master');
+      } else {
+        await new Promise<void>((resolve, reject) => {
+          const audioArgs = metadata.hasAudio ? ['-c:a', 'copy'] : ['-an'];
+          const proc = spawn('ffmpeg', [
+            '-i', sourceVideoPath, '-vf', filterStr, '-c:v', 'libx264',
+            '-preset', 'fast', '-crf', '18', '-movflags', '+faststart',
+            ...audioArgs, stagingPath, '-y'
+          ]);
+          const totalSeconds = metadata.duration || 10;
+          let stderr = '';
+          proc.stderr.on('data', data => {
+            stderr = (stderr + data.toString()).slice(-6000);
+            const timeMatch = data.toString().match(/time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/);
+            if (timeMatch && onProgress) {
+              const currentSecs = Number(timeMatch[1]) * 3600 + Number(timeMatch[2]) * 60 + Number(timeMatch[3]);
+              onProgress(Math.min(99, Math.round(currentSecs / totalSeconds * 100)));
             }
-            if (onProgress) onProgress(100);
-            resolve(outPath);
-          } catch (err) {
-            reject(err);
-          }
-        } else {
-          reject(new Error(`FFmpeg rendering failed with exit code ${code}`));
-        }
-      });
-
-      proc.on('error', (err) => {
-        reject(err);
-      });
-    });
+          });
+          proc.on('close', code => {
+            if (code === 0 && fs.existsSync(stagingPath) && fs.statSync(stagingPath).size > 0) resolve();
+            else reject(new Error(`FFmpeg rendering failed with exit code ${code}: ${stderr.slice(-2000)}`));
+          });
+          proc.on('error', reject);
+        });
+      }
+      if (await this.computeFileSha256(sourceVideoPath) !== hashBefore) throw new Error('CRITICAL INTEGRITY FAILURE: Master video was altered during rendering!');
+      // A different process may have completed the same content key meanwhile.
+      // Preserve its artifact; otherwise publish the complete file atomically.
+      if (!fs.existsSync(outPath) || fs.statSync(outPath).size <= 1000) await fs.promises.rename(stagingPath, outPath);
+      onProgress?.(100);
+      return outPath;
+    } finally {
+      await fs.promises.rm(stagingPath, { force: true });
+    }
   }
 }
 

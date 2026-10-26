@@ -12,7 +12,7 @@ export interface Resolution {
 }
 
 export const DEFAULT_SAFE_AREAS: Record<string, SafeAreaConfig> = {
-  '9:16': { top: 120, bottom: 280, left: 40, right: 80 },
+  '9:16': { top: 120, bottom: 280, left: 40, right: 120 },
   '16:9': { top: 60, bottom: 80, left: 40, right: 80 },
   default: { top: 60, bottom: 80, left: 40, right: 80 },
 };

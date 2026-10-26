@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { BrandKit } from '../../types';
-import { Sliders, Shield } from 'lucide-react';
+import { Shield } from 'lucide-react';
+import { brandingElements, resolveBrandingMode } from '../../../../server/src/domain/branding-layout';
 
 export interface WatermarkControlsProps {
   brandKit: BrandKit;
@@ -12,6 +13,7 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
   setBrandKit,
 }) => {
   const [showCustomSafeArea, setShowCustomSafeArea] = useState(false);
+  const elements = brandingElements(brandKit);
 
   const applySafeAreaPreset = (preset: 'tiktok_9_16' | 'facebook_16_9') => {
     if (preset === 'tiktok_9_16') {
@@ -30,9 +32,30 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
   return (
     <div className="bg-surface-card border border-border rounded-2xl p-5 space-y-4 text-xs shadow-xs">
       <label className="text-xs font-bold uppercase tracking-wider text-slate-300 block">
-        2. Watermark & Movement Preset
+        2. Branding Mode & Text
       </label>
 
+      <fieldset className="space-y-2">
+        <legend className="text-slate-300 font-semibold mb-1.5">Branding Mode</legend>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {([
+            ['none', 'No Watermark'],
+            ['moving', 'Moving Watermark Only'],
+            ['moving_and_caption', 'Moving Watermark + Bottom Caption'],
+            ['caption', 'Bottom Caption Only'],
+          ] as const).map(([mode, label]) => (
+            <label key={mode} className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer ${resolveBrandingMode(brandKit) === mode ? 'border-terracotta-500 bg-terracotta-500/15 text-terracotta-300' : 'border-border bg-surface text-slate-300'}`}>
+              <input type="radio" name="branding-mode" value={mode} checked={resolveBrandingMode(brandKit) === mode}
+                onChange={() => setBrandKit(prev => ({ ...prev, mode, enableSignature: mode === 'caption' || mode === 'moving_and_caption' }))}
+                className="accent-terracotta-600" />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <fieldset disabled={!elements.moving} className={`space-y-4 ${elements.moving ? '' : 'opacity-50'}`}>
+      <legend className="sr-only">Moving watermark settings</legend>
       {/* Watermark Text */}
       <div>
         <label className="block text-slate-300 font-semibold mb-1">Watermark Handle / Text</label>
@@ -103,7 +126,9 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
         </div>
       </div>
 
-      {/* Opacity & Font Size / Scale */}
+      </fieldset>
+
+      {/* Opacity is moving-only; font scale also sizes the bottom brand label. */}
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-slate-300 font-semibold mb-1">
@@ -111,6 +136,8 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
           </label>
           <input
             type="range"
+            aria-label="Watermark Opacity"
+            disabled={!elements.moving}
             min="0.2"
             max="1.0"
             step="0.05"
@@ -126,6 +153,8 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
           </label>
           <input
             type="range"
+            aria-label="Font Scale"
+            disabled={!elements.moving && !elements.caption}
             min="16"
             max="48"
             value={brandKit.fontSize || 26}
@@ -229,27 +258,17 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
         )}
       </div>
 
-      {/* Signature option */}
-      <div className="pt-3 border-t border-border">
-        <label className="flex items-center gap-2 font-semibold text-slate-300 cursor-pointer mb-2">
-          <input
-            type="checkbox"
-            checked={brandKit.enableSignature}
-            onChange={(e) => setBrandKit(prev => ({ ...prev, enableSignature: e.target.checked }))}
-            className="rounded border-border text-terracotta-600 focus:ring-0 accent-terracotta-600"
-          />
-          Include Lower Digital Signature / Copyright
-        </label>
-
-        {brandKit.enableSignature && (
-          <input
-            type="text"
-            value={brandKit.signatureText || ''}
-            onChange={(e) => setBrandKit(prev => ({ ...prev, signatureText: e.target.value }))}
-            placeholder="e.g. Crafted with AI Video Engine"
-            className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-terracotta-500"
-          />
-        )}
+      <div className="pt-3 border-t border-border space-y-2">
+        <label htmlFor="account-brand-caption" className="block font-semibold text-slate-300">Account Default Bottom Caption</label>
+        <input
+          id="account-brand-caption"
+          type="text"
+          value={brandKit.signatureText ?? ''}
+          onChange={(e) => setBrandKit(prev => ({ ...prev, signatureText: e.target.value }))}
+          placeholder="Brand name, slogan, or call-to-action"
+          className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-terracotta-500"
+        />
+        <p className="text-[11px] text-slate-400">Saved for this account with Save Brand Kit. Both bottom-caption modes use this text. Thai and English are supported.</p>
       </div>
     </div>
   );

@@ -64,7 +64,7 @@ describe('Domain Rules & Calculations - Unit Tests', () => {
     assert.strictEqual(safe916.top, 120);
     assert.strictEqual(safe916.bottom, 280);
     assert.strictEqual(safe916.left, 40);
-    assert.strictEqual(safe916.right, 80);
+    assert.strictEqual(safe916.right, 120);
 
     const safe169 = resolveSafeArea('16:9');
     assert.strictEqual(safe169.top, 60);
@@ -74,6 +74,8 @@ describe('Domain Rules & Calculations - Unit Tests', () => {
     const custom = resolveSafeArea('9:16', { top: 150 });
     assert.strictEqual(custom.top, 150);
     assert.strictEqual(custom.bottom, 280);
+    // Saved explicit margins remain compatible; only the new default changed.
+    assert.strictEqual(resolveSafeArea('9:16', { right: 80 }).right, 80);
   });
 
   // 5. Watermark Motion Formulas

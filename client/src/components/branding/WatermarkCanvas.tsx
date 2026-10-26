@@ -1,155 +1,128 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { BrandKit } from '../../types';
+import { brandingElements, calculateBrandingPosition, getBrandingLayout } from '../../../../server/src/domain/branding-layout';
 
 export interface WatermarkCanvasProps {
   brandKit: BrandKit;
   width?: number;
   height?: number;
   aspectRatio?: '9:16' | '16:9';
+  sourceUrl?: string;
+  sourceWidth?: number;
+  sourceHeight?: number;
 }
 
 export const WatermarkCanvas: React.FC<WatermarkCanvasProps> = ({
-  brandKit,
-  width,
-  height,
-  aspectRatio = '9:16',
+  brandKit, width, height, aspectRatio = '9:16', sourceUrl, sourceWidth, sourceHeight,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animFrameRef = useRef<number | null>(null);
-
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [showGuides, setShowGuides] = useState(false);
   const is169 = aspectRatio === '16:9';
-  const canvasW = width || (is169 ? 480 : 320);
-  const canvasH = height || (is169 ? 270 : 568);
+  // Render at actual video resolution, then scale the viewport with CSS. This
+  // preserves glyph proportions and avoids the old preview-only 1.5x font size.
+  const frameWidth = sourceWidth || (is169 ? 1920 : 1080);
+  const frameHeight = sourceHeight || (is169 ? 1080 : 1920);
+  const displayWidth = width || (is169 ? 480 : 320);
+  const displayHeight = height || displayWidth * frameHeight / frameWidth;
+  const elements = brandingElements(brandKit);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    const W = canvas.width, H = canvas.height;
+    const layout = getBrandingLayout(brandKit, { width: W, height: H, aspectRatio });
+    let animationFrame = 0;
+    const start = performance.now();
 
-    const startTime = Date.now();
-
+    const ink = (text: string, fontSize: number) => {
+      ctx.font = `${fontSize}px ${layout.fontFamily}, sans-serif`;
+      const metrics = ctx.measureText(text);
+      const ascent = metrics.actualBoundingBoxAscent;
+      const descent = metrics.actualBoundingBoxDescent;
+      return { width: metrics.width, height: ascent + descent, ascent };
+    };
     const renderFrame = () => {
-      const now = Date.now();
-      const t = (now - startTime) / 1000;
-
-      const W = canvas.width;
-      const H = canvas.height;
-
-      // Draw background gradient (representing cozy cinematic video viewport)
-      const grad = ctx.createLinearGradient(0, 0, W, H);
-      grad.addColorStop(0, '#1E1B18');
-      grad.addColorStop(1, '#0C0A09');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, W, H);
-
-      // Safe area visual outline
-      const refH = is169 ? 1080 : 1920;
-      const refW = is169 ? 1920 : 1080;
-      const safeTop = (brandKit.safeArea?.top || (is169 ? 60 : 120)) * (H / refH);
-      const safeBottom = (brandKit.safeArea?.bottom || (is169 ? 60 : 280)) * (H / refH);
-      const safeLeft = (brandKit.safeArea?.left || (is169 ? 60 : 40)) * (W / refW);
-      const safeRight = (brandKit.safeArea?.right || (is169 ? 60 : 120)) * (W / refW);
-
-      ctx.strokeStyle = 'rgba(217, 93, 57, 0.35)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.strokeRect(safeLeft, safeTop, W - safeLeft - safeRight, H - safeTop - safeBottom);
-      ctx.setLineDash([]);
-
-      // Safe area label
-      ctx.fillStyle = 'rgba(217, 93, 57, 0.6)';
-      ctx.font = '10px sans-serif';
-      ctx.fillText(is169 ? 'Facebook / Landscape Safe Area' : 'TikTok / Mobile Safe Area', safeLeft + 8, safeTop + 14);
-
-      // Calculate watermark text width & height
-      const text = brandKit.text || '@Handle';
-      const fontSize = (brandKit.fontSize || 24) * (W / refW) * 1.5;
-      ctx.font = `bold ${fontSize}px sans-serif`;
-      const textMetrics = ctx.measureText(text);
-      const textW = textMetrics.width;
-      const textH = fontSize * 1.2;
-
-      let x = safeLeft;
-      let y = safeTop;
-
-      const preset = brandKit.movementPreset || 'smooth_sine';
-      const speed = brandKit.speedSeconds || 12;
-
-      if (preset === 'smooth_sine') {
-        const spanX = W - textW - safeLeft - safeRight;
-        const spanY = H - textH - safeTop - safeBottom;
-        x = safeLeft + (spanX * (1 + Math.sin((2 * Math.PI * t) / speed))) / 2;
-        y = safeTop + (spanY * (1 + Math.cos((2 * Math.PI * t) / speed))) / 2;
-      } else if (preset === 'corner_jump') {
-        const interval = brandKit.intervalSeconds || 6;
-        const step = Math.floor(t / interval) % 4;
-        if (step === 0) {
-          x = safeLeft;
-          y = safeTop;
-        } else if (step === 1) {
-          x = W - textW - safeRight;
-          y = safeTop;
-        } else if (step === 2) {
-          x = W - textW - safeRight;
-          y = H - textH - safeBottom;
-        } else {
-          x = safeLeft;
-          y = H - textH - safeBottom;
-        }
-      } else if (preset === 'diagonal_bounce') {
-        const spanX = W - textW - safeLeft - safeRight;
-        const spanY = H - textH - safeTop - safeBottom;
-        x = safeLeft + Math.abs(((t * 80) % (spanX * 2)) - spanX);
-        y = safeTop + Math.abs(((t * 50) % (spanY * 2)) - spanY);
-      } else {
-        // Static
-        x = W - textW - safeRight;
-        y = safeTop;
+      ctx.clearRect(0, 0, W, H);
+      const video = videoRef.current;
+      const t = sourceUrl && video ? video.currentTime : (performance.now() - start) / 1000;
+      if (!sourceUrl) {
+        const gradient = ctx.createLinearGradient(0, 0, W, H);
+        gradient.addColorStop(0, '#6c777a'); gradient.addColorStop(1, '#10171a');
+        ctx.fillStyle = gradient; ctx.fillRect(0, 0, W, H);
       }
-
-      // Draw Box Background
-      ctx.fillStyle = `rgba(0, 0, 0, ${brandKit.boxBgOpacity ?? 0.45})`;
-      ctx.fillRect(x - 6, y - textH + 4, textW + 12, textH + 6);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x - 6, y - textH + 4, textW + 12, textH + 6);
-
-      // Draw Text
-      ctx.fillStyle = `rgba(255, 255, 255, ${brandKit.opacity ?? 0.85})`;
-      ctx.fillText(text, x, y);
-
-      // Draw optional signature
-      if (brandKit.enableSignature && brandKit.signatureText) {
-        ctx.font = '10px sans-serif';
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-        const sigMetrics = ctx.measureText(brandKit.signatureText);
-        ctx.fillText(brandKit.signatureText, (W - sigMetrics.width) / 2, H - 20);
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'left';
+      if (elements.moving) {
+        const text = brandKit.text ?? '@SocialCommand';
+        const metrics = ink(text, layout.fontSize);
+        const position = calculateBrandingPosition({
+          t, containerWidth: W, containerHeight: H, textWidth: metrics.width,
+          textHeight: metrics.height, preset: brandKit.movementPreset || 'smooth_sine',
+          safeArea: layout.movingSafeArea, speedSeconds: brandKit.speedSeconds,
+          intervalSeconds: brandKit.intervalSeconds, scale: layout.scale,
+        });
+        ctx.save();
+        ctx.globalAlpha = Number.isFinite(brandKit.opacity) ? Math.max(0, Math.min(1, brandKit.opacity!)) : 0.85;
+        ctx.lineJoin = 'round'; ctx.lineWidth = layout.outline * 2;
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.shadowColor = 'rgba(0,0,0,0.4)';
+        ctx.shadowOffsetX = layout.shadow; ctx.shadowOffsetY = layout.shadow;
+        ctx.strokeText(text, position.x, position.y + metrics.ascent);
+        ctx.shadowColor = 'transparent';
+        ctx.fillStyle = /^#[0-9a-f]{6}$/i.test(brandKit.fontColor || '') ? brandKit.fontColor! : '#FFFFFF';
+        ctx.fillText(text, position.x, position.y + metrics.ascent);
+        ctx.restore();
       }
-
-      animFrameRef.current = requestAnimationFrame(renderFrame);
+      if (elements.caption && brandKit.signatureText) {
+        const text = brandKit.signatureText;
+        const metrics = ink(text, layout.captionFontSize);
+        const x = (W - metrics.width) / 2;
+        const y = H - metrics.height - layout.captionBottom;
+        // Caption and moving branding are text-only: glyph outline/shadow,
+        // never a filled banner. Match FFmpeg's border and shadow at native size.
+        ctx.save();
+        ctx.lineJoin = 'round'; ctx.lineWidth = layout.outline * 2;
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.shadowColor = 'rgba(0,0,0,0.4)';
+        ctx.shadowOffsetX = layout.shadow; ctx.shadowOffsetY = layout.shadow;
+        ctx.strokeText(text, x, y + metrics.ascent);
+        ctx.shadowColor = 'transparent';
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(text, x, y + metrics.ascent);
+        ctx.restore();
+      }
+      if (showGuides) {
+        const s = layout.safeArea;
+        ctx.save(); ctx.strokeStyle = 'rgba(217,93,57,0.8)';
+        ctx.lineWidth = Math.max(1, 2 * layout.scale);
+        ctx.setLineDash([12 * layout.scale, 12 * layout.scale]);
+        ctx.strokeRect(s.left, s.top, W - s.left - s.right, H - s.top - s.bottom);
+        ctx.restore();
+      }
+      animationFrame = requestAnimationFrame(renderFrame);
     };
-
     renderFrame();
-
-    return () => {
-      if (animFrameRef.current) {
-        cancelAnimationFrame(animFrameRef.current);
-      }
-    };
-  }, [brandKit, is169]);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [brandKit, aspectRatio, frameWidth, frameHeight, sourceUrl, showGuides]);
 
   return (
-    <div className="relative mx-auto w-fit rounded-2xl overflow-hidden border-2 border-border shadow-2xl bg-black">
-      <canvas
-        ref={canvasRef}
-        width={canvasW}
-        height={canvasH}
-        className="block"
-      />
-      <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-md bg-black/60 text-[10px] font-mono text-terracotta-300 border border-terracotta-500/30">
-        {is169 ? '16:9 Landscape' : '9:16 Vertical'}
+    <div className="max-w-full space-y-2">
+      <div className="relative mx-auto max-w-full overflow-hidden rounded-xl border border-border bg-black"
+        style={{ width: Math.min(displayWidth, displayHeight * frameWidth / frameHeight), aspectRatio: `${frameWidth} / ${frameHeight}` }}>
+        {sourceUrl && <video key={sourceUrl} ref={videoRef} src={sourceUrl} controls loop muted playsInline autoPlay
+          aria-label="Master Video Live Preview" className="absolute inset-0 w-full h-full object-contain" />}
+        <canvas ref={canvasRef} width={frameWidth} height={frameHeight}
+          aria-label="Live Branding Overlay" data-branding-mode={elements.mode}
+          data-caption-text={brandKit.signatureText ?? ''}
+          data-moving-enabled={elements.moving} data-caption-enabled={elements.caption}
+          className="absolute inset-0 w-full h-full pointer-events-none" />
       </div>
+      <label className="flex items-center justify-center gap-2 text-[11px] text-slate-400 cursor-pointer">
+        <input type="checkbox" checked={showGuides} onChange={e => setShowGuides(e.target.checked)} className="accent-terracotta-600" />
+        Show Safe-Area Guides
+      </label>
     </div>
   );
 };

@@ -5,6 +5,21 @@ import { BrandKitOptions, ffmpegService } from '../services/ffmpeg.service.js';
 import { accountsRepo } from '../repositories/accounts.repo.js';
 import { publishingRepo } from '../repositories/publishing.repo.js';
 import { rendersDir } from '../db/database.js';
+import { BRANDING_MODES, brandingElements, resolveBrandingMode } from '../domain/branding-layout.js';
+
+// Preserve unknown legacy fields, but reject values that could break filter
+// construction. Text stays literal Unicode; no template or CTA substitution.
+function validateBrandKit(kit: any): string | undefined {
+  if (!kit || typeof kit !== 'object' || Array.isArray(kit)) return 'brandKit must be an object';
+  if (kit.mode !== undefined && !BRANDING_MODES.some(mode => mode.id === kit.mode)) return 'Unknown branding mode';
+  for (const field of ['text', 'signatureText']) {
+    if (kit[field] !== undefined && (typeof kit[field] !== 'string' || kit[field].length > 1000 || kit[field].includes('\0'))) return `${field} must be literal text of at most 1000 characters`;
+  }
+  for (const field of ['fontSize', 'opacity', 'speedSeconds', 'intervalSeconds']) {
+    if (kit[field] !== undefined && !Number.isFinite(kit[field])) return `${field} must be a finite number`;
+  }
+  if (kit.safeArea !== undefined && (!kit.safeArea || typeof kit.safeArea !== 'object' || ['top', 'bottom', 'left', 'right'].some(field => kit.safeArea[field] !== undefined && (!Number.isFinite(kit.safeArea[field]) || kit.safeArea[field] < 0)))) return 'Safe-area margins must be nonnegative finite numbers';
+}
 
 export const brandingRouter = Router();
 
@@ -29,6 +44,9 @@ brandingRouter.get('/kits', (_req, res) => {
 brandingRouter.put('/kits/:accountId', (req, res) => {
   const { brandKit } = req.body;
   if (!brandKit) return res.status(400).json({ error: 'brandKit payload is required' });
+  const validationError = validateBrandKit(brandKit);
+  if (validationError) return res.status(400).json({ error: validationError });
+  if (!accountsRepo.getAccountById(req.params.accountId)) return res.status(404).json({ error: 'Account not found' });
 
   accountsRepo.updateBrandKit(req.params.accountId, JSON.stringify(brandKit));
   res.json({ success: true, message: 'Brand kit updated' });
@@ -76,6 +94,8 @@ brandingRouter.post('/render-preview', async (req, res) => {
   if (!videoId || !brandKit) {
     return res.status(400).json({ error: 'videoId and brandKit are required' });
   }
+  const validationError = validateBrandKit(brandKit);
+  if (validationError) return res.status(400).json({ error: validationError });
 
   const video = publishingRepo.getVideoById(videoId);
   if (!video) return res.status(404).json({ error: 'Video not found' });
@@ -98,9 +118,9 @@ brandingRouter.post('/render-preview', async (req, res) => {
     publishingRepo.insertBrandedVideo({
       id: variantId,
       videoId: video.id,
-      presetName: presetName || brandKit.movementPreset || 'moving_watermark',
+      presetName: presetName || resolveBrandingMode(brandKit),
       movementPreset: brandKit.movementPreset || 'smooth_sine',
-      watermarkText: brandKit.text || '@SocialCommandCenter',
+      watermarkText: brandingElements(brandKit).moving ? (brandKit.text ?? '@SocialCommand') : brandingElements(brandKit).caption ? (brandKit.signatureText ?? '') : '',
       filePath: renderedPath,
       fileSize: stats.size,
       duration: meta.duration,

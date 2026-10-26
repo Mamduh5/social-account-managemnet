@@ -108,7 +108,7 @@ export class QueueService {
           brandKit = JSON.parse(job.brand_kit_json || '{}');
         }
 
-        brandKit = { ...brandKit, watermarkType: brandKit.watermarkType || 'moving_text', text: brandKit.text || job.account_handle, movementPreset: brandKit.movementPreset || 'smooth_sine' };
+        brandKit = { ...brandKit, watermarkType: brandKit.watermarkType || 'moving_text', text: brandKit.text ?? job.account_handle, movementPreset: brandKit.movementPreset || 'smooth_sine' };
         finalVideoPath = await ffmpegService.renderBrandedVideo(
           job.original_video_path,
           brandKit,
