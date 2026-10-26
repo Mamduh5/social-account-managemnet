@@ -12,6 +12,12 @@ Use `npm run owner:start`, `owner:status`, `owner:stop`, `owner:startup` and `ow
 
 The isolated V1.10 review evidence includes real **gemini_api_free / gemini-3.5-flash-lite** generation through the approved billing-disabled configuration. Five of six authorized requests were used; rollout retains that limit and does not import demonstration voices into the owner's database. All generation requires an explicit action and produces editable, unapproved drafts. Missing configuration remains unavailable. The earlier 12ae5d8 recovery evidence is historical: [runtime recovery report](docs/qa/V1_10_RUNTIME_RECOVERY_REAL_GENERATION.md).
 
+## Prepared V1.11 and text-only branding release - 26 October 2026
+
+The combined Content Calendar and text-only watermark release is prepared locally for controlled review. It has not replaced the owner runtime. All four branding modes preserve account/default and per-video caption text; both branding elements are text-only and the fixed caption is slightly lower. Calendar approval and publishing remain separate owner actions. See [combined release readiness and rollback](docs/qa/V1_11_COMBINED_RELEASE.md).
+
+`npm run build:client` builds the working tree. `npm start` starts the already configured frozen owner release; these commands do **not** upgrade the owner to the latest source. Keep using the managed controller and do not run a development watcher against the owner database. Release preparation uses `scripts/package-owner-release.ts --prepare-only`; activating a matched release requires separate maintenance approval.
+
 ## V1.10: general Page posts and content workspace
 
 The Publishing Center now prepares text-only, single-image, ordered multi-image and link drafts for Facebook Pages alongside the existing Reel composer. Thai text, per-account captions, image order/alternative text and Bangkok schedules survive save/reload. Review and exact-revision approval precede a separate queue action. Uploads and feed submission use durable remote IDs/intents; uncertain outcomes require reconciliation.
