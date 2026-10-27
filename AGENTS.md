@@ -4,6 +4,19 @@
 
 ---
 
+## First Live Creative Publication & Permanent Creative Playbook (27 October 2026)
+
+The first owner-approved multi-image Facebook post was successfully published to Page A (**แก้บัคยาวๆๆ**, Graph ID `409347032254077`) via Social Command Center's official Meta Graph API:
+- **Remote Post ID:** `409347032254077_122196999368464828`
+- **Live Facebook Permalink:** https://www.facebook.com/122196967700464828/posts/122196999368464828
+- **Permanent Creative Playbook:** [`docs/content/PAGE_A_CREATIVE_PLAYBOOK.md`](docs/content/PAGE_A_CREATIVE_PLAYBOOK.md)
+- **Agent Quickstart Guide:** [`GEMINI.md`](GEMINI.md)
+- **Creator Benchmarks:** [`docs/content/CREATIVE_BENCHMARKS_PAGE_A.md`](docs/content/CREATIVE_BENCHMARKS_PAGE_A.md)
+
+All future creative operations on Page A must strictly follow the Playbook. Every public publication requires explicit, separate owner authorization.
+
+---
+
 ## Controlled owner rollout and current-user startup (24 October 2026)
 
 The owner explicitly authorized a local Git checkpoint, verified WAL-safe backup, the documented V1.10 migration and current-user startup for this assignment. These instructions supersede older owner-away restrictions on local commit/migration/restart. Read [the production rollout and rollback procedure](docs/qa/V1_10_PRODUCTION_ROLLOUT.md) for release and runtime evidence. The verified owner release is cccf9390542199fb18ae442753eba87088c9b255; migration and installed-entry startup checks passed. Normal automatic sync is enabled; the owner remains on its original database. No Git push, Cloudflare deployment, public posting/upload/reply/reaction/new schedule, account reauthorization, paid service or AI Video Pipeline change is authorized.
