@@ -30,6 +30,15 @@ export const CommentCard: React.FC<CommentItemProps> = ({
   onReact,
   onStatusChange,
 }) => {
+  // A synced platform reply can also be the saved send receipt. Match its remote
+  // identity, never its text: distinct replies may legitimately say the same thing.
+  const savedReply = cmt.reply_id ? cmt.replies?.find((reply) =>
+    reply.external_comment_id === cmt.reply_id &&
+    reply.account_id === cmt.account_id &&
+    reply.platform === cmt.platform &&
+    reply.parent_comment_id === cmt.external_comment_id
+  ) : undefined;
+
   return (
     <div 
       className={`bg-surface-card border rounded-2xl p-5 transition-all shadow-xs ${
@@ -65,7 +74,7 @@ export const CommentCard: React.FC<CommentItemProps> = ({
             </div>
 
             {/* Threaded Reply if already sent - preserves p:has-text("Replied by") */}
-            {cmt.has_replied && cmt.reply_text && (
+            {cmt.has_replied && cmt.reply_text && !savedReply && (
               <div className="mt-3 p-3.5 bg-surface rounded-xl border border-border text-xs">
                 <p className="font-bold text-terracotta-400 mb-1 flex items-center gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5" /> Replied by {cmt.account_name}:
@@ -79,6 +88,11 @@ export const CommentCard: React.FC<CommentItemProps> = ({
               <div className="mt-3 space-y-2 border-l-2 border-border pl-3">
                 {cmt.replies.map((reply) => (
                   <div key={reply.id} className="p-2.5 bg-surface/70 rounded-xl border border-border text-xs space-y-1">
+                    {cmt.has_replied && reply === savedReply && (
+                      <p className="font-bold text-terracotta-400 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Replied by {cmt.account_name}:
+                      </p>
+                    )}
                     <div className="flex items-center gap-2">
                       <img
                         src={reply.author_avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=60'}
@@ -189,7 +203,7 @@ export const CommentCard: React.FC<CommentItemProps> = ({
                 <AlertCircle className="w-4 h-4 text-honey-400 shrink-0 mt-0.5" />
                 <div>
                   <p className="font-semibold">{replyError.message}</p>
-                  <p className="text-[11px] text-honey-400/80 mt-0.5">
+                  <p className="text-[11px] text-honey-400 opacity-80 mt-0.5">
                     Use the button on the right to open the comment directly on {cmt.platform}.
                   </p>
                 </div>

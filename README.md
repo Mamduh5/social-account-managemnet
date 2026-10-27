@@ -6,7 +6,7 @@ Self-hosted multi-account Page and video publishing preparation, video distribut
 
 V1.12 extends the existing calendar, publishing queue, Content Assistant and Groups workspace. External creative assistants (including Codex) can prepare Page-specific drafts without an application model request. Import Prepared Plan uses a Page/voice/branding fingerprint, stable campaign ID and the existing bounded calendar validation. Replies remain draft-and-approve with durable submission holds and exact official-API receipt checks. Group handoffs remain manual and unverified. See [V1.12 acceptance, prepared owner drafts and remaining gates](docs/qa/V1_12_SOCIAL_AUTOPILOT.md).
 
-Live read-only verification found the owner on frozen **V1.11 `7ed0860`**, with normal synchronization enabled. The older V1.10 status and preparation reports below describe earlier observations. V1.12 source has **not** replaced that release: no owner restart or migration is authorized. The first Codex-prepared Page A test is saved as an unapproved, unscheduled text draft; Page B has a separate draft-only seven-concept plan. No new social post/reply, campaign activation or application generation occurred.
+Earlier V1.12 preparation recorded frozen **V1.11 `7ed0860`**; that is a historical observation. Read-only configuration, manifest and process inspection on 27 October now identifies the owner release as **`4c6fd0dd8fbd89020a419d2263bcc6baacf63b62`**. Its frozen frontend predates the four offline UI fixes, even though the rebuilt working `client/dist` contains them. See [the stale-UI diagnosis and managed update procedure](docs/qa/OWNER_RELEASE_UPDATES.md). This investigation did not restart or deploy the owner application. Creative drafts, campaigns and public actions continue to require their existing separate approvals.
 
 The separate [informational website](public-site/README.md) serves Terms, Privacy and Support pages plus a narrowly scoped TikTok OAuth redirect relay. It has no access to the management API, database, credentials or media. The existing owner-managed deployment and legal review boundaries are described in its [deployment guide](public-site/DEPLOYMENT.md) and [owner review](public-site/OWNER_REVIEW.md). This validation performs no deployment.
 
@@ -22,7 +22,7 @@ The isolated V1.10 review evidence includes real **gemini_api_free / gemini-3.5-
 
 The combined Content Calendar and text-only watermark release is prepared locally for controlled review. It has not replaced the owner runtime. All four branding modes preserve account/default and per-video caption text; both branding elements are text-only and the fixed caption is slightly lower. Calendar approval and publishing remain separate owner actions. See [combined release readiness and rollback](docs/qa/V1_11_COMBINED_RELEASE.md).
 
-`npm run build:client` builds the working tree. `npm start` starts the already configured frozen owner release; these commands do **not** upgrade the owner to the latest source. Keep using the managed controller and do not run a development watcher against the owner database. Release preparation uses `scripts/package-owner-release.ts --prepare-only`; activating a matched release requires separate maintenance approval.
+`npm run build:client` builds the working tree. `npm start` starts the already configured frozen owner release; these commands do **not** upgrade the owner to the latest source. Use `npm run owner:update -- --check` for a read-only diagnosis. After an approved local source checkpoint, `npm run owner:update` prepares a matched immutable release without changing the owner; separately approved `npm run owner:update -- --apply` promotes it through managed maintenance. `npm run owner:rollback -- --apply` selects the saved previous release without restoring the database. See [update gates, exact commands and rollback](docs/qa/OWNER_RELEASE_UPDATES.md). Do not run a development watcher against the owner database.
 
 ## V1.10: general Page posts and content workspace
 
@@ -67,16 +67,16 @@ The current engineering evidence is [V1.9 Final Validation](docs/qa/V1_9_FINAL_V
 
 ## Setup and startup
 
-Use Node.js 22 LTS (verified host: 22.23.1), npm, and FFmpeg/FFprobe on `PATH`. SQLite is supplied by `better-sqlite3`. For a fresh checkout or deliberate maintenance window:
+Use Node.js 22 LTS (verified host: 22.23.1), npm, and FFmpeg/FFprobe on `PATH`. SQLite is supplied by `better-sqlite3`. For an already configured owner installation:
 
 ```powershell
-npm install
-npm --prefix client install
-npm run build:client
-npm start
+npm run owner:update -- --check  # Read-only; no build or lifecycle action
+npm start                      # Start the currently pinned release; no upgrade
 ```
 
-Alternatively run `powershell -ExecutionPolicy Bypass -File .\run_server.ps1`. Open **http://localhost:3001**. The API serves the built frontend, SSE and media; `GET /api/health` checks liveness.
+To apply reviewed source changes, make the separately authorized local Git checkpoint first, then use the prepare/apply commands above. A fresh checkout requires dependency installation and the documented owner configuration/schema preparation before managed startup; `build:client` alone does not configure a release.
+
+Alternatively run `powershell -ExecutionPolicy Bypass -File .\run_server.ps1` to start the current pin. Open **http://localhost:3001**. The API serves the configured frozen frontend, SSE and media; `GET /api/health` checks liveness.
 
 `npm run dev` starts the API watcher and Vite on 5180. Start Facebook OAuth from port 3001 to match the callback origin.
 

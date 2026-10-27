@@ -86,11 +86,13 @@ export const ConnectAccountModal: React.FC<Props> = ({
       isOpen={isOpen}
       onClose={onClose}
       title={editing ? 'Edit Social Account' : 'Add Social Account'}
+      scrollBody
     >
       <form
         onSubmit={onSubmit}
-        className="space-y-3 text-xs max-h-[70vh] overflow-y-auto p-1"
+        className="flex min-h-0 flex-col text-xs"
       >
+        <div className="min-h-0 space-y-3 overflow-y-auto overscroll-contain p-1">
         <p className="text-slate-400">
           Save a public identity without logging in. Ownership and profile
           information remain unverified until an authorized platform check.
@@ -234,7 +236,8 @@ export const ConnectAccountModal: React.FC<Props> = ({
             {error}
           </p>
         )}
-        <div className="flex justify-end gap-3 pt-3 border-t border-border">
+        </div>
+        <div className="flex shrink-0 flex-wrap justify-end gap-3 mt-3 pt-3 border-t border-border">
           <button
             type="button"
             onClick={onClose}
@@ -243,6 +246,7 @@ export const ConnectAccountModal: React.FC<Props> = ({
             Cancel
           </button>
           <button
+            type="submit"
             disabled={saving || uploadingAvatar}
             className="px-4 py-2 bg-terracotta-600 text-white rounded-xl font-bold"
           >

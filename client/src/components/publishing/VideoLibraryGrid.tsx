@@ -100,7 +100,7 @@ export const VideoLibraryGrid: React.FC<VideoLibraryGridProps> = ({
             <button
               onClick={onSyncPipeline}
               disabled={syncingPipeline}
-              className="px-3 py-1.5 bg-surface hover:bg-surface-hover border border-border text-slate-300 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+              className="px-3 py-1.5 bg-surface hover:bg-surface-hover border border-border text-slate-300 hover:text-white light:hover:text-slate-100 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-terracotta-400 ${syncingPipeline ? 'animate-spin' : ''}`} />
               {syncingPipeline ? 'Syncing...' : 'Sync from Pipeline'}
@@ -381,7 +381,7 @@ export const VideoLibraryGrid: React.FC<VideoLibraryGridProps> = ({
                 onClick={() => setActivePreview(null)}
                 aria-label="Close Preview"
                 title="Close Preview"
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-surface cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-white light:hover:text-slate-100 rounded-lg hover:bg-surface cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>

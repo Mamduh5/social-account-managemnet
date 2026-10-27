@@ -339,7 +339,7 @@ export const AnalyticsView: React.FC = () => {
       </div>
 
       {/* Published Videos Performance Table (V1.5 Core Real Engagement Matrix) */}
-      <div className="bg-surface-card border border-border rounded-2xl p-5 shadow-xs space-y-4">
+      <div className="min-w-0 bg-surface-card border border-border rounded-2xl p-5 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
@@ -352,8 +352,8 @@ export const AnalyticsView: React.FC = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+        <div className="max-w-full overflow-x-auto">
+          <table className="w-full min-w-[960px] text-left text-xs [&_th]:px-3 [&_td]:px-3 [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
             <thead>
               <tr className="border-b border-border text-slate-400 uppercase text-[10px] tracking-wider">
                 <th className="pb-3 font-semibold">Video</th>
@@ -362,7 +362,7 @@ export const AnalyticsView: React.FC = () => {
                 <th className="pb-3 font-semibold text-right">Likes</th>
                 <th className="pb-3 font-semibold text-right">Comments</th>
                 <th className="pb-3 font-semibold text-right">Shares</th>
-                <th className="pb-3 font-semibold">Provenance & Verification</th>
+                <th className="pb-3 font-semibold min-w-[180px]">Provenance & Verification</th>
                 <th className="pb-3 font-semibold text-right">Actions</th>
               </tr>
             </thead>
@@ -383,7 +383,7 @@ export const AnalyticsView: React.FC = () => {
 
                       {/* Account & Platform */}
                       <td className="py-3">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-md border ${
                             isFB ? 'bg-blue-500/15 text-blue-400 border-blue-500/25' : 'bg-rose-500/15 text-rose-400 border-rose-500/25'
                           }`}>
@@ -430,7 +430,7 @@ export const AnalyticsView: React.FC = () => {
                         <div className="space-y-0.5">
                           <div className="flex items-center gap-1.5">
                             <ShieldCheck className="w-3.5 h-3.5 text-sage-400 shrink-0" />
-                            <span className="text-[11px] font-semibold text-slate-200 capitalize">
+                            <span className="min-w-0 break-words text-[11px] font-semibold text-slate-200 capitalize">
                               {v.source.replace(/_/g, ' ')}
                             </span>
                           </div>
@@ -449,7 +449,7 @@ export const AnalyticsView: React.FC = () => {
                             href={v.remote_post_url}
                             target="_blank"
                             rel="noreferrer"
-                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-surface hover:bg-surface-hover text-slate-300 hover:text-white rounded-lg border border-border text-[11px] transition-colors"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-surface hover:bg-surface-hover text-slate-300 hover:text-white light:hover:text-slate-100 rounded-lg border border-border text-[11px] transition-colors"
                             title="Open native post"
                           >
                             <span>Post</span>
@@ -567,7 +567,7 @@ export const AnalyticsView: React.FC = () => {
                   </span>
                 </div>
                 {st.error_message && (
-                  <p className="text-[11px] text-honey-300/90 leading-tight">
+                  <p className="text-[11px] text-honey-300 opacity-90 leading-tight">
                     {st.error_message}
                   </p>
                 )}

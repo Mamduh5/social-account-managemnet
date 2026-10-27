@@ -1,6 +1,11 @@
 @import "tailwindcss";
 @config "../tailwind.config.js";
 
+/* Reuse the root theme switch for utility variants and the existing foreground
+   classes. :is adds specificity over the default Tailwind color declaration;
+   a plain duplicate @utility declaration would lose to that declaration. */
+@custom-variant light (&:is(.light, [data-theme="light"], .light *, [data-theme="light"] *));
+
 :root {
   --bg-app: #141417;
   --bg-surface: #1B1C22;
@@ -22,11 +27,75 @@
   --bg-surface-hover: #EBE5DB;
   --border-color: #E2DCD2;
   --text-main: #27231E;
-  --text-muted: #797368;
+  --text-muted: #625B51;
+  --text-secondary: #50493F;
+  --text-subtle: #696156;
+  --text-terracotta: #943519;
+  --text-sage: #285B3B;
+  --text-honey: #70420B;
+  --text-rose: #9C1942;
+  --text-blue: #1E4F99;
+  --text-purple: #7136A1;
+  --text-indigo: #493DA2;
+  --text-amber: #784000;
+  --text-emerald: #125C3E;
+  --text-cyan: #12566A;
+  --text-red: #8F1D1D;
   --accent-terracotta: #C8502B;
   --accent-sage: #3F8259;
   --accent-honey: #CF8524;
   color-scheme: light;
+}
+
+/* Text-only compatibility with the shared tokens and existing cards/feeds.
+   Keep dark defaults, backgrounds, borders, solid-button white and media colors
+   intact. Hover/focus variants inherit these same adaptive foregrounds. */
+@utility text-slate-100 { @variant light { color: var(--text-main); } }
+@utility text-slate-200 { @variant light { color: var(--text-main); } }
+@utility text-slate-300 { @variant light { color: var(--text-secondary); } }
+@utility text-slate-400 { @variant light { color: var(--text-muted); } }
+@utility text-slate-500 { @variant light { color: var(--text-subtle); } }
+@utility text-terracotta-300 { @variant light { color: var(--text-terracotta); } }
+@utility text-terracotta-400 { @variant light { color: var(--text-terracotta); } }
+@utility text-terracotta-500 { @variant light { color: var(--text-terracotta); } }
+@utility text-sage-300 { @variant light { color: var(--text-sage); } }
+@utility text-sage-400 { @variant light { color: var(--text-sage); } }
+@utility text-honey-300 { @variant light { color: var(--text-honey); } }
+@utility text-honey-400 { @variant light { color: var(--text-honey); } }
+@utility text-rose-200 { @variant light { color: var(--text-rose); } }
+@utility text-rose-300 { @variant light { color: var(--text-rose); } }
+@utility text-rose-400 { @variant light { color: var(--text-rose); } }
+@utility text-blue-300 { @variant light { color: var(--text-blue); } }
+@utility text-blue-400 { @variant light { color: var(--text-blue); } }
+@utility text-purple-400 { @variant light { color: var(--text-purple); } }
+@utility text-indigo-400 { @variant light { color: var(--text-indigo); } }
+@utility text-amber-300 { @variant light { color: var(--text-amber); } }
+@utility text-amber-400 { @variant light { color: var(--text-amber); } }
+@utility text-emerald-200 { @variant light { color: var(--text-emerald); } }
+@utility text-emerald-300 { @variant light { color: var(--text-emerald); } }
+@utility text-emerald-400 { @variant light { color: var(--text-emerald); } }
+@utility text-cyan-300 { @variant light { color: var(--text-cyan); } }
+@utility text-red-400 { @variant light { color: var(--text-red); } }
+
+/* Fixed dark media frames keep light neutral foregrounds in Cozy Light.
+   Muted text also accounts for the frame's translucent black over a light card;
+   the unscoped dark-theme text utilities retain their existing colors. */
+@utility media-surface {
+  --text-main: var(--color-slate-100);
+  --text-secondary: var(--color-slate-300);
+  --text-muted: #CBD5E1;
+  --text-subtle: var(--color-slate-500);
+}
+
+@layer utilities {
+  :is(.light, [data-theme="light"]) :is(input, textarea)::placeholder {
+    color: var(--text-muted);
+    opacity: 1;
+  }
+
+  :is(.light, [data-theme="light"]) :is(button, input, select, textarea):disabled {
+    opacity: 0.75;
+  }
 }
 
 body {

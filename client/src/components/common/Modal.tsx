@@ -9,6 +9,8 @@ export interface ModalProps {
   subtitle?: string;
   children: React.ReactNode;
   maxWidth?: string;
+  /** Let the caller provide a scrollable body with a persistent action footer. */
+  scrollBody?: boolean;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -18,6 +20,7 @@ export const Modal: React.FC<ModalProps> = ({
   subtitle,
   children,
   maxWidth = 'max-w-md',
+  scrollBody = false,
 }) => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -40,10 +43,10 @@ export const Modal: React.FC<ModalProps> = ({
       onClick={onClose}
     >
       <div
-        className={`${themeTokens.surfaces.card} border ${themeTokens.surfaces.border} rounded-2xl w-full ${maxWidth} p-6 shadow-2xl relative my-8`}
+        className={`${themeTokens.surfaces.card} border ${themeTokens.surfaces.border} rounded-2xl w-full ${maxWidth} p-6 shadow-2xl relative ${scrollBody ? 'flex flex-col min-h-0 max-h-[calc(100vh-2rem)] supports-[height:100dvh]:max-h-[calc(100dvh-2rem)] overflow-hidden' : 'my-8'}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between pb-3.5 border-b border-border/80">
+        <div className={`flex items-center justify-between pb-3.5 border-b border-border/80 ${scrollBody ? 'shrink-0 gap-3' : ''}`}>
           <div>
             <h3 id="modal-title" className="text-lg font-bold text-slate-100">
               {title}
@@ -55,13 +58,13 @@ export const Modal: React.FC<ModalProps> = ({
           <button
             onClick={onClose}
             aria-label="Close modal"
-            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-surface-hover transition-colors"
+            className="p-1.5 rounded-xl text-slate-400 hover:text-white light:hover:text-slate-100 hover:bg-surface-hover transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="mt-4">{children}</div>
+        <div className={`mt-4 ${scrollBody ? 'flex min-h-0 flex-col' : ''}`}>{children}</div>
       </div>
     </div>
   );

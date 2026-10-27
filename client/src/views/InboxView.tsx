@@ -110,7 +110,7 @@ export const InboxView: React.FC<Props> = ({ selectedCategory }) => {
 
           <button
             onClick={loadData}
-            className="p-2 bg-surface hover:bg-surface-hover border border-border rounded-xl text-slate-300 hover:text-white transition-colors cursor-pointer"
+            className="p-2 bg-surface hover:bg-surface-hover border border-border rounded-xl text-slate-300 hover:text-white light:hover:text-slate-100 transition-colors cursor-pointer"
             title="Refresh View"
           >
             <RefreshCw className="w-4 h-4" />

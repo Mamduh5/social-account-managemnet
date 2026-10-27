@@ -87,7 +87,7 @@ export function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-background text-slate-100 flex flex-col md:flex-row overflow-x-hidden selection:bg-terracotta-500/30 selection:text-terracotta-200">
+    <div className="min-h-screen bg-background text-slate-100 flex flex-col md:flex-row overflow-x-hidden selection:bg-terracotta-500/30 selection:text-terracotta-200 light:selection:text-terracotta-700">
       {/* Sidebar Navigation */}
       <aside className="w-full md:w-64 bg-surface border-r border-border shrink-0 flex flex-col justify-between">
         <div>
@@ -119,7 +119,7 @@ export function App() {
               </button>
               <button
                 onClick={() => setMobileMenuOpen(prev => !prev)}
-                className="p-2 rounded-lg bg-surface-card border border-border text-slate-300 hover:text-white"
+                className="p-2 rounded-lg bg-surface-card border border-border text-slate-300 hover:text-white light:hover:text-slate-100"
                 aria-label="Toggle navigation menu"
               >
                 {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -159,7 +159,7 @@ export function App() {
             <span className="text-slate-400">Studio Theme</span>
             <button
               onClick={toggleTheme}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface border border-border text-[10px] font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface border border-border text-[10px] font-semibold text-slate-300 hover:text-white light:hover:text-slate-100 transition-colors cursor-pointer"
             >
               {theme === 'dark' ? (
                 <>

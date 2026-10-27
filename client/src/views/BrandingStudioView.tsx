@@ -286,7 +286,7 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
             </div>
 
             {/* Canvas element */}
-            <div className="flex justify-center bg-black/75 p-4 sm:p-5 rounded-2xl border border-border shadow-inner">
+            <div className="media-surface flex justify-center bg-black/75 p-4 sm:p-5 rounded-2xl border border-border shadow-inner">
               <WatermarkCanvas
                 brandKit={effectiveBrandKit}
                 sourceUrl={activeVideo?.streamUrl || (activeVideo ? `/api/publishing/videos/${encodeURIComponent(activeVideo.id)}/stream` : undefined)}
@@ -364,7 +364,7 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
                 />
 
                 {renderedPreview.sha256 && (
-                  <div className="p-2.5 bg-black/40 rounded-lg border border-border text-[10px] font-mono text-slate-400 flex items-center justify-between">
+                  <div className="p-2.5 bg-black/40 light:bg-surface rounded-lg border border-border text-[10px] font-mono text-slate-400 flex items-center justify-between">
                     <span className="text-slate-500">Render SHA256:</span>
                     <span className="truncate max-w-[280px] text-slate-300">{renderedPreview.sha256}</span>
                   </div>
@@ -422,7 +422,7 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
                             variantId: v.id,
                           })}
                           title="Preview in Player"
-                          className="p-1.5 bg-surface-card hover:bg-slate-700 text-slate-300 rounded-lg cursor-pointer"
+                          className="p-1.5 bg-surface-card hover:bg-slate-700 light:hover:bg-surface-hover text-slate-300 rounded-lg cursor-pointer"
                         >
                           <Play className="w-3.5 h-3.5" />
                         </button>
@@ -430,7 +430,7 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
                           href={v.downloadUrl || v.previewUrl}
                           download
                           title="Download Watermarked File"
-                          className="p-1.5 bg-surface-card hover:bg-slate-700 text-slate-300 rounded-lg cursor-pointer"
+                          className="p-1.5 bg-surface-card hover:bg-slate-700 light:hover:bg-surface-hover text-slate-300 rounded-lg cursor-pointer"
                         >
                           <Download className="w-3.5 h-3.5" />
                         </a>

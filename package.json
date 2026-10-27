@@ -18,7 +18,9 @@
     "owner:stop": "tsx scripts/owner-runtime.ts stop",
     "owner:status": "tsx scripts/owner-runtime.ts status",
     "owner:startup": "tsx scripts/owner-runtime.ts install-startup",
-    "owner:disable": "tsx scripts/owner-runtime.ts disable"
+    "owner:disable": "tsx scripts/owner-runtime.ts disable",
+    "owner:update": "tsx scripts/owner-update.ts",
+    "owner:rollback": "tsx scripts/owner-update.ts --rollback"
   },
   "repository": {
     "type": "git",

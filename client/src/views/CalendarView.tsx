@@ -574,7 +574,7 @@ export const CalendarView: React.FC<Props> = () => {
                                 href={item.receipt.remotePostUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="underline flex items-center gap-0.5 text-emerald-200 hover:text-white"
+                                className="underline flex items-center gap-0.5 text-emerald-200 hover:text-white light:hover:text-emerald-400"
                               >
                                 View Live <ExternalLink className="w-2.5 h-2.5" />
                               </a>
