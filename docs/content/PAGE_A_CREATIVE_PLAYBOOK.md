@@ -81,6 +81,9 @@ Before calling any draft publication-ready:
 2. **Never Invent Fixed Policies:** If an app does not publicly state an expiration duration (e.g., LINE server retention), state clearly: *"LINE does not specify an exact duration, but chat files are stored temporarily"*.
 3. **Never State Platform Limits as Universal Rules:** Differentiate between client-side UX friction (e.g., iOS Document Picker not reading Photos) vs actual server limits.
 4. **Distinguish Local Simulation from Real Testing:** If a live transmission test was not executed on real accounts, state so plainly in the evidence report. A beautiful slide containing unverified numbers is rejected content.
+5. **No Over-Generalized Reverse Myths:** When debunking a popular tech myth (e.g. "closing apps saves battery"), do NOT invert it into an equally false or exaggerated absolute (e.g. "closing apps always wastes more battery" or "guaranteed cold start cost"). Accurately reflect official vendor guidance: Apple and Google state closing apps is *unnecessary* for battery saving under normal conditions and should only be done when an app is unresponsive.
+6. **No Fabricated Absolute Technical Claims:** Do not claim absolute zero states like "0% CPU", "RAM uses zero energy", or "every background app is completely frozen" without acknowledging operating system background execution privileges (e.g., Background App Refresh on iOS, WorkManager / Foreground Services on Android).
+7. **Quote Primary Official Vendor Documentation:** When advising on system behavior, cite exact official vendor documentation (e.g., Apple Support: *"You should only close an app if it's unresponsive"*, Android Developers: *Processes and Application Lifecycle*). Include actionable vendor recommendations (e.g., checking Battery Settings, turning off Background App Refresh or Location permissions).
 
 ---
 
@@ -176,6 +179,9 @@ Future agents must study why previous iterations were rejected:
 * **Antipattern 5: Cramped Mobile Tables**  
   * *Rejected:* 5-column comparison matrices with tiny font sizes.  
   * *Reason:* Completely illegible on mobile screens.
+* **Antipattern 6: Absolute Myth Inversion & Oversimplified Engineering Claims**  
+  * *Rejected:* Inverting myths into equal-and-opposite absolutes (e.g., claiming *"closing apps always wastes more battery"*, displaying badges like *"0% CPU"* or *"guaranteed cold start penalty"*).  
+  * *Reason:* Distorts how modern operating system kernels manage memory and process scheduling. Apple and Google do not state closing apps always increases power consumption; they state closing apps is unnecessary for normal power management and recommend closing only unresponsive apps.
 
 ---
 

@@ -52,8 +52,8 @@ When starting a new session in this repository, follow these core operational ru
 
 10. **Which accounts and historical jobs must NEVER be disturbed?**  
     * Do NOT touch the 3 protected historical manual destinations: `dest-mvf5hdwf-19hi`, `dest-mvf5j24q-ub0y`, `dest-mvf5j24r-rw4x`.
-    * Do NOT publish to *โลกจริงหลุดบท* (`acc-fb-2`).
-    * Do NOT publish or touch TikTok accounts.
+    * Do NOT publish to Page B: *โลกจริงหลุดบท* (Verified DB Account ID `acc-b82c9a5f-7a87-4c6a-88bd-9c8e93467978`, Handle `@61595592674364`). Note: `acc-fb-2` is the demo placeholder (*ScreenToLife Studio*).
+    * Do NOT publish or touch TikTok accounts (Verified DB Account ID `acc-e0d55bef-1976-4213-92d8-4f949ee3e5f7`, Handle `@maroooooooooooon16`).
     * Do NOT run destructive operations, git push, or live cloud deploys.
 
 ---

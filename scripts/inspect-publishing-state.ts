@@ -20,6 +20,16 @@ async function run() {
     for (const d of (pageADrafts || [])) {
       console.log(`- Draft: ${d.id} | Rev: ${d.revision} | ${d.status} | ${d.contentType} | "${d.title}"`);
     }
+    console.log('\n--- Checking draft-3d0788ac-d9f6-4382-85b6-b8a47f0f3fa2 Audit Trail ---');
+    const db = (await import('better-sqlite3')).default('.data/social_command_center.db', { readonly: true });
+    const draftRecord = db.prepare('SELECT * FROM publishing_drafts WHERE id = ?').get('draft-3d0788ac-d9f6-4382-85b6-b8a47f0f3fa2') as any;
+    console.log('Draft Record:', { id: draftRecord.id, revision: draftRecord.revision, status: draftRecord.status, approved_revision: draftRecord.approved_revision, queued_post_id: draftRecord.queued_post_id });
+    const auditRecords = db.prepare('SELECT id, draft_id, revision, action, payload_hash, created_at FROM publishing_draft_audit WHERE draft_id = ?').all('draft-3d0788ac-d9f6-4382-85b6-b8a47f0f3fa2');
+    console.log('Audit records count:', auditRecords.length);
+    for (const a of auditRecords) {
+      console.log(' -', a);
+    }
+    db.close();
   } catch (err) {
     console.error('Error:', err);
   }
