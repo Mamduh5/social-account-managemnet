@@ -99,28 +99,82 @@ export interface BrandedVideo {
   created_at: string;
 }
 
+export type DestinationMediaMode = 'original' | 'saved_variant' | 'dispatch_branding';
+
+export type PipelineDiscoveryErrorKind =
+  | 'unsupported_endpoint'
+  | 'auth_failure'
+  | 'timeout'
+  | 'offline'
+  | 'malformed_response'
+  | 'invalid_cursor'
+  | 'incomplete_history'
+  | 'upstream_error';
+
 export interface DiscoveredPipelineJob {
   jobId: string;
   title: string;
-  aspectRatio: string;
-  durationSeconds: number;
+  topic?: string;
+  status?: string;
+  aspectRatio: string | null;
+  durationSeconds: number | null;
   displayStatus: string;
-  videoUrl: string;
+  videoUrl: string | null;
+  thumbnailUrl?: string | null;
   videoObjectKey?: string;
+  storageState?: string;
+  storageLabel?: string;
+  storageDetail?: string;
   isImported: boolean;
   importedVideoId?: string;
-  createdAt: string;
-  updatedAt: string;
+  importEligible?: boolean;
+  ineligibleReason?: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  incompleteMetadata?: string[];
+  tags?: string[];
+  provider?: string;
+  workflow?: string;
 }
 
 export interface PipelineHealthStatus {
   reachable: boolean;
-  status: 'connected' | 'offline';
+  status: 'connected' | 'offline' | 'error';
   apiUrl: string;
   totalProjects: number;
   completedJobsCount: number;
   lastChecked: string;
   error?: string;
+  errorKind?: PipelineDiscoveryErrorKind;
+}
+
+export interface PipelineJobsQueryParams {
+  q?: string;
+  status?: string;
+  aspectRatio?: string;
+  importState?: 'all' | 'imported' | 'unimported';
+  sort?: 'recent' | 'created' | 'oldest' | 'name';
+  limit?: number;
+  cursor?: string | null;
+}
+
+export interface PipelineJobsPageResponse {
+  jobs: DiscoveredPipelineJob[];
+  count: number;
+  totalMatched?: number;
+  page?: {
+    limit: number;
+    returned: number;
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
+  sourceContract?: 'library_v1' | 'legacy_jobs' | 'offline' | 'error';
+  historyComplete?: boolean;
+  incompleteReason?: string;
+  discoveryError?: string;
+  error?: string;
+  errorKind?: PipelineDiscoveryErrorKind;
+  health?: PipelineHealthStatus;
 }
 
 export interface VideoItem {
@@ -338,6 +392,18 @@ export interface PipelineStatusResponse {
   health?: PipelineHealthStatus;
   jobs?: DiscoveredPipelineJob[];
   jobsCount?: number;
+  totalMatched?: number;
+  page?: {
+    limit: number;
+    returned: number;
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
+  sourceContract?: 'library_v1' | 'legacy_jobs' | 'offline' | 'error';
+  historyComplete?: boolean;
+  incompleteReason?: string;
+  discoveryError?: string;
+  errorKind?: PipelineDiscoveryErrorKind;
   apiUrl?: string;
   watchDir?: string;
   files?: Array<{

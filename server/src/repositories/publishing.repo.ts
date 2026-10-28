@@ -1,5 +1,6 @@
 import {generalPostsReady} from '../db/general-posts-schema.js';
 import { db } from '../db/database.js';
+import { activityRepo } from './activity.repo.js';
 import {
   VideoEntity,
   BrandedVideoEntity,
@@ -8,6 +9,17 @@ import {
   DestinationStatus,
   PostStatus,
 } from '../domain/types.js';
+
+export interface PendingQueueJob {
+  id: string; post_id: string; account_id: string; video_id: string | null;
+  caption: string; hashtags: string; apply_branding: number; branding_override_json: string | null;
+  branded_video_path: string | null; selected_variant_id: string | null; status: string;
+  retry_count: number; max_retries: number; remote_post_id: string | null; submission_state: string | null;
+  content_type: string; link_url: string | null; campaign_id: string | null; origin: string;
+  title: string; scheduled_at: string | null; original_video_path: string | null; original_video_metadata_json: string | null;
+  platform: string; account_name: string; account_handle: string; connector_mode: string;
+  access_token: string | null; external_id: string | null; brand_kit_json: string | null; account_status: string;
+}
 
 export class PublishingRepository {
   // --- VIDEOS ---
@@ -279,6 +291,21 @@ export class PublishingRepository {
     db.prepare('UPDATE publishing_destinations SET branded_video_path = ? WHERE id = ?').run(path, destinationId);
   }
 
+  pinDestinationRender(destinationId: string, accountId: string, postId: string, videoId: string, path: string, masterHash: string, renderHash: string, brandingOverride: string | null): void {
+    db.transaction(() => {
+      this.updateDestinationBrandedPath(destinationId, path);
+      activityRepo.logEvent({ type: 'media_render_pinned', accountId, title: 'Publication render pinned', message: 'The destination render was pinned for safe retry.', severity: 'info', metadataJson: JSON.stringify({ destinationId, accountId, postId, videoId, path, masterHash, renderHash, brandingOverride }) });
+    })();
+  }
+
+  getDestinationRenderPin(destinationId: string): any | undefined {
+    const rows = db.prepare("SELECT metadata_json FROM activity_events WHERE type = 'media_render_pinned' ORDER BY rowid DESC").all() as Array<{metadata_json: string}>;
+    for (const row of rows) {
+      try { const pin = JSON.parse(row.metadata_json); if (pin.destinationId === destinationId) return pin; } catch { /* untrusted historical metadata */ }
+    }
+    return undefined;
+  }
+
   markDestinationPublished(params: {
     destinationId: string;
     remotePostId?: string | null;
@@ -379,7 +406,7 @@ export class PublishingRepository {
     `).all() as any[];
   }
 
-  getPendingQueueJobs(limit: number = 2): any[] {
+  getPendingQueueJobs(limit: number = 2): PendingQueueJob[] {
     const hasCamp = this.hasCampaigns();
     const campaignFilter = hasCamp ? 'LEFT JOIN publishing_campaigns c ON pd.campaign_id = c.id' : '';
     const campaignClause = hasCamp ? "AND (pd.campaign_id IS NULL OR c.status = 'active')" : '';
@@ -391,8 +418,8 @@ export class PublishingRepository {
         pd.retry_count, pd.max_retries, pd.remote_post_id,
         ${generalPostsReady(db)?"pd.submission_state, pd.content_type, pd.link_url":"NULL as submission_state, 'reel' as content_type, NULL as link_url"},
         ${hasCamp ? "pd.campaign_id, pd.origin" : "NULL as campaign_id, 'manual' as origin"},
-        p.title, p.scheduled_at,
-        v.file_path as original_video_path,
+        p.title, p.scheduled_at, p.video_id,
+        v.file_path as original_video_path, v.metadata_json as original_video_metadata_json,
         a.platform, a.name as account_name, a.handle as account_handle,
         a.connector_mode, a.access_token, a.external_id, a.brand_kit_json, a.status as account_status
       FROM publishing_destinations pd
@@ -405,7 +432,7 @@ export class PublishingRepository {
       AND (p.scheduled_at IS NULL OR julianday(p.scheduled_at) <= julianday('now'))
       ${campaignClause}
       LIMIT ?
-    `).all(limit) as any[];
+    `).all(limit) as PendingQueueJob[];
   }
 }
 

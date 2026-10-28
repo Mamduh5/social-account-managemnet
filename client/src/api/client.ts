@@ -8,6 +8,7 @@ import {
   CommentsResponse,
   ActivityResponse,
   PipelineStatusResponse,
+  PipelineJobsPageResponse,
   BrandKit,
   AnalyticsOverviewResponse,
   VideoPerformanceItem,
@@ -268,12 +269,26 @@ export const api = {
   },
 
   // Pipeline
-  async getPipelineStatus(): Promise<PipelineStatusResponse> {
-    const res = await fetch(`${API_BASE}/pipeline/status`);
+  async getPipelineStatus(
+    params?: Record<string, string | number | undefined | null>,
+    signal?: AbortSignal
+  ): Promise<PipelineStatusResponse> {
+    const clean = params
+      ? Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => [k, String(v)]))
+      : {};
+    const q = new URLSearchParams(clean).toString();
+    const res = await fetch(`${API_BASE}/pipeline/status${q ? `?${q}` : ''}`, { signal });
     return checked(res);
   },
-  async getPipelineJobs(): Promise<{ jobs: any[]; count: number }> {
-    const res = await fetch(`${API_BASE}/pipeline/jobs`);
+  async getPipelineJobs(
+    params?: Record<string, string | number | undefined | null>,
+    signal?: AbortSignal
+  ): Promise<PipelineJobsPageResponse> {
+    const clean = params
+      ? Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => [k, String(v)]))
+      : {};
+    const q = new URLSearchParams(clean).toString();
+    const res = await fetch(`${API_BASE}/pipeline/jobs${q ? `?${q}` : ''}`, { signal });
     return checked(res);
   },
   async importPipelineJob(jobId: string, title?: string, categoryId?: string): Promise<{ success: boolean; videoId: string; alreadyExisted?: boolean; message?: string }> {
@@ -284,11 +299,19 @@ export const api = {
     });
     return checked(res);
   },
-  async syncPipeline(): Promise<{ success: boolean; count: number; jobs: any[] }> {
-    const res = await fetch(`${API_BASE}/pipeline/sync`, { method: 'POST' });
+  async syncPipeline(
+    params?: Record<string, string | number | undefined | null>,
+    signal?: AbortSignal
+  ): Promise<PipelineJobsPageResponse & { success: boolean }> {
+    const res = await fetch(`${API_BASE}/pipeline/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params || {}),
+      signal,
+    });
     return checked(res);
   },
-  async importPipelineFile(filePath: string, title?: string, categoryId?: string): Promise<{ success: boolean; videoId: string }> {
+  async importPipelineFile(filePath: string, title?: string, categoryId?: string): Promise<{ success: boolean; videoId: string; alreadyExisted?: boolean; message?: string }> {
     const res = await fetch(`${API_BASE}/pipeline/import-file`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

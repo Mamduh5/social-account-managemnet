@@ -2,6 +2,7 @@ import { calendarRepo } from '../repositories/calendar.repo.js';
 import {generalPostsRepo} from '../repositories/general-posts.repo.js';
 import {verifiedImagePath} from './image-media.service.js';
 import fs from 'fs';
+import path from 'path';
 import { ffmpegService, BrandKitOptions } from './ffmpeg.service.js';
 import { accountsRepo } from '../repositories/accounts.repo.js';
 import { bridgeConnector, getConnector } from '../connectors/registry.js';
@@ -18,6 +19,34 @@ export class QueueService {
   private intervalTimer: NodeJS.Timeout | null = null;
 
   get activeJobCount(){return this.inFlight.size;}
+
+  private assertReadableRegularFile(filePath: string | null | undefined, label: string): string {
+    if (!filePath || typeof filePath !== 'string' || !filePath.trim()) {
+      throw new Error(`${label} is unavailable; owner review is required before publication`);
+    }
+    const resolved = path.resolve(filePath);
+    if (!fs.existsSync(resolved)) {
+      throw new Error(`${label} is unavailable; owner review is required before publication`);
+    }
+    let stats: fs.Stats;
+    try {
+      stats = fs.statSync(resolved);
+    } catch {
+      throw new Error(`${label} is unavailable; owner review is required before publication`);
+    }
+    if (!stats.isFile()) {
+      throw new Error(`${label} is unavailable (path is not a regular file); owner review is required before publication`);
+    }
+    if (stats.size <= 0) {
+      throw new Error(`${label} is unavailable (file is empty); owner review is required before publication`);
+    }
+    try {
+      fs.accessSync(resolved, fs.constants.R_OK);
+    } catch {
+      throw new Error(`${label} is unavailable (file is not readable); owner review is required before publication`);
+    }
+    return resolved;
+  }
 
   start() {
     if (this.isRunning) return;
@@ -87,18 +116,68 @@ export class QueueService {
         await this.executeGeneralPost(job);
         return;
       }
-      // Step A: Video Version & Branding Resolution
-      let finalVideoPath = job.original_video_path;
+      // Step A: Video Version & Branding Resolution (Fail-Closed Media Consistency Check)
+      const origResolved = job.original_video_path ? path.resolve(job.original_video_path) : null;
+      const brandedResolved = job.branded_video_path ? path.resolve(job.branded_video_path) : null;
+      const variantId = job.selected_variant_id ? String(job.selected_variant_id).trim() : null;
+      const applyBranding = Boolean(job.apply_branding);
 
-      if (job.selected_variant_id && job.selected_variant_id !== 'original' && (!job.branded_video_path || !fs.existsSync(job.branded_video_path))) {
-        throw new Error('Selected branded variant is unavailable; owner review is required before publication');
+      // When an import recorded a master hash, do not publish or render altered bytes.
+      if ((!variantId || variantId === 'original') && job.original_video_metadata_json) {
+        let recordedHash: unknown;
+        try { recordedHash = JSON.parse(job.original_video_metadata_json).sha256; } catch { throw new Error('Master identity metadata is invalid; owner review is required before publication'); }
+        if (recordedHash !== undefined && (typeof recordedHash !== 'string' || !/^[a-f0-9]{64}$/i.test(recordedHash) || await ffmpegService.computeFileSha256(job.original_video_path) !== recordedHash.toLowerCase())) throw new Error('Master video identity cannot be verified; owner review is required before publication');
       }
 
-      if (job.branded_video_path && fs.existsSync(job.branded_video_path)) {
-        // Pre-rendered branded variant explicitly selected and verified on disk
+      let finalVideoPath: string;
+
+      if (variantId === 'original') {
+        if (applyBranding) {
+          throw new Error('Contradictory media configuration: destination is set to Original Master but apply_branding is enabled; owner review is required before publication');
+        }
+        if (brandedResolved && (!origResolved || brandedResolved !== origResolved)) {
+          throw new Error('Contradictory media configuration: destination is set to Original Master but references a conflicting branded video path; owner review is required before publication');
+        }
+        this.assertReadableRegularFile(job.original_video_path, 'Original master video');
+        finalVideoPath = job.original_video_path;
+        publishingRepo.updateDestinationBrandedPath(job.id, finalVideoPath);
+      } else if (variantId && variantId !== 'original') {
+        if (applyBranding) {
+          throw new Error('Contradictory media configuration: destination has both a saved branded variant and dispatch branding enabled; owner review is required before publication');
+        }
+        const variantRecord = publishingRepo.getBrandedVideoById(variantId);
+        if (!variantRecord || !job.video_id) {
+          throw new Error('Selected branded variant identity is unavailable; owner review is required before publication');
+        }
+        if (variantRecord.video_id !== job.video_id) {
+          throw new Error('Contradictory media configuration: selected branded variant belongs to a different master video; owner review is required before publication');
+        }
+        if (!brandedResolved || path.resolve(variantRecord.file_path) !== brandedResolved) {
+          throw new Error('Contradictory media configuration: persisted branded video path does not match the selected variant record; owner review is required before publication');
+        }
+        this.assertReadableRegularFile(job.branded_video_path, 'Selected branded variant');
         finalVideoPath = job.branded_video_path;
         console.log(`[QueueService] Destination ${job.id} using pre-rendered branded variant: ${finalVideoPath}`);
-      } else if (job.apply_branding) {
+      } else if (!applyBranding && brandedResolved && (!origResolved || brandedResolved !== origResolved)) {
+        // Legacy pre-rendered branded variant row where selected_variant_id was null
+        this.assertReadableRegularFile(job.branded_video_path, 'Selected branded variant');
+        finalVideoPath = job.branded_video_path;
+        console.log(`[QueueService] Destination ${job.id} using pre-rendered branded variant: ${finalVideoPath}`);
+      } else if (applyBranding) {
+        this.assertReadableRegularFile(job.original_video_path, 'Original master video');
+        if (!job.video_id) throw new Error('Master video identity is unavailable; owner review is required before publication');
+        if (brandedResolved) {
+          if (origResolved && brandedResolved === origResolved) throw new Error('Contradictory media configuration: dispatch branding points to the original master; owner review is required before publication');
+          const pin = publishingRepo.getDestinationRenderPin(job.id);
+          if (!pin || pin.accountId !== job.account_id || pin.postId !== job.post_id || pin.videoId !== job.video_id || pin.path !== brandedResolved || pin.brandingOverride !== (job.branding_override_json || null)) {
+            throw new Error('Contradictory media configuration: pinned render identity is unavailable; owner review is required before publication');
+          }
+          this.assertReadableRegularFile(brandedResolved, 'Pinned branded video');
+          if (await ffmpegService.computeFileSha256(job.original_video_path) !== pin.masterHash || await ffmpegService.computeFileSha256(brandedResolved) !== pin.renderHash) {
+            throw new Error('Pinned render or master changed; owner review is required before publication');
+          }
+          finalVideoPath = brandedResolved;
+        } else {
         this.updateDestinationStatus(job.id, 'branding', 10);
 
         let brandKit: BrandKitOptions;
@@ -106,13 +185,15 @@ export class QueueService {
           try {
             brandKit = JSON.parse(job.branding_override_json);
           } catch {
-            brandKit = JSON.parse(job.brand_kit_json || '{}');
+            throw new Error('Frozen branding override is invalid; owner review is required before publication');
           }
         } else {
           brandKit = JSON.parse(job.brand_kit_json || '{}');
         }
 
+        if (!brandKit || typeof brandKit !== 'object' || Array.isArray(brandKit)) throw new Error('Branding configuration is invalid; owner review is required before publication');
         brandKit = { ...brandKit, watermarkType: brandKit.watermarkType || 'moving_text', text: brandKit.text ?? job.account_handle, movementPreset: brandKit.movementPreset || 'smooth_sine' };
+        const masterHash = await ffmpegService.computeFileSha256(job.original_video_path);
         finalVideoPath = await ffmpegService.renderBrandedVideo(
           job.original_video_path,
           brandKit,
@@ -122,11 +203,20 @@ export class QueueService {
           }
         );
 
-        publishingRepo.updateDestinationBrandedPath(job.id, finalVideoPath);
+        this.assertReadableRegularFile(finalVideoPath, 'Rendered branded video');
+        const renderHash = await ffmpegService.computeFileSha256(finalVideoPath);
+        if (await ffmpegService.computeFileSha256(job.original_video_path) !== masterHash) throw new Error('Master changed during rendering; owner review is required before publication');
+        publishingRepo.pinDestinationRender(job.id, job.account_id, job.post_id, job.video_id, path.resolve(finalVideoPath), masterHash, renderHash, job.branding_override_json || null);
+        }
       } else {
         // Original unbranded video published directly
+        this.assertReadableRegularFile(job.original_video_path, 'Original master video');
+        finalVideoPath = job.original_video_path;
         publishingRepo.updateDestinationBrandedPath(job.id, finalVideoPath);
       }
+
+      // Final preflight check before any token refresh or connector call
+      this.assertReadableRegularFile(finalVideoPath, 'Resolved publication video');
 
       // Step B: Uploading via Account Connector
       this.updateDestinationStatus(job.id, 'uploading', 45);
