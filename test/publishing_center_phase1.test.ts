@@ -1008,6 +1008,7 @@ test('PublishingView UI: real compiled CSS, accurate dispatch branding modes, ro
         if (q && win.pendingSearchResolvers[q]) {
           await win.pendingSearchResolvers[q]();
         }
+        if (q === 'fixture discovery failure') return json({ error: 'Fixture discovery unavailable' }, 503);
         let filtered = [...allPipelineJobs];
         if (q) {
           filtered = filtered.filter((j) => `${j.title} ${j.jobId}`.toLowerCase().includes(q));
@@ -1181,6 +1182,37 @@ test('PublishingView UI: real compiled CSS, accurate dispatch branding modes, ro
   await page.getByRole('button', { name: /Video Library/ }).click();
   await page.getByTestId('pipeline-videos-section').waitFor();
 
+  // Every selected option must fit, including the native select arrow and padding.
+  for (const theme of ['dark', 'light'] as const) {
+    await page.evaluate((tName) => document.documentElement.classList.toggle('light', tName === 'light'), theme);
+    for (const vp of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }, { width: 1024, height: 768 }, { width: 390, height: 844 }, { width: 1280, height: 600 }]) {
+      await page.setViewportSize(vp);
+      for (const label of ['Filter Pipeline Aspect Ratio', 'Filter Pipeline Status', 'Filter Pipeline Import State', 'Sort Pipeline Videos']) {
+        const select = page.getByLabel(label, { exact: true });
+        const options = await select.locator('option').evaluateAll((elements) => elements.map((option) => (option as HTMLOptionElement).value));
+        for (const value of options) {
+          await select.selectOption(value);
+          const fit = await select.evaluate((element) => {
+            const control = element as HTMLSelectElement;
+            const style = getComputedStyle(control);
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d')!;
+            ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+            const text = control.selectedOptions[0].textContent || '';
+            return { available: control.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 20, required: ctx.measureText(text).width, text };
+          });
+          assert.ok(fit.available >= fit.required, `${label}: "${fit.text}" must fit in ${theme} at ${vp.width}x${vp.height}`);
+        }
+      }
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+      assert.equal(overflow, false, `No horizontal page overflow in ${theme} at ${vp.width}x${vp.height}`);
+    }
+  }
+  await page.evaluate(() => document.documentElement.classList.remove('light'));
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole('button', { name: 'Reset Pipeline Filters', exact: true }).click();
+  await page.getByTestId('pipeline-job-card-pipe-ui-job-01').waitFor();
+
   for (const theme of ['dark', 'light'] as const) {
     await page.evaluate((tName) => document.documentElement.classList.toggle('light', tName === 'light'), theme);
     await page.setViewportSize({ width: 390, height: 600 });
@@ -1229,6 +1261,8 @@ test('PublishingView UI: real compiled CSS, accurate dispatch branding modes, ro
   const pipeSearch = page.getByLabel('Search Pipeline Videos', { exact: true });
   await pipeSearch.fill('deep archive');
   await page.waitForTimeout(160); // allow debounce to fire slow search #1
+  assert.equal(await page.getByText('Searching Pipeline videos...').isVisible(), true);
+  assert.equal(await page.getByText('No Pipeline Videos Match Your Search or Filters').isVisible(), false);
   await pipeSearch.fill('story 01');
   await page.waitForTimeout(160); // fire fast search #2 ('story 01')
   await page.getByTestId('pipeline-job-card-pipe-ui-job-01').waitFor();
@@ -1252,6 +1286,10 @@ test('PublishingView UI: real compiled CSS, accurate dispatch branding modes, ro
   await page.evaluate(() => (window as any).resolveSlowSearch?.());
   await page.getByTestId('pipeline-job-card-pipe-ui-job-02').waitFor();
   assert.equal(await page.locator('[data-testid^="pipeline-job-card-"]').count(), 1);
+
+  await pipeSearch.fill('fixture discovery failure');
+  await page.getByText('Pipeline results are unavailable. Retry the request above.').waitFor();
+  assert.equal(await page.getByText('No Pipeline Videos Match Your Search or Filters').isVisible(), false);
 
   await page.evaluate(() => { (window as any).holdSync = true; });
   await page.getByRole('button', { name: 'Sync from Pipeline', exact: true }).click();

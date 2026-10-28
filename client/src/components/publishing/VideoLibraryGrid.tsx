@@ -426,8 +426,8 @@ export const VideoLibraryGrid: React.FC<VideoLibraryGridProps> = ({
         )}
 
         {/* Search, Filter & Sort Controls */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 bg-surface p-3 rounded-xl border border-border">
-          <div className="relative sm:col-span-2 lg:col-span-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5 bg-surface p-3 rounded-xl border border-border">
+          <div className="relative sm:col-span-2">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="search"
@@ -466,23 +466,25 @@ export const VideoLibraryGrid: React.FC<VideoLibraryGridProps> = ({
             </select>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div>
             <select
               aria-label="Filter Pipeline Import State"
               value={effectivePipeImportState}
               onChange={(e) => handlePipeImportStateChange(e.target.value as any)}
-              className="w-1/2 bg-surface-card border border-border rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-terracotta-500"
+              className="w-full bg-surface-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-terracotta-500"
             >
               <option value="all">All Import States</option>
               <option value="unimported">Not Imported</option>
               <option value="imported">In Library</option>
             </select>
 
+          </div>
+          <div>
             <select
               aria-label="Sort Pipeline Videos"
               value={effectivePipeSort}
               onChange={(e) => handlePipeSortChange(e.target.value as any)}
-              className="w-1/2 bg-surface-card border border-border rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-terracotta-500"
+              className="w-full bg-surface-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-terracotta-500"
             >
               <option value="recent">Updated (Newest)</option>
               <option value="created">Created (Newest)</option>
@@ -515,7 +517,7 @@ export const VideoLibraryGrid: React.FC<VideoLibraryGridProps> = ({
         {/* Pipeline Jobs Grid or Distinct Empty States */}
         {visiblePipelineJobs.length > 0 ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
               {visiblePipelineJobs.map((job) => {
                 const isImporting = Boolean(importingJobIds[job.jobId] || localImportingIds[job.jobId]);
                 const jobError = importJobErrors[job.jobId];
@@ -729,7 +731,11 @@ export const VideoLibraryGrid: React.FC<VideoLibraryGridProps> = ({
             data-testid="pipeline-empty-state"
             className="text-center py-8 px-4 text-xs text-slate-400 bg-surface/50 rounded-xl border border-dashed border-border space-y-2"
           >
-            {canLoadMorePipeline ? (
+            {pipelineLoading ? (
+              <div role="status" className="font-semibold text-slate-200">Searching Pipeline videos...</div>
+            ) : pipelineError && pipelineHealth?.reachable !== false ? (
+              <div className="font-semibold text-slate-200">Pipeline results are unavailable. Retry the request above.</div>
+            ) : canLoadMorePipeline ? (
               <><p>No matches on this page. More Pipeline videos are available.</p><button type="button" data-testid="load-more-pipeline-jobs" onClick={handleLoadMorePipeline} disabled={pipelineLoadingMore} className="px-5 py-2.5 bg-surface border border-border rounded-xl font-bold focus-visible:ring-2 focus-visible:ring-terracotta-500">{pipelineLoadingMore ? 'Loading Older Videos...' : 'Load Older Pipeline Videos'}</button></>
             ) : pipelineHealth && !pipelineHealth.reachable ? (
               <>
@@ -937,7 +943,7 @@ export const VideoLibraryGrid: React.FC<VideoLibraryGridProps> = ({
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
               {visibleLibraryVideos.map((vid) => {
                 const isSelected = selectedVideoId === vid.id;
                 const hasBranded = (vid.branded_variants?.length || 0) > 0;

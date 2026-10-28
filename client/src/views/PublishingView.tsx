@@ -659,7 +659,7 @@ export const PublishingView: React.FC<Props> = () => {
                 data-testid="final-publishing-review"
                 className="pt-4 border-t border-border space-y-3"
               >
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-col items-start sm:flex-row sm:items-center sm:justify-between gap-2">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
                     <ShieldCheck className="w-4 h-4 text-terracotta-400" />
                     5. Final Publishing Review
