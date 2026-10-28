@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
+import { Modal } from '../common/Modal';
 
 export interface CreateCategoryModalProps {
   isOpen: boolean;
@@ -13,7 +14,7 @@ export interface CreateCategoryModalProps {
     description: string;
     color: string;
   }>>;
-  onSubmit: (e: React.FormEvent) => void;
+  onSubmit: (e: React.FormEvent) => void | Promise<void>;
 }
 
 export const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
@@ -23,18 +24,23 @@ export const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
   setFormData: setNewCat,
   onSubmit,
 }) => {
-  if (!isOpen) return null;
+  const nameRef = useRef<HTMLInputElement>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-surface-card border border-border w-full max-w-md rounded-2xl p-6 shadow-2xl">
-        <h3 className="text-lg font-black text-slate-100 mb-1">Create Content Category</h3>
-        <p className="text-xs text-slate-400 mb-4">Group social accounts by AI video production theme</p>
-
-        <form onSubmit={onSubmit} className="space-y-4 text-xs">
+    <Modal isOpen={isOpen} onClose={onClose} title="Create Content Category" subtitle="Group social accounts by AI video production theme"
+      manageFocus initialFocusRef={nameRef} dismissible={!submitting} scrollBody>
+        <form onSubmit={async e => {
+          e.preventDefault();
+          if (submitting) return;
+          setSubmitting(true);
+          try { await onSubmit(e); } finally { setSubmitting(false); }
+        }} className="min-h-0 overflow-y-auto space-y-4 text-xs">
           <div>
-            <label className="block text-slate-300 font-semibold mb-1">Category Name</label>
+            <label htmlFor="new-category-name" className="block text-slate-300 font-semibold mb-1">Category Name</label>
             <input
+              id="new-category-name"
+              ref={nameRef}
               type="text"
               required
               placeholder="e.g. Micro Commercials"
@@ -45,8 +51,9 @@ export const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-slate-300 font-semibold mb-1">Description</label>
+            <label htmlFor="new-category-description" className="block text-slate-300 font-semibold mb-1">Description</label>
             <textarea
+              id="new-category-description"
               rows={2}
               placeholder="Short summary of this content category"
               value={newCat.description}
@@ -56,9 +63,10 @@ export const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-slate-300 font-semibold mb-1">Workspace Accent Color</label>
+            <label htmlFor="new-category-color" className="block text-slate-300 font-semibold mb-1">Workspace Accent Color</label>
             <div className="flex items-center gap-3">
               <input
+                id="new-category-color"
                 type="color"
                 value={newCat.color}
                 onChange={(e) => setNewCat(prev => ({ ...prev, color: e.target.value }))}
@@ -71,6 +79,7 @@ export const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
           <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border">
             <button
               type="button"
+              disabled={submitting}
               onClick={onClose}
               className="px-4 py-2 bg-surface hover:bg-surface-hover text-slate-300 rounded-xl font-medium border border-border transition-colors cursor-pointer"
             >
@@ -78,13 +87,13 @@ export const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
             </button>
             <button
               type="submit"
+              disabled={submitting}
               className="px-4.5 py-2 bg-terracotta-600 hover:bg-terracotta-500 text-white rounded-xl font-bold shadow-md shadow-terracotta-600/25 transition-all cursor-pointer active:scale-95"
             >
               Create Category
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 };

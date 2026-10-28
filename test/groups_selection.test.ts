@@ -58,7 +58,17 @@ async function component(t: TestContext, groups = [groupA, groupB]): Promise<Pag
   await page.evaluate((initialGroups) => {
     const w = window as any;
     w.testGroups = initialGroups;
-    w.groupsApi.list = async () => ({ groups: initialGroups });
+    w.listCalls = [];
+    w.groupsApi.list = async (filters: any = {}) => {
+      w.listCalls.push(filters);
+      return { groups: w.testGroups.filter((g: any) =>
+        (!filters.query || `${g.name} ${g.url}`.toLowerCase().includes(filters.query.toLowerCase())) &&
+        (!filters.accountId || g.account_id === filters.accountId) &&
+        (!filters.membership || g.membership === filters.membership) &&
+        (!filters.category || g.category === filters.category) &&
+        (filters.shortlisted === undefined || g.shortlisted === filters.shortlisted) &&
+        (filters.archived === undefined || !!g.archivedAt === filters.archived)) };
+    };
     w.groupsApi.reminders = async () => ({ reminders: [] });
     w.groupsApi.review = async (id: string) => ({ group: initialGroups.find(g => g.id === id), prepared: [], publicationVerified: false });
     w.groupsApi.prepared = async () => ({ prepared: [] });
@@ -346,4 +356,76 @@ test('actual membership failure releases observation controls and retains their 
   assert.equal(await page.getByLabel('Observation date', { exact: true }).inputValue(), '2026-10-27');
   assert.equal(await page.getByLabel(/^Membership observation notes/).inputValue(), 'Retain this failed observation');
   assert.equal(await page.getByLabel(/^Notes/).inputValue(), 'Registry editing remains available');
+});
+
+test('empty registry explains registration instead of claiming filters hid saved Groups', async t => {
+  const page = await component(t, []);
+  assert.equal(await page.getByText('No Groups registered yet', { exact: true }).count(), 1);
+  assert.equal(await page.getByText('No matching Groups', { exact: true }).count(), 0);
+  assert.match(await page.getByRole('status').innerText(), /Register your first Group/);
+  assert.equal(await page.getByLabel('Group name', { exact: true }).inputValue(), '');
+});
+
+test('no matching Groups is announced and keyboard Clear Filters preserves selection and newer drafts', async t => {
+  const page = await component(t); await select(page); await settled(page);
+  await page.getByLabel('Group name', { exact: true }).fill('Unsaved registry name');
+  await page.getByLabel('Prepared group text', { exact: true }).fill('Unsaved handoff');
+  await page.getByLabel('Search saved Groups', { exact: true }).fill('no match');
+  await page.getByRole('combobox', { name: 'Acting Page', exact: true }).selectOption('page-b');
+  await page.getByRole('combobox', { name: 'Membership filter', exact: true }).selectOption('admin');
+  await page.getByLabel('Category filter', { exact: true }).fill('missing category');
+  await page.getByRole('combobox', { name: 'Archive status', exact: true }).selectOption('archived');
+  await page.getByLabel('Shortlisted only', { exact: true }).check();
+  await page.getByRole('button', { name: 'Apply filters', exact: true }).click(); await settled(page);
+  assert.match(await page.getByRole('status').innerText(), /No matching Groups.*current search and filter combination returned no results/s);
+  assert.equal(await page.getByLabel('Saved group plan', { exact: true }).inputValue(), groupA.id, 'filtered-out selected Group remains available');
+  await page.getByRole('button', { name: 'Clear Filters', exact: true }).press('Enter'); await settled(page);
+  assert.deepEqual(await page.evaluate(() => (window as any).listCalls.at(-1)), {});
+  assert.equal(await page.getByLabel('Search saved Groups', { exact: true }).inputValue(), '');
+  assert.equal(await page.getByRole('combobox', { name: 'Acting Page', exact: true }).inputValue(), '');
+  assert.equal(await page.getByRole('combobox', { name: 'Membership filter', exact: true }).inputValue(), '');
+  assert.equal(await page.getByLabel('Category filter', { exact: true }).inputValue(), '');
+  assert.equal(await page.getByRole('combobox', { name: 'Archive status', exact: true }).inputValue(), 'all');
+  assert.equal(await page.getByLabel('Shortlisted only', { exact: true }).isChecked(), false);
+  assert.equal(await page.getByText('No matching Groups', { exact: true }).count(), 0);
+  assert.equal(await page.getByLabel('Saved group plan', { exact: true }).inputValue(), groupA.id);
+  assert.equal(await page.getByLabel('Group name', { exact: true }).inputValue(), 'Unsaved registry name');
+  assert.equal(await page.getByLabel('Prepared group text', { exact: true }).inputValue(), 'Unsaved handoff');
+  assert.equal(await page.getByLabel('Saved group plan', { exact: true }).locator('option').count(), 3);
+});
+
+test('Clear Filters preserves an unsaved new Group form and handoff draft', async t => {
+  const page = await component(t);
+  await page.getByLabel('Group name', { exact: true }).fill('Unsaved new Group');
+  await page.getByLabel('Prepared group text', { exact: true }).fill('New draft');
+  await page.getByLabel('Search saved Groups', { exact: true }).fill('no match');
+  await page.getByRole('button', { name: 'Apply filters', exact: true }).click(); await settled(page);
+  await page.getByRole('button', { name: 'Clear Filters', exact: true }).click(); await settled(page);
+  assert.equal(await page.getByLabel('Group name', { exact: true }).inputValue(), 'Unsaved new Group');
+  assert.equal(await page.getByLabel('Prepared group text', { exact: true }).inputValue(), 'New draft');
+  assert.equal(await page.getByLabel('Saved group plan', { exact: true }).inputValue(), '');
+});
+
+test('archived-only registry is not called unregistered and clearing includes archived Groups', async t => {
+  const archived = { ...groupA, archivedAt: '2026-10-27T01:00:00.000Z' };
+  const page = await component(t, [archived]);
+  assert.equal(await page.getByText('No matching Groups', { exact: true }).count(), 1);
+  assert.equal(await page.getByText('No Groups registered yet', { exact: true }).count(), 0);
+  await page.getByRole('button', { name: 'Clear Filters', exact: true }).press('Space'); await settled(page);
+  assert.equal(await page.getByRole('combobox', { name: 'Archive status', exact: true }).inputValue(), 'all');
+  assert.match(await page.getByLabel('Saved group plan', { exact: true }).innerText(), /Archived/);
+  assert.equal(await page.getByText('No matching Groups', { exact: true }).count(), 0);
+});
+
+test('loading and failed filters never claim that no Groups are registered', async t => {
+  const page = await component(t);
+  await hold(page, 'list');
+  await page.getByLabel('Search saved Groups', { exact: true }).fill('no match');
+  await page.getByRole('button', { name: 'Apply filters', exact: true }).click(); await pending(page, 'list');
+  assert.equal(await page.getByText('No matching Groups', { exact: true }).count(), 0);
+  assert.equal(await page.getByText('No Groups registered yet', { exact: true }).count(), 0);
+  await reject(page, 'list', 'Fixture filter failure'); await settled(page);
+  assert.equal(await page.getByRole('alert').innerText(), 'Fixture filter failure');
+  assert.equal(await page.getByText('No Groups registered yet', { exact: true }).count(), 0);
+  assert.equal(await page.getByLabel('Saved group plan', { exact: true }).locator('option').count(), 3);
 });

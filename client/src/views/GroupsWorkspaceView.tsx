@@ -31,6 +31,7 @@ export function GroupsWorkspaceView() {
   const eligibility = <K extends keyof GroupEligibility>(name: K, value: GroupEligibility[K]) => w.setForm(f => ({ ...f, eligibility: { ...f.eligibility, [name]: value } }));
   const resumeReview = () => { if (group) void w.run(async () => { if (await w.selectGroup(group)) reviewHeading.current?.focus(); }); };
   const selectGroup = (id: string) => { const selected = choices.find(g => g.id === id); if (selected) void w.run(async () => { await w.selectGroup(selected); }); else w.newGroup(); };
+  const clearFilters = () => { const cleared: GroupListFilters = {}; setFilters(cleared); void w.run(() => w.refresh(cleared)); };
   const copy = (text: string, message: string) => void w.run(async () => { await navigator.clipboard.writeText(text); w.setMessage(message); });
 
   return <div className="space-y-5 max-w-6xl">
@@ -58,9 +59,14 @@ export function GroupsWorkspaceView() {
         <label className="text-sm">Acting Page<select className={`${inputClass} mt-1`} value={filters.accountId || ''} onChange={e => setFilters(f => ({ ...f, accountId: e.target.value || undefined }))}><option value="">All Pages / personal handoffs</option>{w.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
         <label className="text-sm">Membership filter<select className={`${inputClass} mt-1`} value={filters.membership || ''} onChange={e => setFilters(f => ({ ...f, membership: e.target.value as GroupMembershipStatus || undefined }))}><option value="">All membership states</option>{membershipOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
         <label className="text-sm">Category filter<input className={`${inputClass} mt-1`} value={filters.category || ''} onChange={e => setFilters(f => ({ ...f, category: e.target.value || undefined }))} /></label>
-        <label className="text-sm">Archive status<select className={`${inputClass} mt-1`} value={filters.archived ? 'archived' : 'active'} onChange={e => setFilters(f => ({ ...f, archived: e.target.value === 'archived' }))}><option value="active">Active Groups</option><option value="archived">Archived Groups</option></select></label>
-        <div className="flex flex-wrap gap-3 items-end"><label className="flex gap-2 items-center text-sm py-2"><input type="checkbox" checked={!!filters.shortlisted} onChange={e => setFilters(f => ({ ...f, shortlisted: e.target.checked ? true : undefined }))} />Shortlisted only</label><button className={buttonClass} disabled={w.busy} type="submit">Apply filters</button></div>
+        <label className="text-sm">Archive status<select className={`${inputClass} mt-1`} value={filters.archived === undefined ? 'all' : filters.archived ? 'archived' : 'active'} onChange={e => setFilters(f => ({ ...f, archived: e.target.value === 'all' ? undefined : e.target.value === 'archived' }))}><option value="all">All Groups</option><option value="active">Active Groups</option><option value="archived">Archived Groups</option></select></label>
+        <div className="flex flex-wrap gap-3 items-end"><label className="flex gap-2 items-center text-sm py-2"><input type="checkbox" checked={!!filters.shortlisted} onChange={e => setFilters(f => ({ ...f, shortlisted: e.target.checked ? true : undefined }))} />Shortlisted only</label><button className={buttonClass} disabled={w.busy} type="submit">Apply filters</button><button className={buttonClass} disabled={w.busy} type="button" onClick={clearFilters}>Clear Filters</button></div>
       </form>
+      {!w.busy && !w.error && w.hasRegisteredGroups !== null && w.groups.length === 0 && <div role="status" className="rounded-lg border border-border bg-surface p-3 text-sm space-y-1">
+        <p className="font-semibold">{w.hasRegisteredGroups ? 'No matching Groups' : 'No Groups registered yet'}</p>
+        <p className="text-slate-400">{w.hasRegisteredGroups ? 'The current search and filter combination returned no results. Use Clear Filters to show all saved Groups.' : 'Register your first Group using the Group registry form below.'}</p>
+        <p className="text-xs text-slate-400">Your selected Group, form edits and handoff draft are unchanged.</p>
+      </div>}
     </section>
 
     <div className="grid lg:grid-cols-2 gap-5 items-start">

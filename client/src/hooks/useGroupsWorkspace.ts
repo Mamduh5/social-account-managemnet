@@ -18,6 +18,7 @@ export interface GroupLibraryItem { id: string; kind: 'image' | 'video'; title: 
 
 export function useGroupsWorkspace() {
   const [groups, setGroups] = useState<GroupPlanDto[]>([]);
+  const [hasRegisteredGroups, setHasRegisteredGroups] = useState<boolean | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<GroupPlanDto | null>(null);
   const [form, updateForm] = useState<GroupForm>(emptyGroupForm);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -81,8 +82,10 @@ export function useGroupsWorkspace() {
     filters.current = nextFilters;
     const token = lists.current.begin();
     const [registry, remindersResult] = await Promise.all([groupsApi.list(nextFilters), groupsApi.reminders()]);
+    // A filtered empty list can still have saved (including archived) Groups.
+    const registered = registry.groups.length > 0 || (await groupsApi.list({})).groups.length > 0;
     if (!mounted.current || !lists.current.current(token)) return;
-    setGroups(registry.groups); setReminders(remindersResult.reminders);
+    setGroups(registry.groups); setHasRegisteredGroups(registered); setReminders(remindersResult.reminders);
   };
   const clearDependent = () => { packages.current.invalidate(); setPrepared([]); setHandoff(null); updateDraft(emptyGroupDraft()); };
   const selectGroup = async (group: GroupPlanDto | string): Promise<boolean> => {
@@ -179,6 +182,6 @@ export function useGroupsWorkspace() {
     return () => { mounted.current = false; selection.current.invalidate(); packages.current.invalidate(); lists.current.invalidate(); registryRequests.current.invalidate(); clearInterval(timer); };
   }, []);
   const hasUnsavedChanges = selectedGroup ? JSON.stringify(form) !== JSON.stringify(groupForm(selectedGroup)) : true;
-  return { groups, selectedGroup, form, setForm, accounts, media, prepared, draft, setDraft, handoff, reminders, now, error, message, setMessage, busy: pending > 0, hasUnsavedChanges,
+  return { groups, hasRegisteredGroups, selectedGroup, form, setForm, accounts, media, prepared, draft, setDraft, handoff, reminders, now, error, message, setMessage, busy: pending > 0, hasUnsavedChanges,
     run, refresh, selectGroup, newGroup, openPackage, saveGroup, recordMembership, savePrepared, recordReceipt, updateReminder };
 }
