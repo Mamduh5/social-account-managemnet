@@ -81,7 +81,9 @@ export const contentWorkspaceRepo = {
     this.audit(id, 'group_content_prepared'); return this.preparedById(id);
   },
   receipt(id: string, url: string, note: string) {
-    db.prepare("UPDATE group_prepared_content SET status='receipt_recorded_unverified',receipt_url=?,receipt_note=?,updated_at=datetime('now') WHERE id=?").run(url,note,id);
-    this.audit(id, 'manual_group_receipt_recorded_unverified'); return this.preparedById(id);
+    // The first receipt is a legacy historical record. Corrections are appended in
+    // group_receipt_events by the Groups service and must not rewrite this record.
+    db.prepare("UPDATE group_prepared_content SET status='receipt_recorded_unverified',receipt_note=CASE WHEN receipt_url IS NULL THEN ? ELSE receipt_note END,receipt_url=COALESCE(receipt_url,?),updated_at=datetime('now') WHERE id=?").run(note,url,id);
+    return this.preparedById(id);
   },
 };

@@ -1,7 +1,9 @@
 import type Database from 'better-sqlite3';
+import { initializeGroupsSchema } from './groups-schema.js';
 
 /** Additive workspace tables only. The owner database is never opened by a migration tool here. */
 export function initializeContentWorkspaceSchema(db: Database.Database) {
+  const hadGroups = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='facebook_group_plans'").get();
   db.exec(`
     CREATE TABLE IF NOT EXISTS owner_voice_profiles (
       account_id TEXT PRIMARY KEY REFERENCES accounts(id), profile_json TEXT NOT NULL,
@@ -39,4 +41,6 @@ export function initializeContentWorkspaceSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_assistant_drafts_account ON assistant_drafts(account_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_workspace_audit_entity ON content_workspace_audit(entity_id, created_at);
   `);
+  // Existing workspaces need the explicit offline migration, never a startup DDL upgrade.
+  if (!hadGroups) initializeGroupsSchema(db);
 }

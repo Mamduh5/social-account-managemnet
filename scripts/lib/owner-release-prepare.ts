@@ -92,9 +92,9 @@ function isPackagedSource(name: string) {
 }
 function buildInputs(inputs: Record<string, string>) {
   return orderedEntries(Object.entries(inputs).filter(([name]) => name.startsWith('client/') ||
-    ['package.json', 'package-lock.json', 'server/src/domain/branding-layout.ts'].includes(name)));
+    ['package.json', 'package-lock.json', 'server/src/domain/branding-layout.ts', 'server/src/domain/groups.ts'].includes(name)));
 }
-function verifyCommittedRelease(root: string, releaseRoot: string, source: ReturnType<typeof inspectReleaseSource>, options: ReleasePreparationOptions) {
+export function verifyCommittedRelease(root: string, releaseRoot: string, source: ReturnType<typeof inspectReleaseSource>, options: ReleasePreparationOptions = {}) {
   const verified = (options.verifyRelease || verifyOwnerRelease)(releaseRoot, source.revision);
   const names = Object.keys(source.inputs).filter(isPackagedSource);
   const sourceSet = new Set(names);

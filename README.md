@@ -24,6 +24,8 @@ The combined Content Calendar and text-only watermark release is prepared locall
 
 `npm run build:client` builds the working tree. `npm start` starts the already configured frozen owner release; these commands do **not** upgrade the owner to the latest source. Use `npm run owner:update -- --check` for a read-only diagnosis. After an approved local source checkpoint, `npm run owner:update` prepares a matched immutable release without changing the owner; separately approved `npm run owner:update -- --apply` promotes it through managed maintenance. `npm run owner:rollback -- --apply` selects the saved previous release without restoring the database. See [update gates, exact commands and rollback](docs/qa/OWNER_RELEASE_UPDATES.md). Do not run a development watcher against the owner database.
 
+External Groups registration, per-Page membership observations and manual handoff integrity are prepared in source; see the [implementation and offline evidence](docs/qa/V1_12_EXTERNAL_GROUPS_IMPLEMENTATION.md). Existing owner databases require the [separate explicit Groups maintenance procedure](docs/qa/V1_12_EXTERNAL_GROUPS_MAINTENANCE.md), because ordinary update/rollback intentionally blocks database-source changes. No migration or activation occurs merely by reviewing this source.
+
 ## V1.10: general Page posts and content workspace
 
 The Publishing Center now prepares text-only, single-image, ordered multi-image and link drafts for Facebook Pages alongside the existing Reel composer. Thai text, per-account captions, image order/alternative text and Bangkok schedules survive save/reload. Review and exact-revision approval precede a separate queue action. Uploads and feed submission use durable remote IDs/intents; uncertain outcomes require reconciliation.

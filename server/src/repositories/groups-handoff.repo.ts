@@ -1,11 +1,12 @@
 import { db } from '../db/database.js';
 import { contentWorkspaceRepo } from './content-workspace.repo.js';
+import type { GroupHandoffContext } from '../domain/groups.js';
 
-/** V1.12 handoff metadata uses the existing append-only workspace audit. No schema change. */
+/** Snapshots remain in their original append-only audit records, including version 1. */
 export const groupsHandoffRepo = {
   transaction<T>(work: () => T): T { return db.transaction(work)(); },
-  context(id: string): any | undefined {
-    const row = db.prepare("SELECT detail_json FROM content_workspace_audit WHERE entity_id=? AND action='group_handoff_context_saved' ORDER BY rowid LIMIT 1").get(id) as any;
+  context(id: string): GroupHandoffContext | undefined {
+    const row = db.prepare("SELECT detail_json FROM content_workspace_audit WHERE entity_id=? AND action='group_handoff_context_saved' ORDER BY rowid LIMIT 1").get(id) as {detail_json:string}|undefined;
     return row ? JSON.parse(row.detail_json) : undefined;
   },
   saveContext(id: string, context: object) { contentWorkspaceRepo.audit(id, 'group_handoff_context_saved', null, context); },

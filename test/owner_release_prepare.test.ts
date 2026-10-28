@@ -19,7 +19,7 @@ const ordered = (value: Record<string, string>) => Object.fromEntries(Object.ent
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'scc-release-prepare-'));
   const files: Record<string, Buffer> = Object.fromEntries([
-    'server/src/index.ts', 'server/src/loopback-proxy.ts', 'server/src/domain/branding-layout.ts',
+    'server/src/index.ts', 'server/src/loopback-proxy.ts', 'server/src/domain/branding-layout.ts', 'server/src/domain/groups.ts',
     'scripts/owner-runtime.ts', 'scripts/lib/owner-runtime-core.ts', 'scripts/package-owner-release.ts',
     'client/src/App.tsx', 'client/package.json', 'package.json', 'package-lock.json',
     'tsconfig.json', 'tsconfig.operations.json',
@@ -44,7 +44,7 @@ function fixture() {
   const calls: { command: string; args: string[] }[] = [];
   const inputs = () => ordered(Object.fromEntries(Object.entries(files).map(([name, bytes]) => [name, blobHash(bytes)])));
   const clientInputs = () => ordered(Object.fromEntries(Object.entries(inputs()).filter(([name]) =>
-    name.startsWith('client/') || ['package.json', 'package-lock.json', 'server/src/domain/branding-layout.ts'].includes(name))));
+    name.startsWith('client/') || ['package.json', 'package-lock.json', 'server/src/domain/branding-layout.ts', 'server/src/domain/groups.ts'].includes(name))));
   const releaseRoot = path.join(root, '.data', 'releases', revision);
   function createRelease() {
     fs.mkdirSync(releaseRoot, { recursive: true });
