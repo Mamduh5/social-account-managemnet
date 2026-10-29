@@ -1,4 +1,5 @@
 import { DraftInput, ImageAsset, PublishingDraft, PostCapabilities } from '../types/general-posts';
+import { TestDataPage, TestDataPreview, TestDataSelection } from '../types/test-data';
 import {
   AccountsResponse,
   CategoriesResponse,
@@ -23,6 +24,20 @@ async function checked(res: Response) {
 
 
 export const api = {
+  async getTestData(type: string, search: string, offset: number, signal?: AbortSignal): Promise<TestDataPage> {
+    const params = new URLSearchParams({ type, search, limit: '20', offset: String(offset) });
+    return checked(await fetch(`${API_BASE}/test-data?${params}`, { signal }));
+  },
+  async previewTestDataDeletion(records: TestDataSelection[]): Promise<TestDataPreview> {
+    return checked(await fetch(`${API_BASE}/test-data/preview`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ records }),
+    }));
+  },
+  async deleteTestData(previewId: string, confirmation: string): Promise<{ deleted: TestDataSelection[]; count: number; auditId: string }> {
+    return checked(await fetch(`${API_BASE}/test-data/delete`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ previewId, confirmation }),
+    }));
+  },
   // Accounts & Categories
   async getAccounts(includeArchived = false): Promise<AccountsResponse> {
     const res = await fetch(`${API_BASE}/accounts${includeArchived ? "?includeArchived=true" : ""}`);

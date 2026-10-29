@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { Account } from '../types';
+import { TestDataManagerView } from './TestDataManagerView';
 import { 
   Settings, Folder, Globe, Compass, 
   Save, Database 
@@ -14,6 +15,7 @@ export const SettingsView: React.FC = () => {
   const [dirSaveSuccess, setDirSaveSuccess] = useState(false);
   const [launchingAccountId, setLaunchingAccountId] = useState<string | null>(null);
   const [bridgeMessage, setBridgeMessage] = useState<string | null>(null);
+  const [managingTestData, setManagingTestData] = useState(false);
 
   const loadData = async () => {
     try {
@@ -60,6 +62,8 @@ export const SettingsView: React.FC = () => {
       setLaunchingAccountId(null);
     }
   };
+
+  if (managingTestData) return <TestDataManagerView onBack={() => setManagingTestData(false)} />;
 
   return (
     <div className="space-y-6">
@@ -221,6 +225,8 @@ export const SettingsView: React.FC = () => {
               <strong className="text-slate-300 font-mono">.data/renders/</strong>
             </div>
           </div>
+          <p className="text-slate-400">Inspect demo, unknown and protected records and their known relationships.</p>
+          <button type="button" className="scc-btn-secondary" onClick={() => setManagingTestData(true)}>Manage Demo &amp; Test Data</button>
         </div>
       </div>
     </div>

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { WatermarkCanvas } from '../components/branding/WatermarkCanvas';
 import { WatermarkControls } from '../components/branding/WatermarkControls';
+import { Modal } from '../components/common/Modal';
 import { resolveBrandingMode } from '../../../server/src/domain/branding-layout';
 
 interface Props {
@@ -23,6 +24,11 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
   const variantsRequest = useRef(0);
   const [variants, setVariants] = useState<BrandedVideo[]>([]);
   const [loadingVariants, setLoadingVariants] = useState(false);
+  const [variantToDelete, setVariantToDelete] = useState<{ variant: BrandedVideo; videoId: string; videoTitle: string } | null>(null);
+  const [deletingVariant, setDeletingVariant] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteInFlight = useRef(false);
+  const cancelDeleteRef = useRef<HTMLButtonElement>(null);
   
   // Account defaults and per-video overrides are deliberately separate.
   const [brandKit, setBrandKit] = useState<BrandKit>({
@@ -153,15 +159,25 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
     }
   };
 
-  const handleDeleteVariant = async (variantId: string) => {
+  const handleDeleteVariant = async () => {
+    if (!variantToDelete || deleteInFlight.current) return;
+    const { variant, videoId } = variantToDelete;
+    deleteInFlight.current = true;
+    setDeletingVariant(true);
+    setDeleteError(null);
     try {
-      await api.deleteBrandedVariant(variantId);
-      if (renderedPreview?.variantId === variantId) {
+      await api.deleteBrandedVariant(variant.id);
+      if (renderedPreview?.variantId === variant.id) {
         setRenderedPreview(null);
       }
-      await loadVariants(selectedVideoId);
-    } catch (err) {
+      setVariantToDelete(null);
+      await loadVariants(videoId);
+    } catch (err: any) {
       console.error('Failed to delete variant:', err);
+      setDeleteError(err?.message || 'Could not delete this variant. Please review and try again.');
+    } finally {
+      deleteInFlight.current = false;
+      setDeletingVariant(false);
     }
   };
 
@@ -438,7 +454,7 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
                           <Download className="w-3.5 h-3.5" />
                         </a>
                         <button
-                          onClick={() => handleDeleteVariant(v.id)}
+                          onClick={() => { setDeleteError(null); setVariantToDelete({ variant: v, videoId: selectedVideoId, videoTitle: activeVideo?.title || selectedVideoId }); }}
                           title="Delete variant (Master video is preserved)"
                           aria-label="Delete variant (Master video is preserved)"
                           className="scc-icon-btn text-rose-400"
@@ -454,6 +470,28 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
           </div>
         </div>
       </div>
+      <Modal
+        isOpen={variantToDelete !== null}
+        onClose={() => { if (!deleteInFlight.current) setVariantToDelete(null); }}
+        title="Delete branded variant?"
+        manageFocus
+        initialFocusRef={cancelDeleteRef}
+        dismissible={!deletingVariant}
+        scrollBody
+      >
+        {variantToDelete && <>
+          <div className="overflow-y-auto min-h-0 space-y-3 text-sm text-slate-300">
+            <p>Delete <strong className="text-slate-100">{variantToDelete.variant.preset_name || variantToDelete.variant.movement_preset}</strong> for <strong className="text-slate-100">{variantToDelete.videoTitle}</strong>?</p>
+            <p className="break-all text-xs text-slate-400">Variant ID: {variantToDelete.variant.id}</p>
+            <p>This removes the variant record and attempts to remove its rendered file. If the file cannot be removed, it may remain on disk. The master video is preserved.</p>
+            {deleteError && <p role="alert" className="text-rose-400">{deleteError}</p>}
+          </div>
+          <div className="flex flex-wrap justify-end gap-2 pt-4 shrink-0">
+            <button ref={cancelDeleteRef} type="button" className="scc-btn-secondary" disabled={deletingVariant} onClick={() => setVariantToDelete(null)}>Cancel</button>
+            <button type="button" className="px-4 py-2 rounded-xl bg-rose-700 text-white font-bold hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed" disabled={deletingVariant} onClick={handleDeleteVariant}>{deletingVariant ? 'Deleting...' : 'Delete variant'}</button>
+          </div>
+        </>}
+      </Modal>
     </div>
   );
 };
