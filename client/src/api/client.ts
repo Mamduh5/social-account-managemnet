@@ -1,5 +1,5 @@
 import { DraftInput, ImageAsset, PublishingDraft, PostCapabilities } from '../types/general-posts';
-import { TestDataPage, TestDataPreview, TestDataSelection } from '../types/test-data';
+import { HiddenWatchFilePage, TestDataDetail, TestDataPage, TestDataPreview, TestDataSelection, WatchFilePage } from '../types/test-data';
 import {
   AccountsResponse,
   CategoriesResponse,
@@ -24,9 +24,34 @@ async function checked(res: Response) {
 
 
 export const api = {
-  async getTestData(type: string, search: string, offset: number, signal?: AbortSignal): Promise<TestDataPage> {
+  async getTestData(type: string, search: string, offset: number, signal?: AbortSignal, filters?: {classification?: string; source?: string; eligibility?: string; status?: string}): Promise<TestDataPage> {
     const params = new URLSearchParams({ type, search, limit: '20', offset: String(offset) });
+    for (const [key, value] of Object.entries(filters || {})) if (value) params.set(key, value);
     return checked(await fetch(`${API_BASE}/test-data?${params}`, { signal }));
+  },
+  async getTestDataDetail(record: TestDataSelection, signal?: AbortSignal): Promise<TestDataDetail> {
+    const params = new URLSearchParams({type:record.type,id:record.id});
+    return checked(await fetch(`${API_BASE}/test-data/detail?${params}`, {signal}));
+  },
+  async classifyTestData(record: TestDataSelection, classification: 'test'|'keep'|'clear', sourceFingerprint?: string | null): Promise<{type:string;id:string;classification:string}> {
+    return checked(await fetch(`${API_BASE}/test-data-metadata/classify`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...record,classification,...(sourceFingerprint !== undefined ? {sourceFingerprint} : {})})}));
+  },
+  async setPipelineHidden(jobId: string, hidden: boolean, sourceFingerprint?: string | null, legacy = false): Promise<{jobId:string;hidden:boolean}> {
+    return checked(await fetch(`${API_BASE}/test-data-metadata/pipeline-hidden`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobId,hidden,...(sourceFingerprint !== undefined ? {sourceFingerprint} : {}),legacy})}));
+  },
+  async getHiddenPipeline(offset = 0): Promise<{items:{jobId:string;sourceFingerprint:string|null;currentSource:boolean;legacy:boolean;ownerClassification?:'owner_marked_test'|'owner_marked_keep'|'unknown'}[];limit:number;offset:number;hasMore:boolean}> {
+    return checked(await fetch(`${API_BASE}/test-data-metadata/pipeline-hidden?offset=${offset}&limit=20`));
+  },
+  async getWatchFiles(offset = 0, visibility: 'all'|'visible'|'hidden' = 'all', signal?: AbortSignal): Promise<WatchFilePage> {
+    const params = new URLSearchParams({offset:String(offset),limit:'20',visibility});
+    return checked(await fetch(`${API_BASE}/test-data-metadata/watch-files?${params}`, {signal}));
+  },
+  async getHiddenWatchFiles(offset = 0, signal?: AbortSignal): Promise<HiddenWatchFilePage> {
+    const params = new URLSearchParams({offset:String(offset),limit:'20'});
+    return checked(await fetch(`${API_BASE}/test-data-metadata/watch-hidden?${params}`, {signal}));
+  },
+  async setWatchFileHidden(fileId: string, sourceFingerprint: string, hidden: boolean): Promise<{fileId:string;hidden:boolean}> {
+    return checked(await fetch(`${API_BASE}/test-data-metadata/watch-hidden`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileId,sourceFingerprint,hidden})}));
   },
   async previewTestDataDeletion(records: TestDataSelection[]): Promise<TestDataPreview> {
     return checked(await fetch(`${API_BASE}/test-data/preview`, {

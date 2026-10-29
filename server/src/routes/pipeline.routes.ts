@@ -22,6 +22,7 @@ function parsePipelineQuery(raw: Record<string, any>): PipelineJobsQuery {
         : undefined,
     limit: Number.isFinite(limitRaw) ? limitRaw : undefined,
     cursor: typeof raw.cursor === 'string' && raw.cursor.trim() ? raw.cursor.trim() : null,
+    includeHidden: raw.includeHidden === 'true',
   };
 }
 
@@ -31,7 +32,8 @@ pipelineRouter.get('/status', async (req, res) => {
     const query = parsePipelineQuery(req.query as Record<string, any>);
     const summary = await pipelineService.getPipelineStatusSummary(query);
     const watchDir = pipelineService.getWatchDirectory();
-    const files = pipelineService.scanWatchDirectory();
+    const watchFiles = pipelineService.scanWatchDirectory({includeHidden:true});
+    const files = watchFiles.filter(file=>file.visibilitySupported && !file.hidden);
 
     res.json({
       health: summary.health,
@@ -48,6 +50,7 @@ pipelineRouter.get('/status', async (req, res) => {
       watchDir,
       files,
       fileCount: files.length,
+      watchIdentityIncomplete: watchFiles.some(file=>!file.visibilitySupported),
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

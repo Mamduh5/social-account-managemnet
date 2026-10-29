@@ -7,6 +7,7 @@ import { db, uploadsDir } from '../db/database.js';
 import { ffmpegService } from './ffmpeg.service.js';
 import { publishingRepo } from '../repositories/publishing.repo.js';
 import { activityRepo } from '../repositories/activity.repo.js';
+import { fingerprintPipelineSource, getOwnerClassification, isPipelineHidden, isWatchFileHidden } from './test-data-metadata.service.js';
 
 export interface DiscoveredPipelineVideo {
   filename: string;
@@ -15,10 +16,18 @@ export interface DiscoveredPipelineVideo {
   modifiedAt: string;
   isImported: boolean;
   importedVideoId?: string;
+  fileId?: string | null;
+  sourceFingerprint?: string | null;
+  hidden?: boolean;
+  visibilitySupported?: boolean;
+  visibilityReason?: string;
 }
 
 export interface DiscoveredPipelineJob {
   jobId: string;
+  hidden?: boolean;
+  sourceFingerprint?: string;
+  ownerClassification?: 'owner_marked_test' | 'owner_marked_keep' | 'unknown';
   title: string;
   topic?: string;
   status: string;
@@ -72,6 +81,7 @@ export interface PipelineJobsQuery {
   sort?: 'recent' | 'created' | 'oldest' | 'name';
   limit?: number;
   cursor?: string | null;
+  includeHidden?: boolean;
 }
 
 export interface PipelineJobsPageResult {
@@ -213,6 +223,7 @@ export class PipelineService {
 
   private normalizeRawProject(p: any, apiUrl: string, existing?: { id: string } | null): DiscoveredPipelineJob {
     const jobId = String(p?.id || p?.jobId || '').trim();
+    const sourceFingerprint = fingerprintPipelineSource(apiUrl);
     const resolvedExisting = existing !== undefined ? existing : (jobId ? publishingRepo.getVideoByPipelineJobId(jobId) : undefined);
     const rawTitle = typeof p?.title === 'string' ? p.title.trim() : '';
     const title = rawTitle || (jobId ? `Untitled Project (${jobId.slice(0, 8)})` : 'Untitled Project');
@@ -271,6 +282,9 @@ export class PipelineService {
 
     return {
       jobId,
+      hidden: jobId ? isPipelineHidden(db,jobId,sourceFingerprint) : false,
+      sourceFingerprint,
+      ownerClassification: jobId ? getOwnerClassification(db,'pipeline_job',jobId,sourceFingerprint) : 'unknown',
       title,
       topic: typeof p?.topic === 'string' && p.topic.trim() ? p.topic.trim() : undefined,
       status,
@@ -368,6 +382,7 @@ export class PipelineService {
   }
 
   private matchesFilters(job: DiscoveredPipelineJob, query: PipelineJobsQuery): boolean {
+    if (job.hidden && !query.includeHidden) return false;
     const statusFilter = (query.status || 'completed').trim().toLowerCase();
     if (statusFilter && statusFilter !== 'all') {
       if (statusFilter === 'completed') {
@@ -1588,7 +1603,16 @@ export class PipelineService {
   }
 
   // Fallback: Scan local watch directory if configured
-  scanWatchDirectory(): DiscoveredPipelineVideo[] {
+  getWatchSourceFingerprint(): string | null {
+    try {
+      const resolved=fs.realpathSync(this.getWatchDirectory());
+      if(!fs.statSync(resolved).isDirectory()) return null;
+      const identity=process.platform==='win32'?path.resolve(resolved).toLowerCase():path.resolve(resolved);
+      return createHash('sha256').update(JSON.stringify(['watch-source-v1',identity])).digest('hex');
+    } catch {return null;}
+  }
+
+  scanWatchDirectory(options?:{includeHidden?:boolean}): DiscoveredPipelineVideo[] {
     const dir = this.getWatchDirectory();
     if (!fs.existsSync(dir)) {
       return [];
@@ -1625,10 +1649,12 @@ export class PipelineService {
         }
       }
     } catch {
-      // Ignore DB read errors during directory scan
+      // A missing or unreadable inventory cannot establish import associations.
+      throw new Error('Watch directory import-reference inspection is unavailable.');
     }
 
     const files: DiscoveredPipelineVideo[] = [];
+    const sourceFingerprint=this.getWatchSourceFingerprint();
     try {
       const entries = fs.readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
@@ -1636,6 +1662,29 @@ export class PipelineService {
           const fullPath = path.resolve(dir, entry.name);
           const canonicalFull = this.canonicalizePath(fullPath);
           const stats = fs.statSync(fullPath);
+          // The path is source-scoped and bound to the observed file version. A replacement
+          // or metadata change produces a different ID; no file bytes are read or modified.
+          let fileId:string|null=null;
+          try {
+            const canonicalRoot=fs.realpathSync(dir);
+            const actual=fs.realpathSync(fullPath);
+            const relative=path.relative(canonicalRoot,actual);
+            const info=fs.statSync(actual,{bigint:true});
+            const norm=(value:string)=>process.platform==='win32'?path.resolve(value).toLowerCase():path.resolve(value);
+            const rootFingerprint=createHash('sha256').update(JSON.stringify(['watch-source-v1',norm(canonicalRoot)])).digest('hex');
+            const after=fs.statSync(fullPath,{bigint:true});
+            if(sourceFingerprint && rootFingerprint===sourceFingerprint && relative && relative!=='..' && !relative.startsWith('..'+path.sep) && !path.isAbsolute(relative)
+              && info.isFile() && info.size>=0n && info.mtimeNs>0n && info.ctimeNs>0n
+              && info.dev===after.dev && info.ino===after.ino && info.size===after.size
+              && info.mtimeNs===after.mtimeNs && info.ctimeNs===after.ctimeNs && info.birthtimeNs===after.birthtimeNs
+              && Number(info.size)===stats.size && Number(info.dev)===stats.dev && Number(info.ino)===stats.ino
+              && Math.abs(Number(info.mtimeNs)/1_000_000-stats.mtimeMs)<1
+              && Math.abs(Number(info.ctimeNs)/1_000_000-stats.ctimeMs)<1
+              && Math.abs(Number(info.birthtimeNs)/1_000_000-stats.birthtimeMs)<1) {
+              const fileInfo=[norm(actual),info.size.toString(),info.mtimeNs.toString(),info.ctimeNs.toString(),info.birthtimeNs.toString(),info.dev.toString(),info.ino.toString()];
+              fileId=createHash('sha256').update(JSON.stringify(['watch-file-v1',sourceFingerprint,...fileInfo])).digest('hex');
+            }
+          } catch { /* Report a non-actionable entry when the identity cannot be established. */ }
 
           const candidates = verifiedBySourcePath.get(canonicalFull) || [];
           const matched = candidates.find(
@@ -1651,14 +1700,22 @@ export class PipelineService {
             modifiedAt: stats.mtime.toISOString(),
             isImported: Boolean(matched),
             importedVideoId: matched?.id,
+            fileId,
+            sourceFingerprint,
+            visibilitySupported:!!fileId,
+            visibilityReason:fileId?undefined:'Canonical file identity is unavailable; hiding is not supported.',
           });
         }
       }
-    } catch (err: any) {
-      console.error('[PipelineService] Error scanning watch directory:', err.message);
+    } catch {
+      throw new Error('Watch directory scan incomplete; no partial results are available.');
     }
 
-    return files.sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime());
+    // Resolve saved exclusions outside the filesystem catch: malformed metadata or a DB
+    // failure must not silently return a partially filtered list.
+    for(const file of files) file.hidden=!!file.fileId && !!file.sourceFingerprint && isWatchFileHidden(db,file.sourceFingerprint,file.fileId);
+    const visible=options?.includeHidden?files:files.filter(file=>file.visibilitySupported&&!file.hidden);
+    return visible.sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime());
   }
 
   async importVideoFile(params: {

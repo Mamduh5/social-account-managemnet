@@ -35,6 +35,7 @@ import {runtimeControlRouter} from './routes/runtime.routes.js';
 import {calendarRouter} from './routes/calendar.routes.js';
 import {operatorRouter} from './routes/operator-workspace.routes.js';
 import {testDataInventoryRouter} from './routes/test-data-inventory.routes.js';
+import {testDataMetadataRouter} from './routes/test-data-metadata.routes.js';
 
 const app=express(),server=http.createServer(app);
 const port=Number(process.env.PORT||3001),managed=process.env.SCC_OWNER_MANAGED==='true';
@@ -69,6 +70,7 @@ async function boot(){
  app.use('/api/calendar',calendarRouter);
  app.use('/api/operator',operatorRouter);
  app.use('/api/test-data',testDataInventoryRouter);
+ app.use('/api/test-data-metadata',testDataMetadataRouter);
  app.use('/api/publishing',generalPublishingRouter);app.use('/api/publishing',publishingRouter);
  app.use('/api/branding',brandingRouter);app.use('/api/inbox',inboxRouter);app.use('/api/activity',activityRouter);app.use('/api/analytics',analyticsRouter);app.use('/api/pipeline',pipelineRouter);app.use('/api/bridge',bridgeRouter);app.use('/api/events',eventsRouter);
  if(managed)app.use('/api/internal/runtime',runtimeControlRouter({token:process.env.SCC_RUNTIME_CONTROL_TOKEN||'',busy,shutdown}));

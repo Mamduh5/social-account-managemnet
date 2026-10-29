@@ -1,9 +1,12 @@
 import type Database from 'better-sqlite3';
 import {createHash} from 'node:crypto';
+import path from 'node:path';
+import {getOwnerClassification} from '../services/test-data-metadata.service.js';
+import {readRecordEvidence} from './test-data-details.repo.js';
 
 export type Selection = {type:string; id:string};
-export type Impact = Selection & {name:string; eligible:boolean; reason:string; dependencies:string[]; rows:{table:string;id:string}[]};
-const tables: Record<string,string> = {category:'categories',account:'accounts',assistant_draft:'assistant_drafts',publishing_draft:'publishing_drafts'};
+export type Impact = Selection & {name:string; eligible:boolean; selectable?:boolean; review?:boolean; reason:string; dependencies:string[]; rows:{table:string;id:string}[]};
+const tables: Record<string,string> = {category:'categories',account:'accounts',assistant_draft:'assistant_drafts',publishing_draft:'publishing_drafts',publishing_post:'publishing_posts',publishing_destination:'publishing_destinations',video:'videos',branded_video:'branded_videos'};
 const ident = (s:string) => '"'+s.replace(/"/g,'""')+'"';
 const digest = (value:unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
@@ -54,13 +57,71 @@ export function referencesBatch(db:Database.Database, items:Selection[]): Map<st
   return result;
 }
 
-export function inspectDeletion(db:Database.Database, item:Selection, summaryOnly=false, batchRefs?:Map<string,string[]>): {impact:Impact;snapshot:unknown} {
+function localManagedPath(filePath:unknown, directory:'uploads'|'renders'):boolean {
+  if(typeof filePath!=='string' || !filePath.trim()) return false;
+  const root=path.resolve(process.env.SCC_DATA_DIR || path.resolve(process.cwd(),'.data'),directory);
+  const relative=path.relative(root,path.resolve(filePath));
+  return !!relative && relative!=='..' && !relative.startsWith('..'+path.sep) && !path.isAbsolute(relative);
+}
+
+function selectedRef(ref:string, selected:Selection[]):boolean {
+  return selected.some(source=>tables[source.type] && ref.startsWith(`${tables[source.type]} ID ${source.id} (`));
+}
+
+export function inspectDeletion(db:Database.Database, item:Selection, summaryOnly=false, batchRefs?:Map<string,string[]>, selected:Selection[]=[]): {impact:Impact;snapshot:unknown} {
   const table=tables[item.type];
   if(!table) return {impact:{...item,name:item.id,eligible:false,reason:'This record type is protected or not supported for deletion.',dependencies:[],rows:[]},snapshot:null};
   const row=db.prepare(`SELECT * FROM ${ident(table)} WHERE id=?`).get(item.id) as any;
   if(!row) return {impact:{...item,name:item.id,eligible:false,reason:'Record no longer exists.',dependencies:[],rows:[]},snapshot:null};
-  const name=String(row.name || (item.type==='assistant_draft'?'Assistant draft ('+row.kind+')':'Publishing draft '+item.id));
+  const name=String(row.name || row.title || row.preset_name || (item.type==='assistant_draft'?'Assistant draft ('+row.kind+')':item.type==='publishing_destination'?'Destination '+item.id:'Publishing draft '+item.id));
   const problems:string[]=[]; const dependencies:string[]=[]; const retained:unknown[]=[];
+  const classification=getOwnerClassification(db,item.type,item.id);
+  if(classification==='owner_marked_keep') problems.push('Owner marked this record Keep; remove that designation first.');
+  if(item.type==='video') {
+    if(!['manual_upload','pipeline_import'].includes(row.source_type) || !localManagedPath(row.file_path,'uploads')) problems.push('Only locally managed SCC upload/import records are supported; file ownership is not established.');
+    dependencies.push('Only the SCC library row will be removed. The master file and upstream Pipeline data remain unchanged.');
+  }
+  if(item.type==='branded_video') {
+    if(!localManagedPath(row.file_path,'renders')) problems.push('Only SCC-managed render records are supported.');
+    dependencies.push(`Master video ID ${row.video_id}; rendered file remains unchanged.`);
+    const master=db.prepare('SELECT * FROM videos WHERE id=?').get(row.video_id);
+    retained.push(master ?? null);
+    if(!master) problems.push('The master video is missing.');
+    const paths=db.prepare('SELECT id FROM publishing_destinations WHERE branded_video_path=? ORDER BY id LIMIT 101').all(row.file_path) as {id:string}[];
+    if(paths.length>100) problems.push('Too many file-path references to review.');
+    for(const ref of paths.slice(0,100)) if(!selected.some(v=>v.type==='publishing_destination'&&v.id===ref.id)) {
+      dependencies.push(`Publishing destination ID ${ref.id} references the rendered file.`);
+      problems.push('A publishing destination references this render.');
+    }
+    retained.push(paths);
+  }
+  if(item.type==='publishing_post') {
+    if(row.status!=='failed' || row.campaign_id || (row.scheduled_at && (!Number.isFinite(Date.parse(row.scheduled_at)) || Date.parse(row.scheduled_at)>Date.now()))) problems.push('Only terminal failed, unscheduled, non-campaign posts can be removed.');
+    const children=db.prepare('SELECT * FROM publishing_destinations WHERE post_id=? ORDER BY id LIMIT 101').all(item.id) as any[];
+    retained.push(children);
+    if(!children.length || children.length>100) problems.push('A complete bounded set of failed simulator destinations is required.');
+    for(const child of children.slice(0,100)) dependencies.push(`Publishing destination ID ${child.id}: ${child.status}; account ID ${child.account_id} remains unchanged.`);
+  }
+  if(item.type==='publishing_destination') {
+    const account=db.prepare('SELECT * FROM accounts WHERE id=?').get(row.account_id) as any;
+    const parent=db.prepare('SELECT * FROM publishing_posts WHERE id=?').get(row.post_id) as any;
+    const aliases=db.prepare('SELECT platform,identity_key FROM account_identities WHERE account_id=? ORDER BY platform,identity_key LIMIT 1').all(row.account_id);
+    const sessions=db.prepare('SELECT 1 FROM oauth_sessions WHERE account_id=? LIMIT 1').all(row.account_id);
+    retained.push(account ?? null,parent ?? null,aliases.length,sessions.length);
+    let emptyScopes=false;
+    try {const scopes=JSON.parse(account?.granted_scopes_json || '[]');emptyScopes=Array.isArray(scopes)&&scopes.length===0;} catch {}
+    if(!account || account.is_demo!==1 || account.connector_mode!=='simulator' || account.external_id || account.identity_verified_at || account.access_token || account.refresh_token || account.refresh_expires_at || account.public_url || Number(account.connection_revision || 0)!==0 || !['registered','disconnected'].includes(account.connection_status) || !emptyScopes || aliases.length || sessions.length)
+      problems.push('Destination account is not an isolated simulator without external identity.');
+    if(!parent || parent.status!=='failed' || parent.campaign_id || (parent.scheduled_at && (!Number.isFinite(Date.parse(parent.scheduled_at)) || Date.parse(parent.scheduled_at)>Date.now()))) problems.push('Parent publication is active, scheduled, or campaign-linked.');
+    if(row.status!=='failed' || row.remote_post_id || row.remote_post_url || row.published_at || row.submission_state || row.confirmation_source || row.campaign_id || row.approval_draft_id || row.verification_status==='confirmed')
+      problems.push('Destination has an active, external, uncertain, approved, or non-failed publication state.');
+    dependencies.push(`Account ID ${row.account_id} remains unchanged; retry count ${row.retry_count} is contained in this destination row.`);
+  }
+  if((item.type==='video'||item.type==='publishing_post') && problems.length===0) {
+    const evidence=readRecordEvidence(db,item);
+    retained.push(evidence);
+    if(!evidence?.complete) problems.push('Dependency inspection is incomplete; deletion is unavailable.');
+  }
   if(item.type==='account') {
     if(row.is_demo!==1 || row.connector_mode!=='simulator' || row.status!=='disconnected' || !['registered','disconnected'].includes(row.connection_status) || row.external_id || row.identity_verified_at || row.access_token || row.refresh_token || row.public_url)
       problems.push('Only disconnected simulator accounts without credentials or external identity can be considered; externally identified accounts are protected.');
@@ -89,15 +150,56 @@ export function inspectDeletion(db:Database.Database, item:Selection, summaryOnl
   }
   const triggers=db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name=?").all(table) as {name:string}[];
   if(triggers.length) problems.push('Table triggers require separate review.');
-  const refs=(batchRefs || referencesBatch(db,[item])).get(JSON.stringify([item.type,item.id])) || [];
+  const refs=((batchRefs || referencesBatch(db,[item])).get(JSON.stringify([item.type,item.id])) || []).filter(ref=>!selectedRef(ref,selected));
   dependencies.push(...refs.map(r=>'Referenced by '+r));
   if(refs.length) problems.push('Related database records must be preserved.');
-  return {impact:{...item,name,eligible:problems.length===0,reason:problems.join(' ') || 'No protected relationships found. Owner selection does not establish fixture provenance.',dependencies,rows:problems.length?[]:[{table,id:item.id}]},snapshot:{row,refs,triggers,dependencies,problems,retained}};
+  let selectable=problems.length===0, review=false;
+  if(summaryOnly && item.type==='publishing_post' && !selectable) {
+    const graph=deletionSnapshot(db,[item]);
+    selectable=graph.records.every(record=>record.eligible);
+    review=selectable;
+  }
+  if(summaryOnly && !selectable && ['video','branded_video'].includes(item.type) && classification!=='owner_marked_keep') {
+    const related:Selection[] = [];
+    if(item.type==='video') {
+      const variants=db.prepare('SELECT id FROM branded_videos WHERE video_id=? ORDER BY id LIMIT 26').all(item.id) as {id:string}[];
+      const posts=db.prepare('SELECT id FROM publishing_posts WHERE video_id=? ORDER BY id LIMIT 26').all(item.id) as {id:string}[];
+      related.push(...variants.map(v=>({type:'branded_video',id:v.id})),...posts.map(v=>({type:'publishing_post',id:v.id})));
+    } else {
+      const posts=db.prepare('SELECT DISTINCT p.id FROM publishing_posts p LEFT JOIN publishing_destinations d ON d.post_id=p.id WHERE p.selected_variant_id=? OR d.selected_variant_id=? OR d.branded_video_path=? ORDER BY p.id LIMIT 26').all(item.id,item.id,row.file_path) as {id:string}[];
+      related.push(...posts.map(v=>({type:'publishing_post',id:v.id})));
+    }
+    if(related.length>0 && related.length<25) {
+      const graph=deletionSnapshot(db,[item,...related]);
+      selectable=graph.records.every(record=>record.eligible);
+      review=selectable;
+    }
+  }
+  return {impact:{...item,name,eligible:problems.length===0,selectable,review,reason:problems.join(' ') || 'No protected relationships found. Owner selection does not establish fixture provenance.',dependencies,rows:problems.length?[]:[{table,id:item.id}]},snapshot:{row,refs,triggers,dependencies,problems,retained,classification}};
 }
 
 export function deletionSnapshot(db:Database.Database, items:Selection[]) {
-  const batchRefs=referencesBatch(db,items);
-  const inspected=items.map(item=>inspectDeletion(db,item,false,batchRefs));
+  const children=new Map<string,Selection[]>();
+  for(const item of items) if(item.type==='publishing_post') {
+    const rows=db.prepare('SELECT id FROM publishing_destinations WHERE post_id=? ORDER BY id LIMIT 101').all(item.id) as {id:string}[];
+    children.set(item.id,rows.map(row=>({type:'publishing_destination',id:row.id})));
+  }
+  const selected=[...items,...[...children.values()].flat()];
+  const batchRefs=referencesBatch(db,selected);
+  const inspected=items.map(item=>{
+    if(item.type==='publishing_destination') return {impact:{...item,name:item.id,eligible:false,reason:'Select its parent post for a complete review.',dependencies:[],rows:[]},snapshot:null};
+    const current=inspectDeletion(db,item,false,batchRefs,selected);
+    const sub=(children.get(item.id) || []).map(child=>inspectDeletion(db,child,false,batchRefs,selected));
+    if(!sub.length) return current;
+    const blocked=sub.filter(result=>!result.impact.eligible);
+    const dependencies=[...current.impact.dependencies,...sub.flatMap(result=>[
+      `Destination ${result.impact.id}: ${result.impact.eligible?'eligible':result.impact.reason}`,
+      ...result.impact.dependencies
+    ])];
+    const eligible=current.impact.eligible && !blocked.length;
+    const rows=eligible?[...current.impact.rows,...sub.flatMap(result=>result.impact.rows)]:[];
+    return {impact:{...current.impact,eligible,reason:eligible?current.impact.reason:(current.impact.eligible?'A destination is protected.':current.impact.reason),dependencies,rows},snapshot:{parent:current.snapshot,children:sub.map(result=>result.snapshot)}};
+  });
   return {records:inspected.map(v=>v.impact),fingerprint:digest(inspected.map(v=>v.snapshot))};
 }
 
@@ -106,13 +208,18 @@ export function commitDeletion(db:Database.Database, items:Selection[], fingerpr
     if(!db.pragma('foreign_keys',{simple:true})) throw new Error('FOREIGN_KEYS_DISABLED');
     const before=deletionSnapshot(db,items);
     if(before.fingerprint!==fingerprint || before.records.some(r=>!r.eligible)) throw new Error('STALE_PREVIEW');
-    for(const item of items) {
-      const r=db.prepare(`DELETE FROM ${ident(tables[item.type])} WHERE id=?`).run(item.id);
+    const order:Record<string,number>={publishing_destinations:0,publishing_posts:1,branded_videos:2,videos:3};
+    const rows=before.records.flatMap(record=>record.rows);
+    if(new Set(rows.map(row=>JSON.stringify([row.table,row.id]))).size!==rows.length) throw new Error('STALE_PREVIEW');
+    rows.sort((a,b)=>(order[a.table]??4)-(order[b.table]??4));
+    for(const row of rows) {
+      if(!Object.values(tables).includes(row.table)) throw new Error('STALE_PREVIEW');
+      const r=db.prepare(`DELETE FROM ${ident(row.table)} WHERE id=?`).run(row.id);
       if(r.changes!==1) throw new Error('STALE_PREVIEW');
     }
     if((db.pragma('foreign_key_check') as unknown[]).length) throw new Error('FOREIGN_KEY_CHECK_FAILED');
     db.prepare("INSERT INTO activity_events(id,type,title,message,severity,metadata_json) VALUES (?,?,?,?,?,?)")
-      .run(auditId,'test_data_deleted','Owner deleted selected records',`Deleted ${items.length} selected records`,'warning',JSON.stringify({records:items}));
-    return {deleted:items,count:items.length,auditId};
+      .run(auditId,'test_data_deleted','Owner deleted selected records',`Deleted ${rows.length} local database rows`,'warning',JSON.stringify({records:items,rows}));
+    return {deleted:items,count:items.length,rowCount:rows.length,auditId};
   }).immediate();
 }

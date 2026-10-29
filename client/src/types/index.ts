@@ -415,4 +415,5 @@ export interface PipelineStatusResponse {
     importedVideoId?: string;
   }>;
   fileCount?: number;
+  watchIdentityIncomplete?: boolean;
 }

@@ -1,0 +1,55 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync,writeFileSync,readFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import express from 'express';
+
+test('HTTP review commits exactly the selected simulator and media graph, once',async()=>{
+  const dir=mkdtempSync(path.join(tmpdir(),'scc-cleanup-route-'));
+  process.env.SCC_DATA_DIR=dir;
+  const {db,uploadsDir,rendersDir}=await import('../server/src/db/database.js');
+  const {initializeDatabase}=await import('../server/src/db/schema.js');
+  const {localAccess}=await import('../server/src/local-access.js');
+  const {testDataInventoryRouter}=await import('../server/src/routes/test-data-inventory.routes.js');
+  const {setOwnerClassification}=await import('../server/src/services/test-data-metadata.service.js');
+  initializeDatabase();
+  const master=path.join(uploadsDir,'fixture.mp4'),render=path.join(rendersDir,'fixture.mp4');
+  writeFileSync(master,'synthetic master');writeFileSync(render,'synthetic render');
+  db.prepare("INSERT INTO accounts(id,name,handle,platform,connector_mode,is_demo,connection_status) VALUES ('sim','Fixture','fixture','tiktok','simulator',1,'registered')").run();
+  db.prepare("INSERT INTO videos(id,title,source_type,original_filename,file_path) VALUES (?,?,?,?,?),(?,?,?,?,?)").run('v','Same title','manual_upload','fixture.mp4',master,'other','Same title','manual_upload','other.mp4',path.join(uploadsDir,'other.mp4'));
+  db.prepare("INSERT INTO branded_videos(id,video_id,preset_name,movement_preset,watermark_text,file_path) VALUES ('variant','v','Fixture','static_corner','fixture',?)").run(render);
+  db.prepare("INSERT INTO publishing_posts(id,video_id,title,status) VALUES ('p1','v','Repeated title','failed'),('p2','v','Repeated title','failed')").run();
+  db.prepare("INSERT INTO publishing_destinations(id,post_id,account_id,caption,status) VALUES ('d1','p1','sim','x','failed'),('d2','p2','sim','x','failed')").run();
+  const app=express();app.use(localAccess);app.use(express.json());app.use('/api/test-data',testDataInventoryRouter);
+  const server=await new Promise<ReturnType<typeof app.listen>>(resolve=>{const listener=app.listen(0,'127.0.0.1',()=>resolve(listener));});
+  try {
+    const address=server.address();assert.ok(address&&typeof address!=='string');
+    const origin=`http://127.0.0.1:${address.port}`,base=origin+'/api/test-data';
+    const post=(endpoint:string,body:unknown)=>fetch(base+endpoint,{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
+    const details=await fetch(base+'/detail?type=video&id=v');
+    assert.equal(details.status,200);
+    const inspected=await details.json() as any;
+    assert.ok(inspected.relationships.some((value:string)=>value.includes('d1')&&value.includes('simulator')));
+    const variantDetails=await (await fetch(base+'/detail?type=branded_video&id=variant')).json() as any;
+    assert.ok(variantDetails.relationships.some((value:string)=>value.includes('Master video ID')));
+    const items=[{type:'video',id:'v'},{type:'branded_video',id:'variant'},{type:'publishing_post',id:'p1'},{type:'publishing_post',id:'p2'}];
+    const inspect=async()=>{const response=await post('/preview',{records:items});assert.equal(response.status,200);return await response.json() as any;};
+    const cancelled=await inspect();assert.equal(cancelled.canDelete,true);assert.equal(cancelled.total,6);
+    assert.deepEqual(cancelled.records.flatMap((record:any)=>record.rows).map((row:any)=>row.table+':'+row.id).sort(),['videos:v','branded_videos:variant','publishing_posts:p1','publishing_posts:p2','publishing_destinations:d1','publishing_destinations:d2'].sort());
+    assert.ok(db.prepare("SELECT 1 FROM videos WHERE id='v'").get(),'opening or abandoning preview does not mutate');
+    const stale=await inspect();setOwnerClassification(db,'publishing_destination','d1','owner_marked_keep');
+    assert.equal((await post('/delete',{previewId:stale.previewId,confirmation:'DELETE'})).status,409);
+    assert.ok(db.prepare("SELECT 1 FROM publishing_destinations WHERE id='d1'").get());
+    setOwnerClassification(db,'publishing_destination','d1','unknown');
+    const approved=await inspect();
+    const responses=await Promise.all([post('/delete',{previewId:approved.previewId,confirmation:'DELETE'}),post('/delete',{previewId:approved.previewId,confirmation:'DELETE'})]);
+    assert.deepEqual(responses.map(response=>response.status).sort(),[200,409]);
+    const successful=responses.find(response=>response.status===200)!;
+    const result=await successful.json() as any;assert.equal(result.count,4);assert.equal(result.rowCount,6);
+    assert.ok(db.prepare("SELECT 1 FROM videos WHERE id='other'").get());
+    assert.ok(db.prepare("SELECT 1 FROM accounts WHERE id='sim'").get());
+    assert.equal(readFileSync(master,'utf8'),'synthetic master');assert.equal(readFileSync(render,'utf8'),'synthetic render');
+    assert.deepEqual(db.pragma('foreign_key_check'),[]);
+  } finally {await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()));db.close();rmSync(dir,{recursive:true,force:true,maxRetries:10,retryDelay:25});}
+});

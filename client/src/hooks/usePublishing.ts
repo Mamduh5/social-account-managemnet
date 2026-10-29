@@ -361,6 +361,7 @@ export function usePublishing() {
   const [posts, setPosts] = useState<PublishingPost[]>([]);
   const [queue, setQueue] = useState<PublishingDestination[]>([]);
   const [pipelineFiles, setPipelineFiles] = useState<any[]>([]);
+  const [watchIdentityIncomplete, setWatchIdentityIncomplete] = useState(false);
   const [pipelineJobs, setPipelineJobs] = useState<DiscoveredPipelineJob[]>([]);
   const [pipelineHealth, setPipelineHealth] = useState<PipelineHealthStatus | null>(null);
 
@@ -489,6 +490,7 @@ export function usePublishing() {
         }
 
         setPipelineFiles(res.files || []);
+        setWatchIdentityIncomplete(res.watchIdentityIncomplete === true);
         if (res.health) {
           setPipelineHealth(res.health);
         }
@@ -599,8 +601,15 @@ export function usePublishing() {
 
   useEffect(() => {
     loadData();
+    const onCleanupChanged = () => {
+      // A failed refresh must not leave a newly hidden watch entry on screen.
+      setPipelineFiles([]);
+      void loadData();
+    };
+    window.addEventListener('scc:cleanup-changed', onCleanupChanged);
     const interval = setInterval(loadOperationalData, 5000);
     return () => {
+      window.removeEventListener('scc:cleanup-changed', onCleanupChanged);
       clearInterval(interval);
       if (searchDebounceTimerRef.current) {
         clearTimeout(searchDebounceTimerRef.current);
@@ -1181,6 +1190,7 @@ export function usePublishing() {
     posts,
     queue,
     pipelineFiles,
+    watchIdentityIncomplete,
     pipelineJobs,
     pipelineHealth,
     pipelineQuery,

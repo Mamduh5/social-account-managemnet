@@ -30,6 +30,7 @@ import { Modal } from '../common/Modal';
 export interface VideoLibraryGridProps {
   videos: VideoItem[];
   pipelineFiles: any[];
+  watchIdentityIncomplete?: boolean;
   pipelineJobs?: DiscoveredPipelineJob[];
   pipelineHealth?: PipelineHealthStatus | null;
   pipelineQuery?: Required<Omit<PipelineJobsQueryParams, 'cursor'>>;
@@ -72,6 +73,7 @@ const DEFAULT_PAGE_SIZE = 12;
 export const VideoLibraryGrid: React.FC<VideoLibraryGridProps> = ({
   videos,
   pipelineFiles = [],
+  watchIdentityIncomplete = false,
   pipelineJobs = [],
   pipelineHealth,
   pipelineQuery,
@@ -784,6 +786,7 @@ export const VideoLibraryGrid: React.FC<VideoLibraryGridProps> = ({
           </div>
         )}
 
+        {watchIdentityIncomplete && <p role="status" className="text-xs text-amber-400">Some watch-directory videos could not be identified reliably and are not shown. Inspect Watch Directory in Manage Demo &amp; Test Data for details.</p>}
         {/* Local Watch Directory Files (if any discovered) */}
         {pipelineFiles.length > 0 && (
           <div className="pt-4 border-t border-border space-y-2.5">

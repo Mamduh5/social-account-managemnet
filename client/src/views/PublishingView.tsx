@@ -45,6 +45,7 @@ export const PublishingView: React.FC<Props> = () => {
     accounts,
     queue,
     pipelineFiles,
+    watchIdentityIncomplete,
     pipelineJobs,
     pipelineHealth,
     pipelineQuery,
@@ -298,7 +299,7 @@ export const PublishingView: React.FC<Props> = () => {
                 </button>
               </div>
 
-              {videos.length > 1 && (
+              {(videos.length > 1 || (!!selectedVideoId && !activeVideo)) && (
                 <div>
                   <select
                     id="master-video-select"
@@ -307,6 +308,7 @@ export const PublishingView: React.FC<Props> = () => {
                     onChange={(e) => setSelectedVideoId(e.target.value)}
                     className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-terracotta-500"
                   >
+                    {selectedVideoId && !activeVideo && <option value={selectedVideoId}>Previously selected video unavailable — choose a video</option>}
                     {videos.map((v) => (
                       <option key={v.id} value={v.id}>
                         {v.title} ({v.aspect_ratio}, {v.duration ? `${v.duration.toFixed(1)}s` : 'N/A'},{' '}
@@ -316,6 +318,7 @@ export const PublishingView: React.FC<Props> = () => {
                   </select>
                 </div>
               )}
+              {selectedVideoId && !activeVideo && <p role="status" className="text-xs text-amber-400">The selected master is no longer in the library. Choose an available video before publishing; your other form fields are preserved.</p>}
 
               {mediaSelectionNotice && (
                 <div
@@ -848,6 +851,7 @@ export const PublishingView: React.FC<Props> = () => {
                 disabled={
                   submitting ||
                   !selectedVideoId ||
+                  !activeVideo ||
                   selectedAccountIds.length === 0 ||
                   hasInvalidDestinationMedia
                 }
@@ -957,6 +961,7 @@ export const PublishingView: React.FC<Props> = () => {
         <VideoLibraryGrid
           videos={videos}
           pipelineFiles={pipelineFiles}
+          watchIdentityIncomplete={watchIdentityIncomplete}
           pipelineJobs={pipelineJobs}
           pipelineHealth={pipelineHealth}
           pipelineQuery={pipelineQuery}

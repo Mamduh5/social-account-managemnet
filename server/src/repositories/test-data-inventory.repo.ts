@@ -1,5 +1,7 @@
 import type Database from 'better-sqlite3';
 import {inspectDeletion, referencesBatch} from './test-data-deletion.repo.js';
+import {getOwnerClassification} from '../services/test-data-metadata.service.js';
+import {readRecordSummary} from './test-data-details.repo.js';
 
 // These are inspection-only projections. They deliberately do not include paths,
 // credentials, or a deletion eligibility decision.
@@ -42,24 +44,56 @@ const projections: Record<string, string> = {
 };
 
 export const inventoryTypes = ['all', ...Object.keys(projections)] as const;
+const deletableTypes=new Set(['account','category','video','branded_video','publishing_post','assistant_draft']);
 
-export function readTestDataInventory(db: Database.Database, options: {type: string; search: string; limit: number; offset: number}) {
+function inventoryRecord(db:Database.Database, row:any, refs:ReturnType<typeof referencesBatch>) {
+  const {dependency,...fields}=row;
+  const item={type:row.type,id:row.id};
+  const classification=getOwnerClassification(db,item.type,item.id);
+  const summary=readRecordSummary(db,item);
+  const {impact}=inspectDeletion(db,item,true,refs);
+  const eligibility=classification==='owner_marked_keep'?'protected':impact.eligible?'safe':impact.review||impact.selectable?'review':deletableTypes.has(row.type)?'protected':'unsupported';
+  const relationships=[dependency,...impact.dependencies];
+  return {...fields,...summary,classification,eligibility,
+    protection:classification==='owner_marked_keep'?'Owner marked this record Keep. Remove the designation before deletion.':impact.reason,
+    dependencies:relationships.length>100?[...relationships.slice(0,100),'Additional relationships exist beyond this list.']:relationships,
+    eligible:classification!=='owner_marked_keep'&&impact.eligible,
+    eligibilityReason:classification==='owner_marked_keep'?'Owner marked this record Keep.':impact.reason};
+}
+
+export function readInventoryRecord(db:Database.Database,type:string,id:string) {
+  const projection=projections[type];
+  if(!projection) return null;
+  const row=db.prepare(`SELECT * FROM (${projection}) WHERE id=?`).get(id);
+  return row?inventoryRecord(db,row,referencesBatch(db,[{type,id}])):null;
+}
+
+export function readTestDataInventory(db: Database.Database, options: {type: string; search: string; limit: number; offset: number; classification?:string; source?:string; status?:string; eligibility?:string}) {
   if (!inventoryTypes.includes(options.type)) throw new Error('Unsupported record type');
   const selected = options.type === 'all' ? Object.values(projections) : [projections[options.type]];
   const pattern = `%${options.search.replace(/[\\%_]/g, '\\$&')}%`;
-  const rows = db.prepare(`SELECT * FROM (${selected.join(' UNION ALL ')}) WHERE name LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\' ORDER BY type, id LIMIT ? OFFSET ?`)
-    .all(pattern, pattern, options.limit + 1, options.offset) as any[];
-  const visible=rows.slice(0,options.limit);
-  const refs=referencesBatch(db,visible.map(row=>({type:row.type,id:row.id})));
-  return {
-    records: visible.map(({dependency, ...row}) => {
-      const {impact} = inspectDeletion(db, {type:row.type,id:row.id}, true,refs);
-      const relationships = [dependency, ...impact.dependencies];
-      const dependencies = relationships.length > 100
-        ? [...relationships.slice(0, 100), 'Additional relationships exist beyond this list.']
-        : relationships;
-      return {...row, protection:impact.reason, dependencies, eligible:impact.eligible, eligibilityReason:impact.reason};
-    }),
-    hasMore: rows.length > options.limit, limit: options.limit, offset: options.offset,
-  };
+  const stmt=db.prepare(`SELECT * FROM (${selected.join(' UNION ALL ')}) WHERE name LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\' ORDER BY type, id LIMIT ? OFFSET ?`);
+  const records:any[]=[];
+  let position=options.offset, scanned=0, nextOffset:number|null=null, scanIncomplete=false;
+  const maxScan=500, batchSize=50;
+  while(scanned<maxScan) {
+    const rows=stmt.all(pattern,pattern,Math.min(batchSize,maxScan-scanned),position) as any[];
+    if(!rows.length) break;
+    const refs=referencesBatch(db,rows.map(row=>({type:row.type,id:row.id})));
+    let stopped=false;
+    for(const row of rows) {
+      const record=inventoryRecord(db,row,refs);
+      const matches=(!options.classification||options.classification==='all'||record.classification===options.classification)
+        &&(!options.source||options.source==='all'||record.source===options.source)
+        &&(!options.eligibility||options.eligibility==='all'||record.eligibility===options.eligibility)
+        &&(!options.status||record.status.toLowerCase().includes(options.status.toLowerCase()));
+      if(matches&&records.length===options.limit) {nextOffset=position;stopped=true;break;}
+      position++;scanned++;
+      if(matches) records.push(record);
+    }
+    if(stopped) break;
+    if(rows.length<batchSize) break;
+  }
+  if(nextOffset===null&&scanned>=maxScan) { nextOffset=position; scanIncomplete=true; }
+  return {records,hasMore:nextOffset!==null,nextOffset,scanIncomplete,limit:options.limit,offset:options.offset};
 }

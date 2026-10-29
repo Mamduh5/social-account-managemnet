@@ -5,6 +5,8 @@ import {mkdtempSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {readTestDataInventory} from '../server/src/repositories/test-data-inventory.repo.js';
+import {readRecordEvidence} from '../server/src/repositories/test-data-details.repo.js';
+import {setOwnerClassification} from '../server/src/services/test-data-metadata.service.js';
 
 test('inventory is bounded, conservative, searchable, and read-only', () => {
   const db = new Database(':memory:');
@@ -20,6 +22,7 @@ test('inventory is bounded, conservative, searchable, and read-only', () => {
     CREATE TABLE publishing_campaigns(id TEXT, name TEXT, updated_at TEXT, account_id TEXT);
     CREATE TABLE facebook_group_plans(id TEXT, name TEXT, updated_at TEXT, account_id TEXT);
     CREATE TABLE group_prepared_content(id TEXT, kind TEXT, updated_at TEXT, group_id TEXT);
+    CREATE TABLE app_settings(key TEXT PRIMARY KEY,value TEXT,updated_at TEXT);
     INSERT INTO accounts VALUES ('a','Demo 100%','now',1,'simulator',NULL,NULL,'registered',NULL), ('b','Externally linked','now',1,'simulator','remote',NULL,'registered',NULL);
     INSERT INTO categories VALUES ('cat','Referenced category','now');
     UPDATE accounts SET category_id='cat' WHERE id='a';
@@ -32,7 +35,7 @@ test('inventory is bounded, conservative, searchable, and read-only', () => {
   const first = read('all','',2,0);
   assert.equal(first.records.length,2); assert.equal(first.hasMore,true);
   assert.equal(first.records[0].classification,'unknown');
-  assert.equal(first.records[1].classification,'protected');
+  assert.equal(first.records[1].classification,'unknown');
   assert.match(first.records[1].protection,/externally identified/i);
   assert.match(first.records[1].dependencies[0],/Publishing destinations/);
   assert.ok(first.records[1].dependencies.some((value: string) => value.includes('publishing_destinations ID d (account_id)')));
@@ -41,8 +44,10 @@ test('inventory is bounded, conservative, searchable, and read-only', () => {
   const category = read('category').records[0];
   assert.equal(category.eligible, false);
   assert.ok(category.dependencies.some((value: string) => value.includes('accounts ID a (category_id)')));
-  assert.equal(read('video').records[0].classification,'protected');
-  assert.equal(read('publishing_post').records[0].classification,'protected');
+  assert.equal(read('video').records[0].classification,'unknown');
+  assert.equal(read('video').records[0].eligibility,'protected');
+  assert.equal(read('publishing_post').records[0].classification,'unknown');
+  assert.equal(read('publishing_post').records[0].eligibility,'protected');
   assert.deepEqual(db.serialize(),before);
   db.exec('DROP TABLE publishing_campaigns');
   assert.throws(() => read('all'));
@@ -62,5 +67,29 @@ test('all inventory projections work against an initialized disposable schema', 
     assert.equal(result.records[0].id, 'cat');
     assert.equal(result.hasMore, false);
     assert.deepEqual(db.pragma('foreign_key_check'), []);
+    db.prepare("INSERT INTO accounts(id,name,handle,platform,connector_mode,is_demo) VALUES ('sim','Simulator','sim','tiktok','simulator',1)").run();
+    db.prepare("INSERT INTO videos(id,title,source_type,original_filename,file_path,duration,width,height,pipeline_job_id) VALUES (?,?,?,?,?,?,?,?,?)").run('v1','Duplicate','pipeline_import','v1.mp4',path.join(directory,'uploads','v1.mp4'),5,720,1280,'pipeline-1');
+    db.prepare("INSERT INTO videos(id,title,source_type,original_filename,file_path) VALUES (?,?,?,?,?)").run('v2','Duplicate','manual_upload','v2.mp4',path.join(directory,'uploads','v2.mp4'));
+    db.prepare("INSERT INTO branded_videos(id,video_id,preset_name,movement_preset,watermark_text,file_path) VALUES ('variant','v1','Preset','static_corner','x',?)").run(path.join(directory,'renders','v1.mp4'));
+    db.prepare("INSERT INTO publishing_posts(id,title,video_id,status) VALUES ('post','Fixture','v1','failed')").run();
+    db.prepare("INSERT INTO publishing_destinations(id,post_id,account_id,caption,status) VALUES ('destination','post','sim','x','failed')").run();
+    setOwnerClassification(db,'video','v2','owner_marked_keep');
+    const evidence=readRecordEvidence(db,{type:'video',id:'v1'})!;
+    assert.ok(evidence.evidence.some(v=>v.includes('pipeline-1')));
+    assert.ok(evidence.relationships.some(v=>v.includes('variant')));
+    assert.ok(evidence.relationships.some(v=>v.includes('destination')&&v.includes('simulator')));
+    assert.ok(evidence.links.some(v=>v.type==='publishing_post'&&v.id==='post'));
+    assert.equal(evidence.complete,true);
+    const kept=readTestDataInventory(db,{type:'video',search:'Duplicate',limit:20,offset:0,classification:'owner_marked_keep'});
+    assert.deepEqual(kept.records.map(r=>r.id),['v2']);
+    assert.equal(kept.records[0].eligibility,'protected');
+    const imported=readTestDataInventory(db,{type:'video',search:'Duplicate',limit:1,offset:0,source:'pipeline_import'});
+    assert.deepEqual(imported.records.map(r=>r.id),['v1']);
+    const failedSimulator=readTestDataInventory(db,{type:'publishing_post',search:'',limit:20,offset:0,source:'simulator',status:'failed'});
+    assert.deepEqual(failedSimulator.records.map(r=>r.id),['post']);
+    db.prepare("INSERT INTO publishing_campaigns(id,account_id,name,start_date,end_date) VALUES ('campaign-a','sim','Repeated title','2026-10-01','2026-10-07'),('campaign-b','sim','Repeated title','2026-10-08','2026-10-14')").run();
+    const campaigns=readTestDataInventory(db,{type:'campaign',search:'Repeated title',limit:20,offset:0});
+    assert.deepEqual(campaigns.records.map(r=>r.id),['campaign-a','campaign-b']);
+    assert.ok(campaigns.records.every(r=>r.eligibility==='unsupported'));
   } finally { db.close(); rmSync(directory, {recursive:true,force:true,maxRetries:10,retryDelay:25}); }
 });

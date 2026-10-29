@@ -956,6 +956,15 @@ test('PublishingView UI: real compiled CSS, accurate dispatch branding modes, ro
       },
     ];
 
+    win.fixtureVideos = mockVideos;
+    win.watchFiles = [
+      {filename:'duplicate.mp4',fullPath:'C:/fixture/first/duplicate.mp4',sizeBytes:104857,modifiedAt:'2026-10-28T10:00:00.000Z',isImported:false},
+      {filename:'duplicate.mp4',fullPath:'C:/fixture/second/duplicate.mp4',sizeBytes:209715,modifiedAt:'2026-10-28T10:00:01.000Z',isImported:true,importedVideoId:'vid-master-alpha'},
+    ];
+    win.hiddenWatchPaths = [];
+    win.watchIdentityIncomplete = false;
+    win.failWatchRefresh = false;
+    win.discoveryRequests = 0;
     const allPipelineJobs = Array.from({ length: 16 }, (_, idx) => {
       const n = idx + 1;
       return {
@@ -1002,6 +1011,11 @@ test('PublishingView UI: real compiled CSS, accurate dispatch branding modes, ro
         return json({ success: true, jobs: [], page: { limit: 12, returned: 0, hasMore: false, nextCursor: null }, health: { reachable: true, status: 'connected' } });
       }
       if (u.pathname === '/api/pipeline/status' || u.pathname === '/api/pipeline/jobs') {
+        win.discoveryRequests++;
+        if (u.pathname === '/api/pipeline/status' && win.failWatchRefresh) {
+          win.failWatchRefresh = false;
+          throw new Error('Synthetic watch refresh failure');
+        }
         const limit = Number(u.searchParams.get('limit') || '12');
         const cursor = u.searchParams.get('cursor');
         const q = (u.searchParams.get('q') || '').trim().toLowerCase();
@@ -1036,8 +1050,9 @@ test('PublishingView UI: real compiled CSS, accurate dispatch branding modes, ro
           },
           sourceContract: 'library_v1',
           historyComplete: true,
-          files: [],
-          fileCount: 0,
+          files: win.watchFiles.filter((file: any) => !win.hiddenWatchPaths.includes(file.fullPath)),
+          fileCount: win.watchFiles.filter((file: any) => !win.hiddenWatchPaths.includes(file.fullPath)).length,
+          watchIdentityIncomplete: win.watchIdentityIncomplete,
         });
       }
       if (u.pathname === '/api/pipeline/import-job' && method === 'POST') {
@@ -1077,6 +1092,91 @@ test('PublishingView UI: real compiled CSS, accurate dispatch branding modes, ro
   });
 
   await page.getByLabel('Campaign / Post Title', { exact: true }).waitFor();
+
+  // A cleanup event refreshes the actual selector and Pipeline discovery without clearing an unsaved title.
+  const titleField = page.getByLabel('Campaign / Post Title', { exact: true });
+  const originalTitle = await titleField.inputValue();
+  await titleField.fill('Unsaved owner title');
+  await page.waitForFunction(() => !!document.querySelector('option[value="vid-master-beta"]'));
+  const requestsBefore = await page.evaluate(() => (window as any).discoveryRequests);
+  await page.evaluate(() => {
+    const win = window as any;
+    win.hiddenFixtureVideo = win.fixtureVideos.splice(win.fixtureVideos.findIndex((v: any) => v.id === 'vid-master-beta'), 1)[0];
+    window.dispatchEvent(new Event('scc:cleanup-changed'));
+  });
+  await page.waitForFunction(() => !document.querySelector('option[value="vid-master-beta"]'));
+  await page.waitForFunction((before: number) => (window as any).discoveryRequests > before, requestsBefore);
+  assert.equal(await titleField.inputValue(), 'Unsaved owner title');
+  await page.evaluate(() => {
+    const win = window as any;
+    win.fixtureVideos.push(win.hiddenFixtureVideo);
+    window.dispatchEvent(new Event('scc:cleanup-changed'));
+  });
+  await page.waitForFunction(() => !!document.querySelector('option[value="vid-master-beta"]'));
+  await page.getByLabel('Select Master Video', {exact:true}).selectOption('vid-master-alpha');
+  await titleField.fill('Unsaved owner title');
+  await page.evaluate(() => {
+    const win = window as any;
+    win.selectedFixtureVideo = win.fixtureVideos.splice(win.fixtureVideos.findIndex((v: any) => v.id === 'vid-master-alpha'), 1)[0];
+    window.dispatchEvent(new Event('scc:cleanup-changed'));
+  });
+  await page.getByText(/selected master is no longer in the library/i).waitFor();
+  assert.equal(await titleField.inputValue(), 'Unsaved owner title');
+  assert.match(await page.getByLabel('Select Master Video', {exact:true}).locator('option:checked').innerText(), /previously selected video unavailable/i);
+  await page.getByLabel('Select Master Video', {exact:true}).selectOption('vid-master-beta');
+  await page.evaluate(() => {
+    const win = window as any;
+    win.fixtureVideos.unshift(win.selectedFixtureVideo);
+    window.dispatchEvent(new Event('scc:cleanup-changed'));
+  });
+  await page.waitForFunction(() => !!document.querySelector('option[value="vid-master-alpha"]'));
+  await page.getByLabel('Select Master Video', {exact:true}).selectOption('vid-master-alpha');
+  await titleField.fill(originalTitle);
+
+  // Hiding one discovered path refreshes the watch list without hiding a same-name
+  // independent entry or changing the imported master and unsaved composer.
+  await titleField.fill('Keep my unsaved title');
+  await page.getByRole('button', {name:/Video Library/}).click();
+  await page.getByText('Local Watch Directory Files (2)', {exact:true}).waitFor();
+  assert.equal(await page.getByText('duplicate.mp4',{exact:true}).count(),2);
+  await page.evaluate(() => {
+    (window as any).watchIdentityIncomplete=true;
+    window.dispatchEvent(new Event('scc:cleanup-changed'));
+  });
+  await page.getByRole('status').getByText(/watch-directory videos could not be identified reliably/i).waitFor();
+  await page.evaluate(() => {
+    const win=window as any;
+    win.hiddenWatchPaths=['C:/fixture/first/duplicate.mp4'];
+    win.watchIdentityIncomplete=false;
+    window.dispatchEvent(new Event('scc:cleanup-changed'));
+  });
+  await page.getByText('Local Watch Directory Files (1)', {exact:true}).waitFor();
+  assert.equal(await page.getByText(/watch-directory videos could not be identified reliably/i).count(),0);
+  assert.equal(await page.getByText('duplicate.mp4',{exact:true}).count(),1);
+  assert.equal(await page.getByText('duplicate.mp4',{exact:true}).locator('..').locator('..').getByText('In Library',{exact:true}).count(),1);
+  assert.equal(await page.getByTestId('imported-library-section').getByText('Alpha Master 9:16',{exact:true}).count(),1);
+  await page.evaluate(() => {
+    (window as any).hiddenWatchPaths=[];
+    window.dispatchEvent(new Event('scc:cleanup-changed'));
+  });
+  await page.getByText('Local Watch Directory Files (2)', {exact:true}).waitFor();
+  await page.evaluate(() => {
+    const win=window as any;
+    win.hiddenWatchPaths=['C:/fixture/first/duplicate.mp4'];
+    win.failWatchRefresh=true;
+    window.dispatchEvent(new Event('scc:cleanup-changed'));
+  });
+  await page.getByRole('alert').getByText('Synthetic watch refresh failure').waitFor();
+  assert.equal(await page.getByText('duplicate.mp4',{exact:true}).count(),0,'failed post-cleanup refresh does not retain stale watch entries');
+  await page.evaluate(() => {
+    (window as any).hiddenWatchPaths=[];
+    window.dispatchEvent(new Event('scc:cleanup-changed'));
+  });
+  await page.getByText('Local Watch Directory Files (2)', {exact:true}).waitFor();
+  await page.getByRole('button',{name:'Compose & Publish',exact:true}).click();
+  assert.equal(await titleField.inputValue(),'Keep my unsaved title');
+  assert.equal(await page.getByLabel('Select Master Video',{exact:true}).inputValue(),'vid-master-alpha');
+  await titleField.fill(originalTitle);
 
   // 1. Select all 3 destination accounts using accessible buttons + keyboard
   const selectPageA = page.getByRole('button', { name: 'Select destination แก้บัคยาวๆๆ', exact: true });

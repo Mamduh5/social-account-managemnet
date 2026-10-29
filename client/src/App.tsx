@@ -60,8 +60,19 @@ export function App() {
     const eventSource = new EventSource('/api/events');
     eventSource.onopen = () => setSseConnected(true);
     eventSource.onerror = () => setSseConnected(false);
+    const refreshAfterCleanup = () => {
+      api.getCategories().then((res) => {
+        const available = res.categories || [];
+        setCategories(available);
+        setSelectedCategory(current => current !== 'all' && !available.some(category => category.id === current) ? 'all' : current);
+      }).catch(() => {});
+      window.dispatchEvent(new Event('scc:cleanup-changed'));
+    };
+    eventSource.addEventListener('cleanup:changed', refreshAfterCleanup);
+    window.addEventListener('scc:cleanup-local', refreshAfterCleanup);
 
     return () => {
+      window.removeEventListener('scc:cleanup-local', refreshAfterCleanup);
       eventSource.close();
     };
   }, []);
