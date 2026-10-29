@@ -35,6 +35,7 @@ import {
 } from '../types/calendar';
 import { PostContentType } from '../types/general-posts';
 import { calendarApi } from '../api/calendar';
+import { Modal } from '../components/common/Modal';
 
 interface Props {
   selectedCategory?: string;
@@ -286,12 +287,12 @@ export const CalendarView: React.FC<Props> = () => {
 
           <button
             onClick={() => setCreateModalOpen(true)}
-            className="px-3.5 py-1.5 bg-terracotta-600 hover:bg-terracotta-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-terracotta-600/20"
+            className="px-3.5 py-2 min-h-9 bg-terracotta-600 hover:bg-terracotta-500 active:scale-95 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-terracotta-600/20"
           >
             <Plus className="w-3.5 h-3.5" />
             New Campaign Plan
           </button>
-          <button onClick={()=>setImportModalOpen(true)} disabled={!currentAccount} className="px-3.5 py-1.5 bg-surface hover:bg-surface-hover border border-border text-slate-200 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer disabled:opacity-50">
+          <button onClick={()=>setImportModalOpen(true)} disabled={!currentAccount} className="px-3.5 py-2 min-h-9 bg-surface hover:bg-surface-hover active:scale-95 border border-border text-slate-200 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
             <Sparkles className="w-3.5 h-3.5" /> Import Prepared Plan
           </button>
 
@@ -313,7 +314,7 @@ export const CalendarView: React.FC<Props> = () => {
             <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
             <span>{error}</span>
           </div>
-          <button onClick={() => setError(null)} className="text-rose-400 hover:text-rose-200">
+          <button onClick={() => setError(null)} aria-label="Dismiss error" className="scc-icon-btn text-rose-400 hover:text-rose-200">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -616,7 +617,7 @@ export const CalendarView: React.FC<Props> = () => {
                               onClick={() => publishNow(item.id)}
                               disabled={actionLoading}
                               title="Publish Now (Override schedule)"
-                              className="p-1 hover:bg-surface text-slate-300 hover:text-emerald-400 rounded transition-colors cursor-pointer"
+                              aria-label="Publish now" className="scc-icon-btn hover:text-emerald-400"
                             >
                               <Send className="w-3 h-3" />
                             </button>
@@ -624,7 +625,7 @@ export const CalendarView: React.FC<Props> = () => {
                           <button
                             onClick={() => handleOpenEdit(item)}
                             title="Edit Post"
-                            className="p-1 hover:bg-surface text-slate-300 hover:text-blue-400 rounded transition-colors cursor-pointer"
+                            aria-label="Edit post" className="scc-icon-btn hover:text-blue-400"
                           >
                             <Edit3 className="w-3 h-3" />
                           </button>
@@ -633,7 +634,7 @@ export const CalendarView: React.FC<Props> = () => {
                               onClick={() => cancelItem(item.id)}
                               disabled={actionLoading}
                               title="Cancel / Delete Post"
-                              className="p-1 hover:bg-surface text-slate-300 hover:text-rose-400 rounded transition-colors cursor-pointer"
+                              aria-label="Cancel or delete post" className="scc-icon-btn hover:text-rose-400"
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>
@@ -651,25 +652,13 @@ export const CalendarView: React.FC<Props> = () => {
 
       {/* Edit Item Modal */}
       {editingItem && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-surface-card border border-border rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-xl">
-            <div className="flex items-center justify-between border-b border-border pb-3">
-              <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-                <Edit3 className="w-4 h-4 text-terracotta-400" />
-                Edit Planned Post
-              </h3>
-              <button
-                onClick={() => setEditingItem(null)}
-                className="text-slate-400 hover:text-slate-200"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
+        <Modal isOpen onClose={() => setEditingItem(null)} title="Edit Planned Post" maxWidth="max-w-lg" scrollBody manageFocus>
+          <div className="flex min-h-0 flex-col gap-4">
+            <div className="min-h-0 overflow-y-auto space-y-3 text-xs">
               <div>
-                <label className="font-semibold text-slate-300 block mb-1">Caption</label>
+                <label htmlFor="calendar-edit-caption" className="font-semibold text-slate-300 block mb-1">Caption</label>
                 <textarea
+                  id="calendar-edit-caption"
                   value={editCaption}
                   onChange={(e) => setEditCaption(e.target.value)}
                   rows={4}
@@ -678,8 +667,9 @@ export const CalendarView: React.FC<Props> = () => {
               </div>
 
               <div>
-                <label className="font-semibold text-slate-300 block mb-1">Hashtags</label>
+                <label htmlFor="calendar-edit-hashtags" className="font-semibold text-slate-300 block mb-1">Hashtags</label>
                 <input
+                  id="calendar-edit-hashtags"
                   type="text"
                   value={editHashtags}
                   onChange={(e) => setEditHashtags(e.target.value)}
@@ -688,10 +678,11 @@ export const CalendarView: React.FC<Props> = () => {
               </div>
 
               <div>
-                <label className="font-semibold text-slate-300 block mb-1">
+                <label htmlFor="calendar-edit-time" className="font-semibold text-slate-300 block mb-1">
                   Scheduled Publication Time (Asia/Bangkok)
                 </label>
                 <input
+                  id="calendar-edit-time"
                   type="text"
                   value={editTime}
                   onChange={(e) => setEditTime(e.target.value)}
@@ -713,7 +704,7 @@ export const CalendarView: React.FC<Props> = () => {
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 pt-3 border-t border-border">
               <button
                 onClick={() => setEditingItem(null)}
                 className="px-3.5 py-1.5 bg-surface hover:bg-surface-hover text-slate-300 rounded-xl text-xs font-semibold cursor-pointer"
@@ -729,7 +720,7 @@ export const CalendarView: React.FC<Props> = () => {
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Create Plan Modal */}
@@ -756,8 +747,8 @@ const CampaignReviewModal:React.FC<{campaignId:string;onClose:()=>void;onApprove
   const [busy,setBusy]=useState(false);
   const load=async()=>{setBusy(true);setError('');setReview(null);try{setReview(await calendarApi.getCampaignReview(campaignId));}catch(e:any){setError(e.message);}finally{setBusy(false);}};
   useEffect(()=>{void load();},[campaignId]);
-  return <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"><div role="dialog" aria-modal="true" aria-label="Review Exact Campaign" className="bg-surface-card border border-border rounded-2xl max-w-3xl w-full p-5 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
-    <div className="flex items-center justify-between"><h3 className="text-sm font-bold text-slate-100">Review Exact Campaign</h3><button onClick={onClose} aria-label="Close campaign review"><X className="w-4 h-4 text-slate-400" /></button></div>
+  return <Modal isOpen onClose={onClose} title="Review Exact Campaign" maxWidth="max-w-3xl" scrollBody manageFocus>
+    <div className="flex min-h-0 flex-col gap-4"><div className="min-h-0 overflow-y-auto space-y-4">
     {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
     {review ? <>
       <p className="text-xs text-slate-200">Publishing as <strong>{review.account.name} ({review.account.handle})</strong> • Graph ID: {review.account.graphId || 'unverified'}</p>
@@ -771,8 +762,8 @@ const CampaignReviewModal:React.FC<{campaignId:string;onClose:()=>void;onApprove
         <details><summary className="cursor-pointer">Exact media and branding details</summary><pre className="whitespace-pre-wrap break-words text-[10px] mt-1">{JSON.stringify(item.approvalDetails,null,2)}</pre></details>
       </article>)}</div>
     </> : <p className="text-xs text-slate-400">{busy?'Loading current campaign snapshot...':'Reload the current campaign before approving.'}</p>}
-    <div className="flex justify-end gap-2"><button onClick={onClose} className="px-3 py-2 text-xs text-slate-300">Cancel</button><button onClick={load} disabled={busy} className="px-3 py-2 text-xs text-slate-300 border border-border rounded-xl">Reload Review</button><button disabled={!review||busy} onClick={async()=>{if(!review)return;setBusy(true);try{await onApprove(review);}catch(e:any){setError(e.message);setReview(null);}finally{setBusy(false);}}} className="px-4 py-2 bg-emerald-600 rounded-xl text-white text-xs font-bold disabled:opacity-50">Approve Reviewed Campaign</button></div>
-  </div></div>;
+    </div><div className="flex shrink-0 flex-wrap justify-end gap-2"><button onClick={onClose} className="px-3 py-2 text-xs text-slate-300">Cancel</button><button onClick={load} disabled={busy} className="px-3 py-2 text-xs text-slate-300 border border-border rounded-xl">Reload Review</button><button disabled={!review||busy} onClick={async()=>{if(!review)return;setBusy(true);try{await onApprove(review);}catch(e:any){setError(e.message);setReview(null);}finally{setBusy(false);}}} className="px-4 py-2 bg-emerald-600 rounded-xl text-white text-xs font-bold disabled:opacity-50">Approve Reviewed Campaign</button></div></div>
+  </Modal>;
 };
 
 const PreparedPlanModal: React.FC<{accountId:string;accountName:string;onClose:()=>void;onImported:()=>Promise<void>}> = ({accountId,accountName,onClose,onImported}) => {

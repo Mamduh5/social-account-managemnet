@@ -103,7 +103,7 @@ export const AccountCard: React.FC<Props> = ({
         </span>
       ))}
     </div>
-    <div className="flex flex-wrap gap-3 text-xs text-terracotta-400 font-semibold">
+    <div className="scc-action-row flex flex-wrap gap-2 text-xs font-semibold">
       {!a.archived_at && (
         <>
           <button onClick={() => onNavigateToBranding(a.id)}>

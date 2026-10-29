@@ -35,7 +35,8 @@ export const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
           if (submitting) return;
           setSubmitting(true);
           try { await onSubmit(e); } finally { setSubmitting(false); }
-        }} className="min-h-0 overflow-y-auto space-y-4 text-xs">
+        }} className="flex min-h-0 flex-col text-xs">
+          <div className="min-h-0 overflow-y-auto space-y-4">
           <div>
             <label htmlFor="new-category-name" className="block text-slate-300 font-semibold mb-1">Category Name</label>
             <input
@@ -76,7 +77,8 @@ export const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border">
+          </div>
+          <div className="flex shrink-0 items-center justify-end gap-2.5 pt-3 mt-4 border-t border-border">
             <button
               type="button"
               disabled={submitting}

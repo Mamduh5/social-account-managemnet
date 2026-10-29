@@ -46,10 +46,11 @@ export const CommentFilters: React.FC<CommentFiltersProps> = ({
               <button
                 key={p.id}
                 onClick={() => setPlatformFilter(p.id)}
+                aria-pressed={platformFilter === p.id}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   platformFilter === p.id 
                     ? 'bg-terracotta-600 text-white shadow-xs' 
-                    : 'text-slate-400 hover:text-slate-200'
+                    : 'text-slate-400 hover:bg-surface-hover hover:text-slate-200 active:scale-[0.98]'
                 }`}
               >
                 {p.label}
@@ -62,9 +63,10 @@ export const CommentFilters: React.FC<CommentFiltersProps> = ({
         <div className="flex items-center gap-2">
           <span className="text-slate-400 font-medium">Account:</span>
           <select
+            aria-label="Filter by account"
             value={accountFilter}
             onChange={(e) => setAccountFilter(e.target.value)}
-            className="bg-surface border border-border rounded-xl px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-terracotta-500 cursor-pointer"
+            className="bg-surface border border-border rounded-xl px-2.5 py-1.5 text-xs text-slate-100 focus:border-terracotta-500 cursor-pointer min-h-9"
           >
             <option value="">All Accounts</option>
             {accounts.map((a) => (
@@ -77,9 +79,10 @@ export const CommentFilters: React.FC<CommentFiltersProps> = ({
         <div className="flex items-center gap-2">
           <span className="text-slate-400 font-medium">Status:</span>
           <select
+            aria-label="Filter by status"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="bg-surface border border-border rounded-xl px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-terracotta-500 cursor-pointer"
+            className="bg-surface border border-border rounded-xl px-2.5 py-1.5 text-xs text-slate-100 focus:border-terracotta-500 cursor-pointer min-h-9"
           >
             <option value="all">All Statuses</option>
             <option value="unread">Unread</option>
@@ -105,6 +108,7 @@ export const CommentFilters: React.FC<CommentFiltersProps> = ({
         <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
         <input
           type="text"
+          aria-label="Search comments"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search comment contents, viewer names, or video titles..."

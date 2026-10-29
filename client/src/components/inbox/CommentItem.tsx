@@ -136,11 +136,11 @@ export const CommentCard: React.FC<CommentItemProps> = ({
       </div>
 
       {/* Action Bar */}
-      <div className="mt-4 pt-3 border-t border-border flex items-center justify-between text-xs">
+      <div className="mt-4 pt-3 border-t border-border flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2.5">
           <button
             onClick={() => onReact(cmt.id)}
-            className="px-3 py-1.5 bg-surface hover:bg-surface-hover text-slate-300 border border-border rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer active:scale-95"
+            className="scc-btn-secondary text-xs"
           >
             <Heart className="w-3.5 h-3.5 text-rose-400" />
             <span>{cmt.like_count || 0} Likes</span>
@@ -148,6 +148,7 @@ export const CommentCard: React.FC<CommentItemProps> = ({
 
           <button
             onClick={onToggleReply}
+            aria-expanded={isReplying}
             className="px-3.5 py-1.5 bg-terracotta-500/15 hover:bg-terracotta-500/25 text-terracotta-300 border border-terracotta-500/30 rounded-xl font-bold flex items-center gap-1.5 transition-colors cursor-pointer active:scale-95"
           >
             <MessageSquare className="w-3.5 h-3.5" />
@@ -160,7 +161,7 @@ export const CommentCard: React.FC<CommentItemProps> = ({
           {cmt.status !== 'handled' && (
             <button
               onClick={() => onStatusChange(cmt.id, 'handled')}
-              className="text-slate-400 hover:text-sage-400 flex items-center gap-1 cursor-pointer font-medium"
+              className="scc-link-action text-xs"
             >
               <Check className="w-3.5 h-3.5" /> Mark Handled
             </button>
@@ -168,7 +169,7 @@ export const CommentCard: React.FC<CommentItemProps> = ({
           {cmt.status === 'handled' && (
             <button
               onClick={() => onStatusChange(cmt.id, 'unread')}
-              className="text-slate-500 hover:text-slate-300 cursor-pointer font-medium"
+              className="scc-link-action text-xs"
             >
               Mark Unread
             </button>
@@ -189,6 +190,7 @@ export const CommentCard: React.FC<CommentItemProps> = ({
           </div>
 
           <textarea
+            aria-label={`Reply to ${cmt.author_name}`}
             rows={2}
             value={replyText}
             onChange={(e) => onReplyTextChange(e.target.value)}
@@ -198,7 +200,7 @@ export const CommentCard: React.FC<CommentItemProps> = ({
 
           {/* Platform API Restriction Honest Fallback */}
           {replyError && (
-            <div className="p-3.5 bg-honey-950/20 border border-honey-900/40 rounded-xl text-xs text-honey-300 flex items-start justify-between gap-3">
+            <div role="alert" className="p-3.5 bg-honey-950/20 border border-honey-900/40 rounded-xl text-xs text-honey-300 flex items-start justify-between gap-3">
               <div className="flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-honey-400 shrink-0 mt-0.5" />
                 <div>
@@ -222,11 +224,11 @@ export const CommentCard: React.FC<CommentItemProps> = ({
             </div>
           )}
 
-          <div className="flex items-center justify-end gap-2.5">
+          <div className="flex flex-wrap items-center justify-end gap-2.5">
             <button
               type="button"
               onClick={onToggleReply}
-              className="px-3.5 py-1.5 bg-surface hover:bg-surface-hover text-slate-400 rounded-xl text-xs font-medium border border-border cursor-pointer transition-colors"
+              className="scc-btn-secondary text-xs"
             >
               Cancel
             </button>
@@ -234,7 +236,8 @@ export const CommentCard: React.FC<CommentItemProps> = ({
               type="button"
               onClick={() => onSendReply(cmt.id)}
               disabled={replySubmitting || !replyText.trim()}
-              className="px-4 py-1.5 bg-terracotta-600 hover:bg-terracotta-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-terracotta-600/25 cursor-pointer active:scale-95 transition-all"
+              aria-busy={replySubmitting || undefined}
+              className="scc-btn-primary scc-btn-consequential text-xs"
             >
               <Send className="w-3.5 h-3.5" />
               {replySubmitting ? 'Sending...' : 'Send Reply'}

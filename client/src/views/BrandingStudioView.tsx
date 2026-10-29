@@ -193,7 +193,7 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
           <button
             onClick={handleSaveBrandKit}
             disabled={saving || !selectedAccountId}
-            className="px-4 py-2 bg-terracotta-600 hover:bg-terracotta-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-terracotta-600/25 transition-all cursor-pointer active:scale-95"
+            className="scc-btn-primary text-xs"
           >
             <Save className="w-3.5 h-3.5" />
             {saving ? 'Saving...' : saveSuccess ? 'Saved ✓' : 'Save Brand Kit'}
@@ -217,6 +217,7 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
                   <button
                     key={acc.id}
                     onClick={() => handleSelectAccount(acc.id)}
+                    aria-pressed={isSelected}
                     className={`p-3 rounded-xl border text-left flex items-center gap-2.5 transition-all cursor-pointer ${
                       isSelected
                         ? 'border-terracotta-500 bg-terracotta-500/10 shadow-xs'
@@ -327,7 +328,7 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
                 type="button"
                 onClick={handleTestRenderFFmpeg}
                 disabled={rendering || !selectedVideoId}
-                className="px-4 py-2 bg-terracotta-600 hover:bg-terracotta-500 disabled:opacity-50 text-white rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-md shadow-terracotta-600/25 transition-all whitespace-nowrap cursor-pointer active:scale-95"
+                className="scc-btn-primary whitespace-nowrap"
               >
                 <Play className="w-3.5 h-3.5" />
                 {rendering ? 'Rendering with FFmpeg...' : 'Render Preview'}
@@ -343,7 +344,7 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
 
             {renderedPreview && (
               <div className="mt-3 p-4 bg-surface rounded-xl border border-sage-500/40 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <p className="font-bold text-sage-400 flex items-center gap-1.5">
                     <CheckCircle2 className="w-4 h-4" /> FFmpeg Render Complete!
                   </p>
@@ -382,7 +383,7 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
                 <button
                   onClick={() => loadVariants(selectedVideoId)}
                   disabled={loadingVariants}
-                  className="text-slate-400 hover:text-slate-200 text-[11px] flex items-center gap-1 cursor-pointer"
+                  className="scc-btn-secondary text-[11px]"
                 >
                   <RefreshCw className={`w-3 h-3 ${loadingVariants ? 'animate-spin' : ''}`} /> Refresh
                 </button>
@@ -397,7 +398,7 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
                   {variants.map((v) => (
                     <div
                       key={v.id}
-                      className="p-2.5 bg-surface rounded-xl border border-border flex items-center justify-between gap-3 text-xs hover:border-slate-600 transition-colors"
+                      className="p-2.5 bg-surface rounded-xl border border-border flex flex-wrap items-center justify-between gap-3 text-xs hover:border-slate-600 transition-colors"
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-0.5">
@@ -422,7 +423,8 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
                             variantId: v.id,
                           })}
                           title="Preview in Player"
-                          className="p-1.5 bg-surface-card hover:bg-slate-700 light:hover:bg-surface-hover text-slate-300 rounded-lg cursor-pointer"
+                          aria-label="Preview in Player"
+                          className="scc-icon-btn"
                         >
                           <Play className="w-3.5 h-3.5" />
                         </button>
@@ -430,14 +432,16 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
                           href={v.downloadUrl || v.previewUrl}
                           download
                           title="Download Watermarked File"
-                          className="p-1.5 bg-surface-card hover:bg-slate-700 light:hover:bg-surface-hover text-slate-300 rounded-lg cursor-pointer"
+                          aria-label="Download Watermarked File"
+                          className="scc-icon-btn"
                         >
                           <Download className="w-3.5 h-3.5" />
                         </a>
                         <button
                           onClick={() => handleDeleteVariant(v.id)}
                           title="Delete variant (Master video is preserved)"
-                          className="p-1.5 bg-surface-card hover:bg-rose-500/20 text-rose-400 rounded-lg cursor-pointer transition-colors"
+                          aria-label="Delete variant (Master video is preserved)"
+                          className="scc-icon-btn text-rose-400"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

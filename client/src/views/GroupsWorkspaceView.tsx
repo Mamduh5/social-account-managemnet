@@ -3,9 +3,10 @@ import type { GroupEligibility, GroupListFilters, GroupMembershipStatus, GroupPa
 import { canonicalGroupIdentity } from '../../../server/src/domain/groups';
 import { useGroupsWorkspace } from '../hooks/useGroupsWorkspace';
 
-const inputClass = 'w-full min-w-0 bg-surface border border-border rounded-lg p-2 text-sm text-slate-100';
-const buttonClass = 'px-3 py-2 rounded-lg border border-border text-sm bg-surface hover:bg-surface-hover disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-honey-400';
-const cardClass = 'min-w-0 bg-surface-card border border-border rounded-xl p-4 space-y-3';
+const inputClass = 'w-full min-w-0 bg-surface border border-border rounded-xl px-3 py-2 text-sm text-slate-100 focus:border-terracotta-500';
+const buttonClass = 'scc-btn-secondary text-sm';
+const primaryButtonClass = 'scc-btn-primary text-sm';
+const cardClass = 'min-w-0 bg-surface-card border border-border rounded-2xl p-4 sm:p-5 space-y-3 shadow-xs';
 const membershipOptions: { value: GroupMembershipStatus; label: string }[] = [
   { value: 'unknown', label: 'Unknown' }, { value: 'not_member', label: 'Not a member' },
   { value: 'request_pending', label: 'Request pending' }, { value: 'member', label: 'Member' }, { value: 'admin', label: 'Admin' },
@@ -40,8 +41,8 @@ export function GroupsWorkspaceView() {
       <a className={buttonClass} href="https://www.facebook.com/search/groups/" target="_blank" rel="noopener noreferrer">Open Facebook Group search</a>
     </div>
     <div className="border border-honey-500/30 bg-honey-500/5 text-honey-400 rounded-xl p-4 text-sm">All membership, rules, approvals and receipts are owner entered and unverified. Opening Facebook never changes status. Membership approval does not grant permission to post. Page API publishing cannot target a Group.</div>
-    {w.error && <p role="alert" className="text-red-400">{w.error}</p>}
-    {w.message && <p role="status" className="text-sage-400">{w.message}</p>}
+    {w.error && <p role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-red-400">{w.error}</p>}
+    {w.message && <p role="status" className="rounded-xl border border-sage-500/30 bg-sage-500/10 p-3 text-sm text-sage-400">{w.message}</p>}
 
     {w.reminders.length > 0 && <section className={cardClass}>
       <h3 className="font-semibold">Pending manual posting reminders</h3><p className="text-xs text-slate-400">Due labels update while this view is open. No background notifications or automatic posting.</p>
@@ -96,7 +97,7 @@ export function GroupsWorkspaceView() {
           <label className="block text-sm">Participation approval<select className={`${inputClass} mt-1`} value={w.form.eligibility.participationApproval} onChange={e => eligibility('participationApproval', e.target.value as GroupEligibility['participationApproval'])}><option value="unknown">Unknown</option><option value="required">Required / pending</option><option value="not_required">Not required (owner observed)</option><option value="approved">Approved (owner observed)</option><option value="restricted">Restricted</option></select></label>
           <label className="block text-sm">Post moderation<select className={`${inputClass} mt-1`} value={w.form.eligibility.postModeration} onChange={e => eligibility('postModeration', e.target.value as GroupEligibility['postModeration'])}><option value="unknown">Unknown</option><option value="required">Posts require moderation</option><option value="not_required">Not required (owner observed)</option></select></label>
         </div>
-        <div className="flex flex-wrap gap-2"><button className={buttonClass} disabled={w.busy} onClick={() => void w.run(() => w.saveGroup())}>Save group plan</button><button className={buttonClass} disabled={w.busy || !group} onClick={() => void w.run(() => w.saveGroup(true))}>Save and mark owner review complete</button></div>
+        <div className="flex flex-wrap gap-2"><button className={primaryButtonClass} disabled={w.busy} onClick={() => void w.run(() => w.saveGroup())}>Save group plan</button><button className={buttonClass} disabled={w.busy || !group} onClick={() => void w.run(() => w.saveGroup(true))}>Save and mark owner review complete</button></div>
         {group && <div className="border-t border-border pt-3 text-sm space-y-2"><h4 className="font-semibold">Readiness: {group.readiness.state === 'reviewed_for_manual_handoff' ? 'Owner review recorded' : group.readiness.state === 'not_ready' ? 'Participation needs attention' : 'Needs review'}</h4><p className="text-xs text-slate-400">Informational and unverified. The owner must decide whether each post complies with Group rules, even when membership is approved.</p>{group.readiness.reasons.length > 0 && <ul className="list-disc pl-5 text-xs text-slate-400 space-y-1">{group.readiness.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}</div>}
 
         {group && <div className="border-t border-border pt-3 space-y-3">
@@ -107,7 +108,7 @@ export function GroupsWorkspaceView() {
             <label className="block text-sm">Membership observation notes<textarea className={`${inputClass} mt-1`} rows={2} disabled={w.busy} value={observationNotes} onChange={e => setObservationNotes(e.target.value)} /></label>
             <button className={buttonClass} disabled={w.busy || !observedAt || w.hasUnsavedChanges} onClick={() => void w.run(async () => { await w.recordMembership({ status: membership, observedAt, notes: observationNotes }); setObservationNotes(''); })}>Record owner membership observation</button>
           </> : <p className="text-xs text-slate-400">Personal handoffs retain their historical notes. Page membership observations require a saved acting Page.</p>}
-          {w.hasUnsavedChanges && <p className="text-xs text-honey-400">Save registry changes before recording membership or preparing a handoff.</p>}
+          {w.hasUnsavedChanges && <p className="rounded-lg border border-honey-500/30 bg-honey-500/5 p-3 text-xs text-honey-400">Save registry changes before recording membership or preparing a handoff.</p>}
           <ol className="max-h-48 overflow-y-auto space-y-2 text-xs">{group.membershipObservations.map(o => <li key={o.id} className="border border-border rounded-lg p-2"><p>{membershipLabel(o.status)} · {w.accounts.find(a => a.id === o.accountId)?.name || o.accountId}</p><p className="break-words text-slate-400">Observed Group: {o.groupIdentity?.url || o.groupIdentity?.canonicalKey || 'Not captured in this historical observation'}</p><p className="text-slate-400">Observed: {dateLabel(o.observedAt)} · Recorded: {dateLabel(o.createdAt)} · owner entered / unverified</p>{o.notes && <p className="whitespace-pre-wrap">{o.notes}</p>}</li>)}</ol>
         </div>}
       </section>
@@ -123,8 +124,8 @@ export function GroupsWorkspaceView() {
           <label className="block text-sm">Why this content fits this Group<textarea aria-label="Group content relevance" className={`${inputClass} mt-1`} rows={2} value={w.draft.relevance} onChange={e => w.setDraft(d => ({ ...d, relevance: e.target.value }))} /></label>
           <label className="block text-sm">Manual posting reminder (Asia/Bangkok)<input aria-label="Group posting reminder" type="datetime-local" className={`${inputClass} mt-1`} value={w.draft.reminderAt} onChange={e => w.setDraft(d => ({ ...d, reminderAt: e.target.value }))} /></label>
           <fieldset className="space-y-1 max-h-40 overflow-y-auto"><legend className="text-sm">Existing media for owner review (selection order)</legend>{w.media.map(m => { const key = `${m.kind}:${m.id}`; return <label key={key} className="flex gap-2 text-xs"><input type="checkbox" checked={w.draft.selectedMedia.includes(key)} onChange={e => w.setDraft(d => ({ ...d, selectedMedia: e.target.checked ? [...d.selectedMedia, key] : d.selectedMedia.filter(k => k !== key) }))} />{w.draft.selectedMedia.includes(key) ? `${w.draft.selectedMedia.indexOf(key) + 1}. ` : ''}{m.kind} · {m.title}</label>; })}{!w.media.length && <p className="text-xs text-slate-400">No existing media. Text-only handoffs remain available.</p>}</fieldset>
-          <button className={buttonClass} disabled={w.busy || !group || !!group.archivedAt || w.hasUnsavedChanges || !w.draft.content.trim()} onClick={() => void w.run(w.savePrepared)}>Save manual handoff</button>
-          <div className="space-y-2">{w.prepared.map(p => <button key={p.id} className={`${buttonClass} w-full text-left`} disabled={w.busy} onClick={() => void w.run(() => w.openPackage(p.id))}><span className="block text-xs text-honey-400">{p.kind} · {p.status === 'prepared' ? 'Unpublished manual handoff' : 'Owner receipt recorded — unverified'}</span><span className="block truncate">{p.content}</span><span className="block text-xs text-slate-400">Reminder: {p.reminderState}</span></button>)}</div>
+          <button className={primaryButtonClass} disabled={w.busy || !group || !!group.archivedAt || w.hasUnsavedChanges || !w.draft.content.trim()} onClick={() => void w.run(w.savePrepared)}>Save manual handoff</button>
+          <div className="space-y-2">{w.prepared.map(p => <button key={p.id} className={`${buttonClass} w-full text-left`} disabled={w.busy} onClick={() => void w.run(() => w.openPackage(p.id))}><span className="block min-w-0 w-full text-left"><span className="block text-xs text-honey-400">{p.kind} · {p.status === 'prepared' ? 'Unpublished manual handoff' : 'Owner receipt recorded — unverified'}</span><span className="block truncate">{p.content}</span><span className="block text-xs text-slate-400">Reminder: {p.reminderState}</span></span></button>)}</div>
         </div>
 
         {w.handoff && <div className={cardClass}>

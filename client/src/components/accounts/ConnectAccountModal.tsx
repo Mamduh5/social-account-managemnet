@@ -86,6 +86,7 @@ export const ConnectAccountModal: React.FC<Props> = ({
       isOpen={isOpen}
       onClose={onClose}
       title={editing ? 'Edit Social Account' : 'Add Social Account'}
+      manageFocus
       scrollBody
     >
       <form

@@ -72,7 +72,7 @@ export const InboxView: React.FC<Props> = ({ selectedCategory }) => {
 
         <div className="flex items-center gap-2.5 self-start sm:self-auto shrink-0 flex-wrap">
           {syncNotice && (
-            <span className={`text-xs font-medium px-3 py-1.5 rounded-xl border flex items-center gap-1.5 animate-in fade-in max-w-md ${
+            <span role="status" className={`text-xs font-medium px-3 py-1.5 rounded-xl border flex items-center gap-1.5 animate-in fade-in max-w-md ${
               syncNotice.isError
                 ? 'text-amber-300 bg-amber-500/15 border-amber-500/30'
                 : 'text-sage-300 bg-sage-500/15 border-sage-500/30'
@@ -101,7 +101,7 @@ export const InboxView: React.FC<Props> = ({ selectedCategory }) => {
           <button
             onClick={syncComments}
             disabled={syncing}
-            className="px-3.5 py-1.5 bg-terracotta-600 hover:bg-terracotta-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-terracotta-600/20 cursor-pointer active:scale-95 transition-all"
+            className="scc-btn-primary text-xs"
             title="Synchronize Comments from Platforms"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
@@ -110,8 +110,9 @@ export const InboxView: React.FC<Props> = ({ selectedCategory }) => {
 
           <button
             onClick={loadData}
-            className="p-2 bg-surface hover:bg-surface-hover border border-border rounded-xl text-slate-300 hover:text-white light:hover:text-slate-100 transition-colors cursor-pointer"
+            className="scc-icon-btn border border-border bg-surface"
             title="Refresh View"
+            aria-label="Refresh View"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -137,7 +138,7 @@ export const InboxView: React.FC<Props> = ({ selectedCategory }) => {
       {/* Comments List */}
       <div className="space-y-3.5">
         {comments.length === 0 ? (
-          <div className="bg-surface-card border border-border rounded-2xl p-12 text-center text-slate-400 text-sm shadow-xs">
+          <div className="bg-surface-card border border-border rounded-2xl p-8 sm:p-12 text-center text-slate-400 text-sm shadow-xs">
             No comments match the selected filters.
           </div>
         ) : (

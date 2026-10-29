@@ -39,7 +39,7 @@ export function HandoffModal({
     }
   }
   return (
-    <Modal isOpen onClose={onClose} title="Awaiting Manual Confirmation">
+    <Modal isOpen onClose={onClose} title="Awaiting Manual Confirmation" manageFocus>
       <div className="space-y-4 text-xs">
         {data && (
           <>

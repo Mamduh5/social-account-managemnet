@@ -138,31 +138,31 @@ export const AccountsView: React.FC<Props> = ({
             registered accounts - registration never requires credentials
           </p>
         </div>
-        <div className="flex flex-wrap gap-3 text-xs">
+        <div className="scc-action-row flex flex-wrap gap-2 text-xs">
           <button
             onClick={() => setShowCat(true)}
-            className="bg-surface px-3 py-2 rounded-xl"
+            className="scc-btn-secondary"
           >
             New Category
           </button>
           <button
             onClick={add}
-            className="bg-terracotta-600 text-white px-3 py-2 rounded-xl font-bold"
+            className="scc-btn-primary"
           >
             Add Social Account
           </button>
-          <button onClick={add} className="text-terracotta-400">
+          <button onClick={add} className="scc-btn-secondary">
             Connect Account
           </button>
         </div>
       </div>
       {notice && (
-        <p role="status" className="text-xs text-sage-400">
+        <p role="status" className="text-xs text-sage-400 bg-sage-500/10 border border-sage-500/25 rounded-xl px-3 py-2">
           {notice}
         </p>
       )}
       {error && !showAdd && (
-        <p role="alert" className="text-rose-400 text-xs">
+        <p role="alert" className="text-rose-400 text-xs bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2">
           {error}
         </p>
       )}
@@ -182,11 +182,11 @@ export const AccountsView: React.FC<Props> = ({
           />
         ))}
       </div>
-      <div className="flex flex-wrap items-center gap-4 text-xs">
+      <div className="scc-action-row flex flex-wrap items-center gap-3 text-xs">
         <label>
           Find accounts{' '}
           <input
-            className="bg-surface border border-border rounded-xl p-2"
+            className="bg-surface border border-border rounded-xl px-3 py-2 min-w-48"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -245,7 +245,7 @@ export const AccountsView: React.FC<Props> = ({
           />
         ))}
       </div>
-      <div className="flex gap-4 text-xs items-center">
+      <div className="scc-action-row flex flex-wrap gap-3 text-xs items-center">
         <button
           disabled={!currentPage}
           onClick={() => setPage(currentPage - 1)}

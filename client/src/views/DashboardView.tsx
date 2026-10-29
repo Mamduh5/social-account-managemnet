@@ -174,7 +174,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
           </div>
           <button 
             onClick={() => onNavigate('accounts')}
-            className="text-xs text-terracotta-400 hover:text-terracotta-300 font-semibold flex items-center gap-1 cursor-pointer self-start sm:self-auto"
+            className="scc-link-action self-start sm:self-auto"
           >
             Manage Accounts <ArrowUpRight className="w-3.5 h-3.5" />
           </button>
@@ -247,7 +247,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
             </div>
             <button
               onClick={() => onNavigate('publishing')}
-              className="text-xs text-terracotta-400 hover:text-terracotta-300 font-semibold flex items-center gap-1 cursor-pointer"
+              className="scc-link-action"
             >
               View All <ArrowUpRight className="w-3.5 h-3.5" />
             </button>
@@ -303,7 +303,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
             </div>
             <button
               onClick={() => onNavigate('inbox')}
-              className="text-xs text-terracotta-400 hover:text-terracotta-300 font-semibold flex items-center gap-1 cursor-pointer"
+              className="scc-link-action"
             >
               Open Inbox <ArrowUpRight className="w-3.5 h-3.5" />
             </button>
@@ -331,7 +331,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
                     <span className="text-slate-500 truncate max-w-[200px]">{cmt.video_title}</span>
                     <button
                       onClick={() => onNavigate('inbox')}
-                      className="text-terracotta-400 hover:text-terracotta-300 font-semibold cursor-pointer shrink-0"
+                      className="scc-link-action shrink-0"
                     >
                       Reply in Inbox →
                     </button>

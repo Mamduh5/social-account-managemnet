@@ -121,7 +121,7 @@ export const AnalyticsView: React.FC = () => {
           <select
             value={platformFilter}
             onChange={(e) => setPlatformFilter(e.target.value)}
-            className="bg-surface border border-border rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-terracotta-500 cursor-pointer"
+            className="bg-surface border border-border rounded-xl px-3 py-2 min-h-9 text-xs text-slate-200 focus:border-terracotta-500 cursor-pointer"
           >
             <option value="">All Platforms</option>
             <option value="facebook">Facebook Only</option>
@@ -132,7 +132,7 @@ export const AnalyticsView: React.FC = () => {
           <select
             value={accountFilter}
             onChange={(e) => setAccountFilter(e.target.value)}
-            className="bg-surface border border-border rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-terracotta-500 cursor-pointer"
+            className="bg-surface border border-border rounded-xl px-3 py-2 min-h-9 text-xs text-slate-200 focus:border-terracotta-500 cursor-pointer"
           >
             <option value="">All Accounts</option>
             {accounts.map((a) => (
@@ -146,7 +146,7 @@ export const AnalyticsView: React.FC = () => {
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="bg-surface border border-border rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-terracotta-500 cursor-pointer"
+            className="bg-surface border border-border rounded-xl px-3 py-2 min-h-9 text-xs text-slate-200 focus:border-terracotta-500 cursor-pointer"
           >
             <option value="">All Categories</option>
             {categories.map((c) => (
@@ -177,7 +177,7 @@ export const AnalyticsView: React.FC = () => {
           <button
             onClick={handleSyncNow}
             disabled={syncing}
-            className="px-4 py-2 bg-terracotta-600 hover:bg-terracotta-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md shadow-terracotta-600/25 cursor-pointer active:scale-95 transition-all"
+            className="scc-btn-primary text-xs"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
             <span>{syncing ? 'Synchronizing...' : 'Synchronize Now'}</span>
@@ -459,7 +459,7 @@ export const AnalyticsView: React.FC = () => {
 
                         <button
                           onClick={() => setSelectedVideoForObs(v)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-terracotta-500/15 hover:bg-terracotta-500/25 text-terracotta-300 rounded-lg border border-terracotta-500/30 text-[11px] font-semibold transition-colors cursor-pointer"
+                          className="scc-btn-secondary text-[11px]"
                           title="Record verified observation"
                         >
                           Record Observation

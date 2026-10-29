@@ -114,7 +114,7 @@ export const SettingsView: React.FC = () => {
               <button
                 type="submit"
                 disabled={savingDir}
-                className="px-4 py-2 bg-terracotta-600 hover:bg-terracotta-500 text-white rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-terracotta-600/25 active:scale-95"
+                className="scc-btn-primary"
               >
                 <Save className="w-3.5 h-3.5" />
                 {savingDir ? 'Saving...' : dirSaveSuccess ? 'Updated ✓' : 'Save Path'}
@@ -167,7 +167,7 @@ export const SettingsView: React.FC = () => {
                 <button
                   onClick={() => handleLaunchBrowserSession(acc.id)}
                   disabled={launchingAccountId === acc.id}
-                  className="px-3 py-1.5 bg-surface-card hover:bg-surface-hover text-slate-200 border border-border hover:border-slate-600 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 active:scale-95"
+                  className="scc-btn-secondary text-xs shrink-0"
                 >
                   <Compass className="w-3.5 h-3.5 text-terracotta-400" />
                   {launchingAccountId === acc.id ? 'Launching...' : 'Open Session'}

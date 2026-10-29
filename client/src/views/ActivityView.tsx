@@ -52,7 +52,7 @@ export const ActivityView: React.FC = () => {
           <select
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value)}
-            className="bg-surface border border-border rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-terracotta-500 cursor-pointer"
+            className="bg-surface border border-border rounded-xl px-3 py-2 min-h-9 text-xs text-slate-200 focus:border-terracotta-500 cursor-pointer"
           >
             <option value="">All Severities</option>
             <option value="success">Success Only</option>
@@ -63,8 +63,8 @@ export const ActivityView: React.FC = () => {
 
           <button
             onClick={loadData}
-            className="p-2 bg-surface hover:bg-surface-hover border border-border rounded-xl text-slate-300 hover:text-white light:hover:text-slate-100 transition-colors cursor-pointer"
-            title="Refresh Activity"
+            className="scc-icon-btn border border-border bg-surface min-h-9 min-w-9"
+            title="Refresh Activity" aria-label="Refresh activity"
           >
             <RefreshCw className="w-4 h-4" />
           </button>

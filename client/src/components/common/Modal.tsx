@@ -90,11 +90,11 @@ export const Modal: React.FC<ModalProps> = ({
       tabIndex={manageFocus ? -1 : undefined}
       aria-modal="true"
       aria-labelledby={titleId}
-      className="fixed inset-0 z-50 bg-black/65 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-black/65 backdrop-blur-xs flex items-start justify-center p-4 overflow-y-auto"
       onClick={() => { if (dismissible) onClose(); }}
     >
       <div
-        className={`${themeTokens.surfaces.card} border ${themeTokens.surfaces.border} rounded-2xl w-full ${maxWidth} p-6 shadow-2xl relative ${scrollBody ? 'flex flex-col min-h-0 max-h-[calc(100vh-2rem)] supports-[height:100dvh]:max-h-[calc(100dvh-2rem)] overflow-hidden' : 'my-8'}`}
+        className={`${themeTokens.surfaces.card} border ${themeTokens.surfaces.border} rounded-2xl w-full ${maxWidth} p-4 sm:p-6 shadow-2xl relative scc-modal-panel ${scrollBody ? 'flex flex-col min-h-0 max-h-[calc(100vh-2rem)] supports-[height:100dvh]:max-h-[calc(100dvh-2rem)] overflow-hidden my-auto' : 'my-auto'}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className={`flex items-center justify-between pb-3.5 border-b border-border/80 ${scrollBody ? 'shrink-0 gap-3' : ''}`}>
@@ -111,7 +111,7 @@ export const Modal: React.FC<ModalProps> = ({
             onClick={onClose}
             disabled={!dismissible}
             aria-label="Close modal"
-            className="p-1.5 rounded-xl text-slate-400 hover:text-white light:hover:text-slate-100 hover:bg-surface-hover transition-colors"
+            className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-xl text-slate-400 hover:text-white light:hover:text-slate-100 hover:bg-surface-hover active:scale-95 transition-all cursor-pointer disabled:cursor-not-allowed"
           >
             <X className="w-5 h-5" />
           </button>

@@ -21,10 +21,10 @@ export const themeTokens = {
     primary: 'bg-terracotta-600 hover:bg-terracotta-500 text-white shadow-sm shadow-terracotta-600/25 active:scale-[0.98]',
     primaryShadow: 'shadow-md shadow-terracotta-600/20',
     secondary: 'bg-surface hover:bg-surface-hover text-slate-200 border border-border active:scale-[0.98]',
-    ghost: 'hover:bg-surface-hover text-slate-400 hover:text-slate-100',
-    danger: 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30',
-    warning: 'bg-honey-500/15 hover:bg-honey-500/25 text-honey-400 border border-honey-500/30',
-    success: 'bg-sage-500/15 hover:bg-sage-500/25 text-sage-400 border border-sage-500/30',
+    ghost: 'hover:bg-surface-hover active:bg-surface-hover text-slate-400 hover:text-slate-100 active:scale-[0.98]',
+    danger: 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 active:scale-[0.98]',
+    warning: 'bg-honey-500/15 hover:bg-honey-500/25 text-honey-400 border border-honey-500/30 active:scale-[0.98]',
+    success: 'bg-sage-500/15 hover:bg-sage-500/25 text-sage-400 border border-sage-500/30 active:scale-[0.98]',
   },
 
   // Platform Branding

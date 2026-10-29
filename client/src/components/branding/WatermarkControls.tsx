@@ -44,7 +44,7 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
             ['moving_and_caption', 'Moving Watermark + Bottom Caption'],
             ['caption', 'Bottom Caption Only'],
           ] as const).map(([mode, label]) => (
-            <label key={mode} className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer ${resolveBrandingMode(brandKit) === mode ? 'border-terracotta-500 bg-terracotta-500/15 text-terracotta-300' : 'border-border bg-surface text-slate-300'}`}>
+            <label key={mode} className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition-colors hover:border-terracotta-500/50 focus-within:outline focus-within:outline-2 focus-within:outline-honey-400 ${resolveBrandingMode(brandKit) === mode ? 'border-terracotta-500 bg-terracotta-500/15 text-terracotta-300' : 'border-border bg-surface text-slate-300'}`}>
               <input type="radio" name="branding-mode" value={mode} checked={resolveBrandingMode(brandKit) === mode}
                 onChange={() => setBrandKit(prev => ({ ...prev, mode, enableSignature: mode === 'caption' || mode === 'moving_and_caption' }))}
                 className="accent-terracotta-600" />
@@ -83,7 +83,8 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
               key={preset.id}
               type="button"
               onClick={() => setBrandKit(prev => ({ ...prev, movementPreset: preset.id as any }))}
-              className={`py-2 px-3 rounded-xl border font-bold text-center transition-all cursor-pointer ${
+              aria-pressed={brandKit.movementPreset === preset.id}
+              className={`py-2 px-3 rounded-xl border font-bold text-center transition-all cursor-pointer active:scale-[0.98] disabled:cursor-not-allowed ${
                 brandKit.movementPreset === preset.id
                   ? 'border-terracotta-500 bg-terracotta-500/15 text-terracotta-300 shadow-xs'
                   : 'border-border bg-surface text-slate-400 hover:border-slate-600'
@@ -173,18 +174,20 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
           <button
             type="button"
             onClick={() => setShowCustomSafeArea(!showCustomSafeArea)}
-            className="text-[11px] text-terracotta-400 hover:text-terracotta-300 font-semibold cursor-pointer"
+            aria-expanded={showCustomSafeArea}
+            className="scc-link-action text-[11px]"
           >
             {showCustomSafeArea ? 'Hide Custom' : 'Adjust Margins →'}
           </button>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => applySafeAreaPreset('tiktok_9_16')}
+            aria-pressed={brandKit.safeArea?.top === 120 && brandKit.safeArea?.bottom === 280 && brandKit.safeArea?.left === 40 && brandKit.safeArea?.right === 120}
             className={`flex-1 py-1 px-2 rounded-lg border text-[11px] font-bold cursor-pointer transition-colors ${
-              brandKit.safeArea?.top === 120 && brandKit.safeArea?.bottom === 280
+              brandKit.safeArea?.top === 120 && brandKit.safeArea?.bottom === 280 && brandKit.safeArea?.left === 40 && brandKit.safeArea?.right === 120
                 ? 'border-terracotta-500 bg-terracotta-500/10 text-terracotta-300'
                 : 'border-border bg-surface text-slate-400 hover:border-slate-600'
             }`}
@@ -194,8 +197,9 @@ export const WatermarkControls: React.FC<WatermarkControlsProps> = ({
           <button
             type="button"
             onClick={() => applySafeAreaPreset('facebook_16_9')}
+            aria-pressed={brandKit.safeArea?.top === 60 && brandKit.safeArea?.bottom === 80 && brandKit.safeArea?.left === 40 && brandKit.safeArea?.right === 80}
             className={`flex-1 py-1 px-2 rounded-lg border text-[11px] font-bold cursor-pointer transition-colors ${
-              brandKit.safeArea?.top === 60 && brandKit.safeArea?.bottom === 80
+              brandKit.safeArea?.top === 60 && brandKit.safeArea?.bottom === 80 && brandKit.safeArea?.left === 40 && brandKit.safeArea?.right === 80
                 ? 'border-terracotta-500 bg-terracotta-500/10 text-terracotta-300'
                 : 'border-border bg-surface text-slate-400 hover:border-slate-600'
             }`}

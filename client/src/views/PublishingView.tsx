@@ -292,7 +292,7 @@ export const PublishingView: React.FC<Props> = () => {
                 <button
                   type="button"
                   onClick={() => setActiveTab('library')}
-                  className="text-xs text-terracotta-400 hover:text-terracotta-300 font-semibold cursor-pointer self-start sm:self-auto"
+                  className="scc-link-action self-start sm:self-auto"
                 >
                   Browse Pipeline &amp; Library →
                 </button>
@@ -330,7 +330,7 @@ export const PublishingView: React.FC<Props> = () => {
                   <button
                     type="button"
                     onClick={() => setMediaSelectionNotice('')}
-                    className="text-amber-300 hover:text-white text-[11px] font-bold shrink-0"
+                    className="scc-link-action text-amber-300 hover:text-white text-[11px] font-bold shrink-0"
                   >
                     Dismiss
                   </button>
@@ -430,7 +430,7 @@ export const PublishingView: React.FC<Props> = () => {
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="px-3.5 py-1.5 bg-terracotta-600 hover:bg-terracotta-500 text-white rounded-xl text-xs font-bold cursor-pointer"
+                    className="px-3.5 py-2 min-h-9 bg-terracotta-600 hover:bg-terracotta-500 active:scale-95 text-white rounded-xl text-xs font-bold cursor-pointer transition-all"
                   >
                     Upload Video
                   </button>
@@ -468,7 +468,7 @@ export const PublishingView: React.FC<Props> = () => {
                 <button
                   type="button"
                   onClick={selectAllAccounts}
-                  className="text-xs text-terracotta-400 hover:text-terracotta-300 font-semibold cursor-pointer self-start sm:self-auto"
+                  className="scc-link-action self-start sm:self-auto"
                 >
                   {selectedAccountIds.length === accounts.length
                     ? 'Deselect All'
@@ -563,7 +563,7 @@ export const PublishingView: React.FC<Props> = () => {
                       <button
                         type="button"
                         onClick={copyFirstCaptionToAll}
-                        className="text-xs text-terracotta-400 hover:text-terracotta-300 font-semibold flex items-center gap-1 cursor-pointer"
+                        className="scc-link-action"
                       >
                         <Sparkles className="w-3 h-3" /> Apply 1st Config to All
                       </button>

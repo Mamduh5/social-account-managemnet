@@ -126,3 +126,106 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
+
+
+/* ---- Phase 2 UI polish: shared interaction feedback ---- */
+
+/* Visible keyboard focus for all interactive controls, both themes. */
+:where(button, a[href], input, select, textarea, summary, [role="button"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--accent-honey);
+  outline-offset: 2px;
+}
+
+:where(input, select, textarea):focus-visible {
+  outline-offset: 0;
+  border-color: var(--accent-honey);
+}
+
+/* Consistent form control feel. */
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea) {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+:where(input, select, textarea):hover:not(:disabled):not(:focus-visible) {
+  border-color: var(--text-muted);
+}
+
+:where(input, select, textarea):disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Clickable affordances. */
+:where(button:not(:disabled), [role="button"], summary, select:not(:disabled), input[type="checkbox"], input[type="radio"], label[for]) {
+  cursor: pointer;
+}
+
+:where(button:disabled) {
+  cursor: not-allowed;
+}
+
+:where(button, a[href]) {
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+}
+
+/* Keep modal textareas within their panel. */
+.scc-modal-panel :where(textarea) {
+  max-width: 100%;
+}
+
+/* Small-screen safety: avoid horizontal overflow and ensure touch targets. */
+@media (max-width: 640px) {
+  :where(button, [role="button"], select) {
+    min-height: 2.25rem;
+  }
+}
+
+/* Respect reduced-motion preferences. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  button:active { transform: none !important; }
+}
+
+/* Phase 2B: shared action styling for plain buttons/links inside action rows */
+.scc-btn-primary, .scc-btn-secondary,
+.scc-action-row > :where(button, a[href]) {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem;
+  min-height: 2.25rem; padding: 0.4rem 0.8rem; border-radius: 0.75rem;
+  border: 1px solid var(--border-color); background: var(--bg-surface); color: var(--text-main);
+  font-weight: 600; text-decoration: none;
+}
+.scc-btn-primary:hover:not(:disabled), .scc-btn-secondary:hover:not(:disabled),
+.scc-action-row > :where(button, a[href]):hover:not(:disabled) { background: var(--bg-surface-hover); border-color: var(--text-muted); }
+.scc-btn-primary:active:not(:disabled), .scc-btn-secondary:active:not(:disabled),
+.scc-action-row > :where(button, a[href]):active:not(:disabled) { transform: scale(0.98); }
+.scc-btn-primary:disabled, .scc-btn-secondary:disabled,
+.scc-action-row > button:disabled { opacity: 0.5; cursor: not-allowed; }
+.scc-btn-primary { background: #b44525; border-color: transparent; color: #fff; }
+.scc-btn-primary:hover:not(:disabled) { background: #c8502b; border-color: transparent; }
+
+/* Phase 2B: text-link style navigation affordance and compact icon-only button */
+.scc-link-action {
+  display: inline-flex; align-items: center; gap: 0.25rem; min-height: 2rem;
+  padding: 0.25rem 0.625rem; border-radius: 0.625rem; font-size: 0.75rem; font-weight: 600;
+  color: var(--accent-terracotta); border: 1px solid transparent; cursor: pointer;
+}
+:is(.light, [data-theme="light"]) .scc-link-action { color: var(--text-terracotta); }
+.scc-link-action:hover { background: var(--bg-surface-hover); border-color: var(--border-color); }
+.scc-link-action:active { transform: scale(0.98); }
+.scc-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  min-width: 2rem; min-height: 2rem; padding: 0.25rem; border-radius: 0.625rem;
+  color: var(--text-muted); cursor: pointer;
+}
+.scc-icon-btn:hover:not(:disabled) { background: var(--bg-surface-hover); color: var(--text-main); }
+.scc-icon-btn:active:not(:disabled) { transform: scale(0.94); }
+.scc-icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Phase 2B batch 2: consequential action emphasis (scoped modifier, e.g. Send Reply) */
+.scc-btn-consequential { box-shadow: 0 0 0 1px var(--accent-terracotta), 0 2px 8px rgba(200, 80, 43, 0.3); font-weight: 700; }
+.scc-btn-consequential:disabled { box-shadow: none; }
