@@ -230,6 +230,7 @@ export interface PublishingDestination {
   published_at?: string;
   verification_status: 'unverified' | 'confirmed' | 'failed';
   confirmation_source?: string;
+  created_at?: string;
   updated_at: string;
 }
 
@@ -327,7 +328,7 @@ export interface AnalyticsOverviewResponse {
     total_followers_gained?: number | null;
     total_accounts?: number;
     total_synced_videos?: number;
-    avg_engagement_rate?: number;
+    avg_engagement_rate?: number | null;
     last_sync_time?: string | null;
   };
   platformComparison: any[];
@@ -386,6 +387,8 @@ export interface CommentsResponse {
 
 export interface ActivityResponse {
   events: ActivityEvent[];
+  total?: number;
+  hasMore?: boolean;
 }
 
 export interface PipelineStatusResponse {

@@ -33,6 +33,10 @@ test('HTTP review commits exactly the selected simulator and media graph, once',
     assert.ok(inspected.relationships.some((value:string)=>value.includes('d1')&&value.includes('simulator')));
     const variantDetails=await (await fetch(base+'/detail?type=branded_video&id=variant')).json() as any;
     assert.ok(variantDetails.relationships.some((value:string)=>value.includes('Master video ID')));
+    const dependencies=await (await post('/preview',{records:[{type:'video',id:'v'}]})).json() as any;
+    assert.equal(dependencies.canDelete,false,'a library selection never silently deletes its related history');
+    assert.deepEqual(dependencies.suggestedRecords.map((record:any)=>[record.type,record.id]),[['branded_video','variant'],['publishing_post','p1'],['publishing_post','p2']]);
+    assert.ok(dependencies.unchanged.some((value:string)=>value.includes('credentials')));
     const items=[{type:'video',id:'v'},{type:'branded_video',id:'variant'},{type:'publishing_post',id:'p1'},{type:'publishing_post',id:'p2'}];
     const inspect=async()=>{const response=await post('/preview',{records:items});assert.equal(response.status,200);return await response.json() as any;};
     const cancelled=await inspect();assert.equal(cancelled.canDelete,true);assert.equal(cancelled.total,6);
@@ -43,6 +47,7 @@ test('HTTP review commits exactly the selected simulator and media graph, once',
     assert.ok(db.prepare("SELECT 1 FROM publishing_destinations WHERE id='d1'").get());
     setOwnerClassification(db,'publishing_destination','d1','unknown');
     const approved=await inspect();
+    assert.deepEqual(approved.suggestedRecords,[],'an exact complete selection needs no implicit additions');
     const responses=await Promise.all([post('/delete',{previewId:approved.previewId,confirmation:'DELETE'}),post('/delete',{previewId:approved.previewId,confirmation:'DELETE'})]);
     assert.deepEqual(responses.map(response=>response.status).sort(),[200,409]);
     const successful=responses.find(response=>response.status===200)!;

@@ -6,6 +6,7 @@ import { accountsRepo } from '../repositories/accounts.repo.js';
 import { publishingRepo } from '../repositories/publishing.repo.js';
 import { rendersDir } from '../db/database.js';
 import { BRANDING_MODES, brandingElements, resolveBrandingMode } from '../domain/branding-layout.js';
+import { deleteBrandingVariant } from '../services/branding-artifacts.service.js';
 
 // Preserve unknown legacy fields, but reject values that could break filter
 // construction. Text stays literal Unicode; no template or CTA substitution.
@@ -65,22 +66,11 @@ brandingRouter.get('/variants/:videoId', (req, res) => {
 
 // DELETE a branded variant (removes only the render file, preserves master video)
 brandingRouter.delete('/variants/:variantId', (req, res) => {
-  const variant = publishingRepo.getBrandedVideoById(req.params.variantId);
-  if (!variant) return res.status(404).json({ error: 'Branded variant not found' });
-
-  // Guard: Ensure we never delete a file outside rendersDir or delete original master
-  const resolvedPath = path.resolve(variant.file_path);
-  const resolvedRenders = path.resolve(rendersDir);
-  if (resolvedPath.startsWith(resolvedRenders) && fs.existsSync(resolvedPath)) {
-    try {
-      fs.unlinkSync(resolvedPath);
-    } catch (e: any) {
-      console.warn(`[BrandingRouter] Could not unlink rendered file: ${e.message}`);
-    }
-  }
-
-  publishingRepo.deleteBrandedVideo(req.params.variantId);
-  res.json({ success: true, message: 'Branded variant removed. Master video remains untouched.' });
+  try {
+    const result = deleteBrandingVariant(req.params.variantId);
+    if (!result) return res.status(404).json({error:'Branded variant not found'});
+    return res.json(result);
+  } catch (error:any) { return res.status(409).json({error:error.message}); }
 });
 
 // TEST RENDER / EXPORT a video with brand kit settings & save as a library variant

@@ -4,6 +4,7 @@ import { validatePublishedUrl } from '../domain/account-identity.js';
 import { publishingRepo } from '../repositories/publishing.repo.js';
 import { canCancelDestination, canRetryDestination, resolveParentPostStatus } from '../domain/publishing.js';
 import { PostStatus, DestinationStatus } from '../domain/types.js';
+import { executePublishingCommand } from '../repositories/publishing-commands.repo.js';
 
 export interface CreatePostDestinationInput {
   accountId: string;
@@ -15,6 +16,7 @@ export interface CreatePostDestinationInput {
 }
 
 export interface CreatePostInput {
+  commandId?: string;
   videoId: string;
   title: string;
   scheduledAt?: string | null;
@@ -24,6 +26,11 @@ export interface CreatePostInput {
 
 export class PublishingService {
   createPost(input: CreatePostInput): { postId: string; destinationCount: number } {
+    const { commandId, ...payload } = input;
+    return executePublishingCommand(commandId, payload, () => this.createPostOnce(payload));
+  }
+
+  private createPostOnce(input: CreatePostInput): { postId: string; destinationCount: number } {
     const { videoId, title, selectedVariantId, destinations } = input;
     let scheduledAt: string | null = null;
     if (input.scheduledAt !== undefined && input.scheduledAt !== null) {

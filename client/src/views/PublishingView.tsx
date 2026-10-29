@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { GeneralPostComposer } from '../components/publishing/GeneralPostComposer';
-import { PostContentType } from '../types/general-posts';
+import { GeneralPostType, PostContentType } from '../types/general-posts';
+import { FeatureActivity, useFeatureActive } from '../features/FeatureActivity';
 import {
   Upload,
   Film,
@@ -29,7 +30,10 @@ interface Props {
 }
 
 export const PublishingView: React.FC<Props> = () => {
-  const [postType, setPostType] = useState<PostContentType>('reel');
+  const featureActive = useFeatureActive();
+  const [postType, setPostTypeState] = useState<PostContentType>('reel');
+  const [generalPostType, setGeneralPostType] = useState<GeneralPostType | null>(null);
+  const setPostType = (type: PostContentType) => { setPostTypeState(type); if (type !== 'reel') setGeneralPostType(type); };
   const [inspectMediaModal, setInspectMediaModal] = useState<{
     url: string;
     title: string;
@@ -44,6 +48,9 @@ export const PublishingView: React.FC<Props> = () => {
     videos,
     accounts,
     queue,
+    activeQueueTotal,
+    activeQueueHasMore,
+    resourceError,
     pipelineFiles,
     watchIdentityIncomplete,
     pipelineJobs,
@@ -89,6 +96,7 @@ export const PublishingView: React.FC<Props> = () => {
     submitting,
     submitError,
     loadData,
+    refreshPublishing,
     handleFileUpload,
     handleImportPipelineFile,
     handleImportPipelineJob,
@@ -264,17 +272,20 @@ export const PublishingView: React.FC<Props> = () => {
         </div>
       )}
 
-      {activeTab === 'compose' && postType !== 'reel' && (
+      {resourceError && <p role="alert" className="text-xs text-rose-300 border border-rose-500/30 rounded-xl p-3">{resourceError} <button className="underline" onClick={() => void loadData()}>Refresh publishing data</button></p>}
+      {generalPostType && <div hidden={activeTab !== 'compose' || postType === 'reel'} inert={activeTab !== 'compose' || postType === 'reel'}>
+        <FeatureActivity active={featureActive && activeTab === 'compose' && postType !== 'reel'}>
         <GeneralPostComposer
           accounts={accounts}
-          contentType={postType}
+          contentType={generalPostType}
           onContentTypeChange={setPostType}
           onQueued={() => {
-            void loadData();
+            void refreshPublishing();
             setActiveTab('queue');
           }}
         />
-      )}
+        </FeatureActivity>
+      </div>}
 
       {/* TAB 1: COMPOSE & MULTI-DESTINATION PUBLISHING */}
       {activeTab === 'compose' && postType === 'reel' && (
@@ -947,14 +958,19 @@ export const PublishingView: React.FC<Props> = () => {
       )}
 
       {/* TAB 2: PUBLISHING QUEUE & HISTORY */}
-      {activeTab === 'queue' && (
+      <div hidden={activeTab !== 'queue'} inert={activeTab !== 'queue'}>
+        <FeatureActivity active={featureActive && activeTab === 'queue'}>
         <QueueTable
           queue={queue}
+          activeTotal={activeQueueTotal}
+          activeHasMore={activeQueueHasMore}
+          enabled={featureActive && activeTab === 'queue'}
           onRetry={handleRetryDestination}
           onCancel={handleCancelDestination}
-          onRefresh={loadData}
+          onRefresh={refreshPublishing}
         />
-      )}
+        </FeatureActivity>
+      </div>
 
       {/* TAB 3: VIDEO LIBRARY & AI PIPELINE IMPORT */}
       {activeTab === 'library' && (

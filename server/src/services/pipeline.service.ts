@@ -8,6 +8,7 @@ import { ffmpegService } from './ffmpeg.service.js';
 import { publishingRepo } from '../repositories/publishing.repo.js';
 import { activityRepo } from '../repositories/activity.repo.js';
 import { fingerprintPipelineSource, getOwnerClassification, isPipelineHidden, isWatchFileHidden } from './test-data-metadata.service.js';
+import { pipelineVideoMatchesSource, pipelineVideoHasSource } from '../domain/pipeline-identity.js';
 
 export interface DiscoveredPipelineVideo {
   filename: string;
@@ -192,7 +193,7 @@ export class PipelineService {
     } catch { return false; } finally { if (fd !== undefined) fs.closeSync(fd); }
   }
 
-  private getImportedVideosByPipelineJobIds(jobIds: string[]): Map<string, { id: string }> {
+  private getImportedVideosByPipelineJobIds(jobIds: string[], apiUrl: string): Map<string, { id: string }> {
     const unique = Array.from(new Set(jobIds.map((id) => String(id || '').trim()).filter(Boolean)));
     const result = new Map<string, { id: string }>();
     if (unique.length === 0) return result;
@@ -201,10 +202,10 @@ export class PipelineService {
       const chunk = unique.slice(i, i + 400);
       const placeholders = chunk.map(() => '?').join(',');
       const rows = db
-        .prepare(`SELECT id, pipeline_job_id FROM videos WHERE pipeline_job_id IN (${placeholders})`)
-        .all(...chunk) as Array<{ id: string; pipeline_job_id: string }>;
+        .prepare(`SELECT id, pipeline_job_id, metadata_json FROM videos WHERE pipeline_job_id IN (${placeholders})`)
+        .all(...chunk) as Array<{ id: string; pipeline_job_id: string; metadata_json: string }>;
       for (const row of rows) {
-        if (row.pipeline_job_id && !result.has(row.pipeline_job_id)) {
+        if (row.pipeline_job_id && pipelineVideoMatchesSource(row.metadata_json, apiUrl) && !result.has(row.pipeline_job_id)) {
           result.set(row.pipeline_job_id, { id: row.id });
         }
       }
@@ -214,7 +215,7 @@ export class PipelineService {
 
   private normalizeRawProjectBatch(rawProjects: any[], apiUrl: string): DiscoveredPipelineJob[] {
     const jobIds = rawProjects.map((p) => String(p?.id || p?.jobId || '').trim()).filter(Boolean);
-    const importedMap = this.getImportedVideosByPipelineJobIds(jobIds);
+    const importedMap = this.getImportedVideosByPipelineJobIds(jobIds, apiUrl);
     return rawProjects.map((p) => {
       const jobId = String(p?.id || p?.jobId || '').trim();
       return this.normalizeRawProject(p, apiUrl, importedMap.get(jobId) || null);
@@ -224,7 +225,7 @@ export class PipelineService {
   private normalizeRawProject(p: any, apiUrl: string, existing?: { id: string } | null): DiscoveredPipelineJob {
     const jobId = String(p?.id || p?.jobId || '').trim();
     const sourceFingerprint = fingerprintPipelineSource(apiUrl);
-    const resolvedExisting = existing !== undefined ? existing : (jobId ? publishingRepo.getVideoByPipelineJobId(jobId) : undefined);
+    const resolvedExisting = existing !== undefined ? existing : (jobId ? publishingRepo.getVideoByPipelineJobId(jobId, apiUrl) : undefined);
     const rawTitle = typeof p?.title === 'string' ? p.title.trim() : '';
     const title = rawTitle || (jobId ? `Untitled Project (${jobId.slice(0, 8)})` : 'Untitled Project');
     const rawAspect = typeof p?.aspect_ratio === 'string' && p.aspect_ratio.trim() ? p.aspect_ratio.trim() : null;
@@ -1283,14 +1284,19 @@ export class PipelineService {
     }
 
     // 1. Check if already imported in DB with verified file on disk
-    const existing = publishingRepo.getVideoByPipelineJobId(jobId);
+    const apiUrl = this.getPipelineApiUrl();
+    const sourceKey = fingerprintPipelineSource(apiUrl) + ':' + jobId;
+    const existing = publishingRepo.getVideoByPipelineJobId(jobId, apiUrl);
+    if (!existing && publishingRepo.getPipelineJobVideos(jobId).some(row => !pipelineVideoHasSource(row.metadata_json))) {
+      throw new Error('Existing legacy Pipeline master cannot be verified for this source; owner review is required before another import.');
+    }
     if (existing) {
       if (!this.verifyStoredMaster(existing as any)) throw new Error('Existing Pipeline master cannot be verified; owner review is required.');
       return { videoId: existing.id, alreadyExisted: true };
     }
 
     // 2. Coalesce concurrent in-flight imports for the exact same jobId
-    const inFlight = this.inFlightJobImports.get(jobId);
+    const inFlight = this.inFlightJobImports.get(sourceKey);
     if (inFlight) {
       const joined = await inFlight;
       return { videoId: joined.videoId, alreadyExisted: true };
@@ -1298,28 +1304,29 @@ export class PipelineService {
 
     const importPromise = this.performPipelineJobImport({
       jobId,
+      apiUrl,
       categoryId: params.categoryId,
       customTitle: params.customTitle,
     });
-    this.inFlightJobImports.set(jobId, importPromise);
+    this.inFlightJobImports.set(sourceKey, importPromise);
 
     try {
       return await importPromise;
     } finally {
-      this.inFlightJobImports.delete(jobId);
+      this.inFlightJobImports.delete(sourceKey);
     }
   }
 
   private async performPipelineJobImport(params: {
     jobId: string;
+    apiUrl: string;
     categoryId?: string;
     customTitle?: string;
   }): Promise<{ videoId: string; alreadyExisted: boolean }> {
-    const { jobId, categoryId, customTitle } = params;
-    const apiUrl = this.getPipelineApiUrl();
+    const { jobId, categoryId, customTitle, apiUrl } = params;
 
     // Re-check DB before network calls
-    const existingBeforeFetch = publishingRepo.getVideoByPipelineJobId(jobId);
+    const existingBeforeFetch = publishingRepo.getVideoByPipelineJobId(jobId, apiUrl);
     if (existingBeforeFetch) {
       if (!this.verifyStoredMaster(existingBeforeFetch as any)) throw new Error('Existing Pipeline master cannot be verified; owner review is required.');
       return { videoId: existingBeforeFetch.id, alreadyExisted: true };
@@ -1455,7 +1462,7 @@ export class PipelineService {
 
       // Atomic check-and-insert inside SQLite transaction to eliminate race conditions
       const txResult = db.transaction(() => {
-        const raceExisting = publishingRepo.getVideoByPipelineJobId(jobId);
+        const raceExisting = publishingRepo.getVideoByPipelineJobId(jobId, apiUrl);
         if (raceExisting) {
           if (!this.verifyStoredMaster(raceExisting as any)) throw new Error('Existing Pipeline master cannot be verified; owner review is required.');
           return { videoId: raceExisting.id, alreadyExisted: true };
@@ -1479,6 +1486,7 @@ export class PipelineService {
             sha256,
             source: 'ai_video_pipeline',
             upstreamJobId: jobId,
+            pipelineSourceFingerprint: fingerprintPipelineSource(apiUrl),
             hasAudio: meta.hasAudio,
             videoCodec: meta.videoCodec,
             audioCodec: meta.audioCodec,

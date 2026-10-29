@@ -5,6 +5,7 @@ export interface ActivityFilters {
   type?: string;
   severity?: string;
   limit?: number;
+  offset?: number;
 }
 
 export class ActivityRepository {
@@ -40,10 +41,19 @@ export class ActivityRepository {
       params.push(severity);
     }
 
-    query += ' ORDER BY act.created_at DESC LIMIT ?';
-    params.push(limit);
+    query += ' ORDER BY act.created_at DESC, act.id DESC LIMIT ? OFFSET ?';
+    params.push(Math.max(1, Math.min(100, Math.trunc(limit))), typeof filters === 'object' ? Math.max(0, Math.trunc(filters.offset || 0)) : 0);
 
     return db.prepare(query).all(...params);
+  }
+
+  getEventCount(filters: ActivityFilters = {}): number {
+    let query = `SELECT COUNT(*) AS total FROM activity_events act LEFT JOIN accounts a ON a.id=act.account_id
+      WHERE (a.id IS NULL OR (a.is_demo=0 AND a.archived_at IS NULL))`;
+    const params: string[] = [];
+    if (filters.type) { query += ' AND act.type=?'; params.push(filters.type); }
+    if (filters.severity) { query += ' AND act.severity=?'; params.push(filters.severity); }
+    return (db.prepare(query).get(...params) as { total: number }).total;
   }
 
   logEvent(data: {
@@ -71,6 +81,8 @@ export class ActivityRepository {
   }
 
   deleteEvent(id: string): void {
+    const event = db.prepare('SELECT type FROM activity_events WHERE id=?').get(id) as {type:string}|undefined;
+    if (event && ['media_render_pinned','test_data_deleted','scc_content_reset_safety'].includes(event.type)) throw new Error('Publication pins and cleanup receipts are retained safety records.');
     db.prepare('DELETE FROM activity_events WHERE id = ?').run(id);
   }
 }

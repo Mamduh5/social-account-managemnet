@@ -1,31 +1,42 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api/client';
 import { Account, Category } from '../types';
+import { readAllAccounts, readCategories } from '../api/reference-resources';
+import { useFeatureActive } from '../features/FeatureActivity';
+import { useResourceRefresh } from '../api/resource-events';
 
 export function useAccounts() {
+  const active = useFeatureActive();
+  const generation = useRef(0);
+  const [error, setError] = useState('');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [testingHealthId, setTestingHealthId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
+    const request = ++generation.current;
     try {
       const [accRes, catRes] = await Promise.all([
-        api.getAccounts(true),
-        api.getCategories(),
+        readAllAccounts(),
+        readCategories(),
       ]);
+      if (request !== generation.current) return;
       setAccounts(accRes.accounts || []);
       setCategories(catRes.categories || []);
+      setError('');
     } catch (err) {
-      console.error('Failed to load accounts/categories:', err);
+      if (request === generation.current) setError(err instanceof Error ? err.message : 'Accounts could not be loaded.');
     } finally {
-      setLoading(false);
+      if (request === generation.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (active) void loadData();
+    return () => { generation.current++; };
+  }, [loadData, active]);
+  useResourceRefresh(['accounts', 'categories'], loadData);
 
   const testHealth = async (id: string) => {
     setTestingHealthId(id);
@@ -33,7 +44,7 @@ export function useAccounts() {
       await api.testAccountHealth(id);
       await loadData();
     } catch (err) {
-      console.error(err);
+      setError(err instanceof Error ? err.message : 'Account health could not be checked.');
     } finally {
       setTestingHealthId(null);
     }
@@ -44,7 +55,7 @@ export function useAccounts() {
       await api.reconnectAccount(id);
       await loadData();
     } catch (err) {
-      console.error(err);
+      setError(err instanceof Error ? err.message : 'Account could not be reconnected.');
     }
   };
 
@@ -53,12 +64,13 @@ export function useAccounts() {
       await api.updateAccount(account.id, { connectorMode: newMode });
       await loadData();
     } catch (err) {
-      console.error(err);
+      setError(err instanceof Error ? err.message : 'Account could not be updated.');
     }
   };
 
   return {
     accounts,
+    error,
     categories,
     loading,
     testingHealthId,

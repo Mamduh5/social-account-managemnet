@@ -1,3 +1,4 @@
+import './helpers/require-isolated-db.js';
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import fs from 'fs';

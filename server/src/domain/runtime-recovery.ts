@@ -1,7 +1,7 @@
 export const protectedManualDestinationIds=['dest-mvf5hdwf-19hi','dest-mvf5j24q-ub0y','dest-mvf5j24r-rw4x'];
-export function assertOwnerQueueSafe(jobs:{id:string;status:string;scheduled_at?:string|null;remote_post_id?:string|null}[],awaitingIds:string[],now=Date.now()){
+export function assertOwnerQueueSafe(jobs:{id:string;status:string;scheduled_at?:string|null;remote_post_id?:string|null}[],awaitingIds:string[],now=Date.now(),retiredIds:string[]=[]){
  if(jobs.some(j=>j.status!=='scheduled'||!j.scheduled_at||!Number.isFinite(Date.parse(j.scheduled_at))||Date.parse(j.scheduled_at)<=now||j.remote_post_id))throw new Error('Owner startup blocked: in-flight, uncertain or overdue jobs require owner reconciliation');
- if(JSON.stringify([...awaitingIds].sort())!==JSON.stringify([...protectedManualDestinationIds].sort()))throw new Error('Protected manual destinations changed; review before restoration');
+ if(retiredIds.some(id=>!protectedManualDestinationIds.includes(id))||awaitingIds.some(id=>retiredIds.includes(id))||JSON.stringify([...awaitingIds,...retiredIds].sort())!==JSON.stringify([...protectedManualDestinationIds].sort()))throw new Error('Protected manual destinations changed; review before restoration');
 }
 
 /** Managed sign-in startup preserves ambiguous jobs rather than resetting/replaying them. */

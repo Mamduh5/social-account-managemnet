@@ -24,6 +24,7 @@ export interface TestDataPreviewRecord extends TestDataSelection {
 export interface TestDataPreview {
   previewId: string;
   records: TestDataPreviewRecord[];
+  suggestedRecords?: (TestDataSelection & {name:string})[];
   total: number;
   canDelete: boolean;
   unchanged: string[];

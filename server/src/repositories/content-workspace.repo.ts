@@ -63,7 +63,11 @@ export const contentWorkspaceRepo = {
     db.prepare('UPDATE content_operating_limits SET paused=?,max_batch_size=?,daily_draft_limit=? WHERE id=1').run(paused ? 1 : 0, batch, daily);
     this.audit('assistant_limits', 'limits_updated', null, { paused, batch, daily }); return this.limits();
   },
-  generatedToday() { return (db.prepare("SELECT COUNT(*) count FROM assistant_drafts WHERE source IN ('provider','fixture') AND date(created_at)=date('now')").get() as any).count as number; },
+  generatedToday() { return (db.prepare(`SELECT COUNT(*) count FROM (
+    SELECT id FROM assistant_drafts WHERE source IN ('provider','fixture') AND date(created_at)=date('now')
+    UNION SELECT entity_id FROM content_workspace_audit WHERE action='draft_created' AND date(created_at)=date('now')
+      AND json_valid(detail_json) AND json_extract(detail_json,'$.source') IN ('provider','fixture')
+  )`).get() as any).count as number; },
   groups() { return db.prepare('SELECT * FROM facebook_group_plans ORDER BY created_at DESC,rowid DESC').all() as any[]; },
   group(id: string) { return db.prepare('SELECT * FROM facebook_group_plans WHERE id=?').get(id) as any; },
   saveGroup(id: string | undefined, input: { name: string; url: string; identityType: string; accountId: string | null; membership: string; category: string; notes: string; rules: string; rulesReviewedAt: string | null }) {

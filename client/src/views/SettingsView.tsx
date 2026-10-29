@@ -1,13 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../api/client';
 import { Account } from '../types';
 import { TestDataManagerView } from './TestDataManagerView';
+import { useFeatureActive } from '../features/FeatureActivity';
+import { useResourceRefresh } from '../api/resource-events';
+import { readAccounts } from '../api/reference-resources';
 import { 
   Settings, Folder, Globe, Compass, 
   Save, Database 
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
+  const active = useFeatureActive();
+  const dirty = useRef(false), draft = useRef('');
+  const [error, setError] = useState('');
   const [watchDir, setWatchDir] = useState('');
   const [pipelineFiles, setPipelineFiles] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -17,34 +23,38 @@ export const SettingsView: React.FC = () => {
   const [bridgeMessage, setBridgeMessage] = useState<string | null>(null);
   const [managingTestData, setManagingTestData] = useState(false);
 
-  const loadData = async () => {
+  const loadData = useCallback(async (withAccounts = true) => {
     try {
       const [pipeRes, accRes] = await Promise.all([
         api.getPipelineStatus(),
-        api.getAccounts(),
+        withAccounts ? readAccounts() : Promise.resolve(null),
       ]);
-      setWatchDir(pipeRes.watchDir || '');
+      if (!dirty.current) { setWatchDir(pipeRes.watchDir || ''); draft.current = pipeRes.watchDir || ''; }
       setPipelineFiles(pipeRes.files || []);
-      setAccounts(accRes.accounts || []);
+      if (accRes) setAccounts(accRes.accounts || []);
+      setError('');
     } catch (err) {
-      console.error(err);
+      setError(err instanceof Error ? err.message : 'Settings resources could not be loaded.');
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (active) void loadData();
+  }, [active, loadData]);
+  useResourceRefresh(['pipeline'], () => loadData(false));
 
   const handleSaveWatchDir = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingDir(true);
+    const submitted = watchDir;
     try {
-      await api.updateWatchDir(watchDir);
+      await api.updateWatchDir(submitted);
+      if (draft.current === submitted) dirty.current = false;
       setDirSaveSuccess(true);
       setTimeout(() => setDirSaveSuccess(false), 3000);
-      await loadData();
+      await loadData(false);
     } catch (err) {
-      console.error(err);
+      setError(err instanceof Error ? err.message : 'Watch directory could not be saved.');
     } finally {
       setSavingDir(false);
     }
@@ -67,6 +77,7 @@ export const SettingsView: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {error && <p role="alert" className="text-sm text-rose-300">{error} <button className="underline" onClick={() => void loadData()}>Retry</button></p>}
       {/* Header */}
       <div className="bg-surface-card p-5 sm:p-6 rounded-2xl border border-border shadow-xs">
         <div className="flex items-center gap-2 mb-1">
@@ -105,7 +116,7 @@ export const SettingsView: React.FC = () => {
               <input
                 type="text"
                 value={watchDir}
-                onChange={(e) => setWatchDir(e.target.value)}
+                onChange={(e) => { dirty.current = true; draft.current = e.target.value; setWatchDir(e.target.value); }}
                 placeholder="D:\Mamduh\Personal\ai-video-pipeline\.tmp-live-validation"
                 className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-slate-100 font-mono text-xs focus:outline-none focus:border-terracotta-500"
               />

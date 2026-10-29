@@ -16,6 +16,8 @@ import {
 import { inspectReleaseSource, prepareOwnerRelease } from './lib/owner-release-prepare.js';
 import { activateOwnerRelease } from './lib/owner-release-activation.js';
 import { assertOwnerQueueSafe } from '../server/src/domain/runtime-recovery.js';
+import { retiredManualIds } from './lib/content-reset.js';
+import { architectureSchemaReady } from '../server/src/db/architecture-schema.js';
 
 const root = path.resolve(__dirname, '..');
 const args = process.argv.slice(2);
@@ -140,7 +142,7 @@ async function backupOwner(config: OwnerConfiguration, runDirectory: string) {
       FROM publishing_destinations pd JOIN publishing_posts p ON p.id=pd.post_id
       WHERE pd.status IN ('preparing','branding','uploading','scheduled')`).all() as any[];
     const holds = source.prepare("SELECT * FROM publishing_destinations WHERE status='awaiting_confirmation' ORDER BY id").all() as any[];
-    assertOwnerQueueSafe(jobs, holds.map(row => row.id));
+    assertOwnerQueueSafe(jobs, holds.map(row => row.id), Date.now(), retiredManualIds(source));
     if (jobs.some(row => row.submission_state) || source.prepare("SELECT 1 FROM publishing_destinations WHERE status='failed' AND (remote_post_id IS NOT NULL OR submission_state IS NOT NULL) LIMIT 1").get()) {
       throw new Error('Uncertain submission needs reconciliation before release maintenance');
     }
@@ -196,9 +198,13 @@ async function main() {
     let source: unknown;
     try { source = { ready: true, revision: inspectReleaseSource(root, options.revision).revision }; }
     catch (error: any) { source = { ready: false, reason: error.message }; }
+    const database = new Database(path.join(current.dataDir, 'social_command_center.db'), {readonly:true,fileMustExist:true});
+    let architecture;
+    try { architecture = {schemaReady:architectureSchemaReady(database),retiredManualHolds:retiredManualIds(database),activationRequiresSchemaCompatibilityReview:true}; }
+    finally { database.close(); }
     console.log(JSON.stringify({ readOnly: true, configuredRevision: current.releaseRevision, releaseRoot: current.releaseRoot,
       clientDist: current.clientDist, workingClientDist: path.join(root, 'client', 'dist'), manifestFilesVerified: verified.fileCount,
-      runtime: ownedRuntime(current), source, note: 'build:client does not promote the pinned owner release.' }, null, 2));
+      runtime: ownedRuntime(current), source, architecture, note: 'build:client does not promote the pinned owner release.' }, null, 2));
     return;
   }
   let candidate: OwnerConfiguration;

@@ -41,6 +41,18 @@ test('External reply imports use exact official Page context, redact secrets and
   assert.throws(()=>assistant.edit(d.id,{accountId:'reply-page-b',revision:d.revision,content:'move'}),/cannot move/);
 });
 
+test('a remotely identical comment imported with a new local ID cannot bypass retained reply evidence',async()=>{
+  const original=draft();let sends=0;
+  const service=new ReplyDraftsService(assistant,()=>connector({replyComment:async()=>{sends++;return {success:true,replyId:'stable-reply'};},verifyCommentReply:async()=>({confirmed:true,replyId:'stable-reply'})}));
+  assistant.review(original.draft.id,{accountId:'reply-page-a',revision:1});
+  await service.send(original.draft.id,{accountId:'reply-page-a',revision:1,confirmSend:true});
+  const remote=(db.prepare('SELECT external_comment_id FROM comments WHERE id=?').get(original.commentId) as any).external_comment_id;
+  db.prepare('DELETE FROM comments WHERE id=?').run(original.commentId);
+  db.prepare("INSERT INTO comments(id,account_id,platform,external_comment_id,author_name,content,created_time,source) VALUES ('rediscovered','reply-page-a','facebook',?,'Commenter','Same remote comment','2026-10-29','meta_graph_api')").run(remote);
+  await assert.rejects(()=>service.sendManual('rediscovered',{accountId:'reply-page-a',text:'Do not send again'}),/submission already exists/);
+  assert.equal(sends,1);
+});
+
 test('Reply approval is invalidated by editing, and a changed comment or editorial profile blocks sending',async()=>{
   const {draft:d,commentId}=draft();const service=new ReplyDraftsService(assistant,()=>connector());
   assistant.review(d.id,{accountId:d.account_id,revision:d.revision});

@@ -766,7 +766,7 @@ const CampaignReviewModal:React.FC<{campaignId:string;onClose:()=>void;onApprove
   </Modal>;
 };
 
-const PreparedPlanModal: React.FC<{accountId:string;accountName:string;onClose:()=>void;onImported:()=>Promise<void>}> = ({accountId,accountName,onClose,onImported}) => {
+export const PreparedPlanModal: React.FC<{accountId:string;accountName:string;onClose:()=>void;onImported:()=>Promise<void>}> = ({accountId,accountName,onClose,onImported}) => {
   const [context,setContext] = useState<any>(null);
   const [prepared,setPrepared] = useState('');
   const [error,setError] = useState('');
@@ -794,18 +794,17 @@ const PreparedPlanModal: React.FC<{accountId:string;accountName:string;onClose:(
     } catch(e:any){setError(e.message || 'Paste valid prepared-plan JSON');}
     finally{setBusy(false);}
   };
-  return <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div role="dialog" aria-modal="true" aria-label="Import Prepared Plan" className="bg-surface-card border border-border rounded-2xl max-w-2xl w-full p-5 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
-      <div className="flex items-center justify-between"><h3 className="font-bold text-sm text-slate-100">Import Prepared Plan</h3><button onClick={onClose} aria-label="Close prepared plan" className="text-slate-400"><X className="w-4 h-4" /></button></div>
+  return <Modal isOpen onClose={onClose} title="Import Prepared Plan" maxWidth="max-w-2xl" manageFocus scrollBody dismissible={!busy}>
+    <div className="space-y-4 overflow-y-auto min-h-0">
       <p className="text-xs text-slate-200">Destination Page: <strong>{accountName}</strong></p>
       <p className="text-xs text-slate-400">Use this Page brief with your creative operator, such as Codex or Gemini in Antigravity. Paste the prepared plan here to save unapproved campaign drafts. Review and approval remain separate owner actions.</p>
       {error && <p role="alert" className="text-xs text-rose-300 p-2 rounded-lg bg-rose-500/10">{error}</p>}
       <details className="text-xs text-slate-300"><summary className="cursor-pointer">Page brief and available media</summary><pre className="text-[10px] bg-background p-2 mt-2 rounded-lg whitespace-pre-wrap break-words max-h-48 overflow-y-auto">{context?JSON.stringify(context,null,2):'Loading Page brief...'}</pre></details>
       <button disabled={!context} onClick={async()=>{try{await navigator.clipboard.writeText(JSON.stringify(context,null,2));setCopied(true);}catch{setError('Copy the Page brief from the expanded text.');}}} className="px-3 py-1.5 bg-surface border border-border rounded-xl text-xs text-slate-200 disabled:opacity-50">{copied?'Page Brief Copied':'Copy Page Brief'}</button>
-      <label className="block text-xs text-slate-300">Prepared plan JSON<textarea aria-label="Prepared plan JSON" value={prepared} onChange={e=>setPrepared(e.target.value)} rows={10} placeholder={'{"contextFingerprint":"from Page brief","plan":{"accountId":"'+accountId+'",...}}'} className="mt-1 w-full bg-background border border-border rounded-xl p-2.5 text-slate-200 font-mono text-[11px]" /></label>
-      <div className="flex justify-end gap-2"><button onClick={onClose} className="px-3 py-2 text-xs text-slate-300">Cancel</button><button onClick={importPlan} disabled={busy||!context||!prepared.trim()} className="px-4 py-2 rounded-xl bg-terracotta-600 text-white text-xs font-bold disabled:opacity-50">{busy?'Saving Drafts...':'Save Prepared Drafts'}</button></div>
+      <label className="block text-xs text-slate-300">Prepared plan JSON<textarea aria-label="Prepared plan JSON" disabled={busy} value={prepared} onChange={e=>setPrepared(e.target.value)} rows={10} placeholder={'{"contextFingerprint":"from Page brief","plan":{"accountId":"'+accountId+'",...}}'} className="mt-1 w-full bg-background border border-border rounded-xl p-2.5 text-slate-200 font-mono text-[11px]" /></label>
+      <div className="flex justify-end gap-2"><button onClick={onClose} disabled={busy} className="px-3 py-2 text-xs text-slate-300">Cancel</button><button onClick={importPlan} disabled={busy||!context||!prepared.trim()} className="px-4 py-2 rounded-xl bg-terracotta-600 text-white text-xs font-bold disabled:opacity-50">{busy?'Saving Drafts...':'Save Prepared Drafts'}</button></div>
     </div>
-  </div>;
+  </Modal>;
 };
 
 interface CreatePlanModalProps {
@@ -815,7 +814,7 @@ interface CreatePlanModalProps {
   onCreate: (plan: CampaignPlanInput) => Promise<void>;
 }
 
-const CreatePlanModal: React.FC<CreatePlanModalProps> = ({
+export const CreatePlanModal: React.FC<CreatePlanModalProps> = ({
   accountId,
   accountName,
   onClose,
@@ -877,17 +876,8 @@ const CreatePlanModal: React.FC<CreatePlanModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-surface-card border border-border rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-xl">
-        <div className="flex items-center justify-between border-b border-border pb-3">
-          <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-            <CalendarIcon className="w-4 h-4 text-terracotta-400" />
-            Create Campaign Plan for {accountName}
-          </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-200">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+    <Modal isOpen onClose={onClose} title={`Create Campaign Plan for ${accountName}`} maxWidth="max-w-lg" manageFocus scrollBody dismissible={!loading}>
+      <fieldset disabled={loading} className="space-y-4 overflow-y-auto min-h-0">
 
         {error && (
           <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs rounded-xl">
@@ -897,8 +887,9 @@ const CreatePlanModal: React.FC<CreatePlanModalProps> = ({
 
         <div className="space-y-3 text-xs">
           <div>
-            <label className="font-semibold text-slate-300 block mb-1">Campaign Name</label>
+            <label htmlFor="campaign-name" className="font-semibold text-slate-300 block mb-1">Campaign Name</label>
             <input
+              id="campaign-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -958,6 +949,7 @@ const CreatePlanModal: React.FC<CreatePlanModalProps> = ({
         <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
           <button
             onClick={onClose}
+            disabled={loading}
             className="px-3.5 py-1.5 bg-surface hover:bg-surface-hover text-slate-300 rounded-xl text-xs font-semibold cursor-pointer"
           >
             Cancel
@@ -971,7 +963,7 @@ const CreatePlanModal: React.FC<CreatePlanModalProps> = ({
             Create {days}-Day Plan
           </button>
         </div>
-      </div>
-    </div>
+      </fieldset>
+    </Modal>
   );
 };

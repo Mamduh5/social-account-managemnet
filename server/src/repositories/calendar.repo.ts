@@ -6,7 +6,6 @@ import {
   type PlanOrigin,
   formatBangkokDateTime,
 } from '../domain/content-calendar.js';
-import { generalPostsRepo } from './general-posts.repo.js';
 
 export class CalendarRepository {
   ready(): boolean {
@@ -16,139 +15,41 @@ export class CalendarRepository {
     return !!table;
   }
 
-  getCampaigns(accountId?: string): CampaignSummary[] {
-    if (!this.ready()) return [];
-    let query = `
-      SELECT c.*, a.name as account_name, a.handle as account_handle, a.platform
-      FROM publishing_campaigns c
-      JOIN accounts a ON c.account_id = a.id
-    `;
-    const params: any[] = [];
-    if (accountId) {
-      query += ' WHERE c.account_id = ?';
-      params.push(accountId);
-    }
-    query += ' ORDER BY c.created_at DESC';
-
-    const rows = db.prepare(query).all(...params) as any[];
-
-    return rows.map((row) => {
-      // Aggregate counts for items in this campaign
-      const draftStats = db
-        .prepare(`
-          SELECT
-            count(*) as total_drafts,
-            sum(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved_drafts,
-            sum(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as raw_drafts
-          FROM publishing_drafts
-          WHERE campaign_id = ? AND queued_post_id IS NULL AND status != 'rejected'
-        `)
-        .get(row.id) as any;
-
-      const destStats = db
-        .prepare(`
-          SELECT
-            count(*) as total_dests,
-            sum(CASE WHEN status = 'published' THEN 1 ELSE 0 END) as published,
-            sum(CASE WHEN status = 'scheduled' THEN 1 ELSE 0 END) as scheduled,
-            sum(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-          FROM publishing_destinations
-          WHERE campaign_id = ? AND status != 'cancelled'
-        `)
-        .get(row.id) as any;
-
-      const totalItems = (draftStats?.total_drafts || 0) + (destStats?.total_dests || 0);
-
-      return {
-        id: row.id,
-        accountId: row.account_id,
-        accountName: row.account_name,
-        accountHandle: row.account_handle,
-        platform: row.platform,
-        name: row.name,
-        editorialScope: row.editorial_scope,
-        startDate: row.start_date,
-        endDate: row.end_date,
-        days: row.days,
-        maxPublications: row.max_publications,
-        status: row.status as CampaignStatus,
-        origin: row.origin as PlanOrigin,
-        approvedRevision: row.approved_revision,
-        approvedHash: row.approved_hash,
-        approvedAt: row.approved_at,
-        itemsCount: totalItems,
-        publishedCount: destStats?.published || 0,
-        scheduledCount: destStats?.scheduled || 0,
-        draftCount: draftStats?.raw_drafts || 0,
-        failedCount: destStats?.failed || 0,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      };
-    });
+  private campaignSummaries(field?:'id'|'account_id',value?:string): CampaignSummary[] {
+    const rows=db.prepare(`
+      WITH Selected AS (
+        SELECT c.*,a.name account_name,a.handle account_handle,a.platform
+        FROM publishing_campaigns c JOIN accounts a ON a.id=c.account_id ${field?'WHERE c.'+field+'=?':''}
+      ), DraftCounts AS (
+        SELECT d.campaign_id,COUNT(*) total_drafts,SUM(CASE WHEN d.status='draft' THEN 1 ELSE 0 END) raw_drafts
+        FROM publishing_drafts d JOIN Selected c ON c.id=d.campaign_id
+        WHERE d.queued_post_id IS NULL AND d.status<>'rejected' GROUP BY d.campaign_id
+      ), DestinationCounts AS (
+        SELECT d.campaign_id,COUNT(*) total_dests,SUM(d.status='published') published,SUM(d.status='scheduled') scheduled,SUM(d.status='failed') failed
+        FROM publishing_destinations d JOIN Selected c ON c.id=d.campaign_id WHERE d.status<>'cancelled' GROUP BY d.campaign_id
+      )
+      SELECT c.*,drafts.total_drafts,drafts.raw_drafts,dests.total_dests,dests.published,dests.scheduled,dests.failed
+      FROM Selected c LEFT JOIN DraftCounts drafts ON drafts.campaign_id=c.id LEFT JOIN DestinationCounts dests ON dests.campaign_id=c.id
+      ORDER BY c.created_at DESC,c.id DESC
+    `).all(...(field?[value]:[])) as any[];
+    return rows.map(row=>({id:row.id,accountId:row.account_id,accountName:row.account_name,accountHandle:row.account_handle,platform:row.platform,
+      name:row.name,editorialScope:row.editorial_scope,startDate:row.start_date,endDate:row.end_date,days:row.days,maxPublications:row.max_publications,
+      status:row.status as CampaignStatus,origin:row.origin as PlanOrigin,approvedRevision:row.approved_revision,approvedHash:row.approved_hash,approvedAt:row.approved_at,
+      itemsCount:(row.total_drafts||0)+(row.total_dests||0),publishedCount:row.published||0,scheduledCount:row.scheduled||0,draftCount:row.raw_drafts||0,failedCount:row.failed||0,
+      createdAt:row.created_at,updatedAt:row.updated_at}));
   }
 
-  getCampaignById(id: string): CampaignSummary | null {
-    if (!this.ready()) return null;
-    const row = db
-      .prepare(`
-        SELECT c.*, a.name as account_name, a.handle as account_handle, a.platform
-        FROM publishing_campaigns c
-        JOIN accounts a ON c.account_id = a.id
-        WHERE c.id = ?
-      `)
-      .get(id) as any;
-    if (!row) return null;
+  getCampaigns(accountId?: string): CampaignSummary[] { return this.ready()?this.campaignSummaries(accountId?'account_id':undefined,accountId):[]; }
 
-    const draftStats = db
-      .prepare(`
-        SELECT
-          count(*) as total_drafts,
-          sum(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved_drafts,
-          sum(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as raw_drafts
-        FROM publishing_drafts
-        WHERE campaign_id = ? AND queued_post_id IS NULL AND status != 'rejected'
-      `)
-      .get(row.id) as any;
+  getCampaignById(id: string): CampaignSummary | null { return this.ready()?this.campaignSummaries('id',id)[0]||null:null; }
 
-    const destStats = db
-      .prepare(`
-        SELECT
-          count(*) as total_dests,
-          sum(CASE WHEN status = 'published' THEN 1 ELSE 0 END) as published,
-          sum(CASE WHEN status = 'scheduled' THEN 1 ELSE 0 END) as scheduled,
-          sum(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-        FROM publishing_destinations
-        WHERE campaign_id = ? AND status != 'cancelled'
-      `)
-      .get(row.id) as any;
-
-    const totalItems = (draftStats?.total_drafts || 0) + (destStats?.total_dests || 0);
-
-    return {
-      id: row.id,
-      accountId: row.account_id,
-      accountName: row.account_name,
-      accountHandle: row.account_handle,
-      platform: row.platform,
-      name: row.name,
-      editorialScope: row.editorial_scope,
-      startDate: row.start_date,
-      endDate: row.end_date,
-      days: row.days,
-      maxPublications: row.max_publications,
-      status: row.status as CampaignStatus,
-      origin: row.origin as PlanOrigin,
-      approvedRevision: row.approved_revision,
-      approvedHash: row.approved_hash,
-      approvedAt: row.approved_at,
-      itemsCount: totalItems,
-      publishedCount: destStats?.published || 0,
-      scheduledCount: destStats?.scheduled || 0,
-      draftCount: draftStats?.raw_drafts || 0,
-      failedCount: destStats?.failed || 0,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
+  private byIds(table:'accounts'|'videos'|'media_images',ids:Iterable<string>) {
+    const unique=[...new Set(ids)].filter(Boolean),rows=new Map<string,any>();
+    for(let offset=0;offset<unique.length;offset+=500) {
+      const batch=unique.slice(offset,offset+500);
+      for(const row of db.prepare(`SELECT * FROM ${table} WHERE id IN (${batch.map(()=>'?').join(',')})`).all(...batch) as any[])rows.set(row.id,row);
+    }
+    return rows;
   }
 
   saveCampaign(params: {
@@ -267,17 +168,31 @@ export class CalendarRepository {
     const items: CalendarItem[] = [];
 
     // --- A. Query Drafts ---
-    const draftQuery = `
+    let draftQuery = `
       SELECT d.*, c.name as campaign_name
       FROM publishing_drafts d
       LEFT JOIN publishing_campaigns c ON d.campaign_id = c.id
       WHERE d.queued_post_id IS NULL AND d.status != 'rejected'
     `;
-    const draftRows = db.prepare(draftQuery).all() as any[];
+    const draftParams:string[]=[];
+    if(filter.campaignId){draftQuery+=' AND d.campaign_id=?';draftParams.push(filter.campaignId);}
+    const draftRows = db.prepare(draftQuery).all(...draftParams) as any[];
+    const payloads=new Map<string,any>();
+    for(const draft of draftRows) {
+      try {
+        const payload=JSON.parse(draft.payload_json),accountId=payload.destinations?.[0]?.accountId,scheduledAt=payload.scheduledAt;
+        if(!accountId || filter.accountId&&filter.accountId!==accountId || filter.startDate&&scheduledAt&&scheduledAt<filter.startDate || filter.endDate&&scheduledAt&&scheduledAt>filter.endDate)continue;
+        payloads.set(draft.id,payload);
+      } catch { /* Preserve legacy behavior: malformed drafts cannot be displayed. */ }
+    }
+    const accounts=this.byIds('accounts',[...payloads.values()].map(payload=>payload.destinations[0].accountId));
+    const videos=this.byIds('videos',[...payloads.values()].map(payload=>payload.videoId));
+    const images=this.byIds('media_images',[...payloads.values()].flatMap(payload=>Array.isArray(payload.destinations[0].attachments)?payload.destinations[0].attachments.map((attachment:any)=>attachment.mediaId):[]));
 
     for (const d of draftRows) {
       try {
-        const payload = JSON.parse(d.payload_json);
+        const payload = payloads.get(d.id);
+        if(!payload)continue;
         const destination = payload.destinations?.[0];
         const accountId = destination?.accountId;
         if (!accountId) continue;
@@ -288,14 +203,14 @@ export class CalendarRepository {
         if (filter.startDate && scheduledAt && scheduledAt < filter.startDate) continue;
         if (filter.endDate && scheduledAt && scheduledAt > filter.endDate) continue;
 
-        const account = db.prepare('SELECT * FROM accounts WHERE id = ?').get(accountId) as any;
+        const account = accounts.get(accountId);
         if (!account) continue;
 
         // Resolve media attachments
         const media: any[] = [];
         if (destination.attachments && Array.isArray(destination.attachments)) {
           for (const att of destination.attachments) {
-            const img = db.prepare('SELECT * FROM media_images WHERE id = ?').get(att.mediaId) as any;
+            const img = images.get(att.mediaId);
             if (img) {
               media.push({
                 id: img.id,
@@ -311,7 +226,7 @@ export class CalendarRepository {
         let videoTitle: string | null = null;
         let thumbnailUrl: string | null = null;
         if (payload.videoId) {
-          const vid = db.prepare('SELECT * FROM videos WHERE id = ?').get(payload.videoId) as any;
+          const vid = videos.get(payload.videoId);
           if (vid) {
             videoTitle = vid.title;
             thumbnailUrl = vid.thumbnail_path ? `/uploads/${vid.thumbnail_path.split(/[/\\]/).pop()}` : null;
@@ -381,7 +296,16 @@ export class CalendarRepository {
       destParams.push(filter.campaignId);
     }
 
+    if(filter.startDate){destQuery+=' AND (p.scheduled_at IS NULL OR p.scheduled_at>=?)';destParams.push(filter.startDate);}
+    if(filter.endDate){destQuery+=' AND (p.scheduled_at IS NULL OR p.scheduled_at<=?)';destParams.push(filter.endDate);}
     const destRows = db.prepare(destQuery).all(...destParams) as any[];
+    const attachments=new Map<string,any[]>();
+    for(let offset=0;offset<destRows.length;offset+=500) {
+      const batch=destRows.slice(offset,offset+500);
+      const rows=db.prepare(`SELECT a.*,m.mime_type FROM publishing_attachments a JOIN media_images m ON m.id=a.media_id
+        WHERE a.destination_id IN (${batch.map(()=>'?').join(',')}) ORDER BY a.destination_id,a.position`).all(...batch.map(row=>row.id)) as any[];
+      for(const row of rows){if(!attachments.has(row.destination_id))attachments.set(row.destination_id,[]);attachments.get(row.destination_id)!.push(row);}
+    }
 
     for (const d of destRows) {
       const scheduledAt = d.scheduled_at || null;
@@ -391,7 +315,7 @@ export class CalendarRepository {
       // Attachments
       const media: any[] = [];
       try {
-        const attRows = generalPostsRepo.attachments(d.id);
+        const attRows = attachments.get(d.id)||[];
         for (const att of attRows) {
           media.push({
             id: att.media_id,
@@ -458,7 +382,8 @@ export class CalendarRepository {
     items.sort((a, b) => {
       const timeA = a.scheduledAt ? new Date(a.scheduledAt).getTime() : new Date(a.createdAt).getTime();
       const timeB = b.scheduledAt ? new Date(b.scheduledAt).getTime() : new Date(b.createdAt).getTime();
-      return timeA - timeB;
+      // Current editable drafts precede retained destination receipts at the same scheduled instant.
+      return timeA - timeB || Number(b.sourceType === 'draft') - Number(a.sourceType === 'draft') || a.id.localeCompare(b.id);
     });
 
     return items;

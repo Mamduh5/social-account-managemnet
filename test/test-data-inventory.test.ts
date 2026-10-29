@@ -36,7 +36,7 @@ test('inventory is bounded, conservative, searchable, and read-only', () => {
   assert.equal(first.records.length,2); assert.equal(first.hasMore,true);
   assert.equal(first.records[0].classification,'unknown');
   assert.equal(first.records[1].classification,'unknown');
-  assert.match(first.records[1].protection,/externally identified/i);
+  assert.match(first.records[1].protection,/accounts.*preserved/i);
   assert.match(first.records[1].dependencies[0],/Publishing destinations/);
   assert.ok(first.records[1].dependencies.some((value: string) => value.includes('publishing_destinations ID d (account_id)')));
   assert.equal(read('account','100%').records.length,1);

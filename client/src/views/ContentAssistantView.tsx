@@ -1,6 +1,8 @@
-import { useEffect,useState } from 'react';
+import { useEffect,useState,useRef } from 'react';
 import { api } from '../api/client';
 import { contentWorkspaceApi as workspace } from '../api/content-workspace';
+import { ApiError } from '../api/http';
+import { useResourceRefresh } from '../api/resource-events';
 
 const inputClass='w-full min-w-0 bg-surface border border-border rounded-xl px-3 py-2 text-sm text-slate-100 focus:border-terracotta-500';
 const buttonClass='scc-btn-secondary text-sm';
@@ -14,25 +16,31 @@ export function ContentAssistantView() {
   const [selected,setSelected]=useState<any>(null),[content,setContent]=useState(''),[checked,setChecked]=useState<string[]>([]),[ownerApproved,setOwnerApproved]=useState(false),[audit,setAudit]=useState<any[]>([]);
   const [message,setMessage]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[batchIdeas,setBatchIdeas]=useState('');
   const [replyContext,setReplyContext]=useState<any>(null),[replyReceipt,setReplyReceipt]=useState<any>(null),[confirmSend,setConfirmSend]=useState(false);
+  const pending = useRef(0), currentAccount = useRef(accountId), currentDraft = useRef<string | null>(null);
+  currentAccount.current = accountId; currentDraft.current = selected?.id || null;
+  const begin = () => { pending.current++; setBusy(true); };
+  const finish = () => { pending.current = Math.max(0,pending.current-1); setBusy(pending.current>0); };
   const refresh=async()=>{
-    const s=await workspace.assistant('status');setStatus(s);
-    const d=await workspace.assistant(`drafts${accountId?`?accountId=${encodeURIComponent(accountId)}`:''}`);setDrafts(d.drafts);
+    const captured = accountId;
+    const [s,d]=await Promise.all([workspace.assistant('status'),workspace.assistant(`drafts${captured?`?accountId=${encodeURIComponent(captured)}`:''}`)]);
+    if(currentAccount.current===captured){setStatus(s);setDrafts(d.drafts);}
   };
-  const run=async(task:()=>Promise<void>)=>{setBusy(true);setError('');setMessage('');try {await task();}catch(e:any){setError(e.message);}finally{setBusy(false);}};
+  const run=async(task:()=>Promise<void>)=>{if(pending.current)return;begin();setError('');setMessage('');try {await task();}catch(e:any){setError(e.message);if(e instanceof ApiError && e.body.partial){await refresh().catch(()=>{});setMessage(`${Array.isArray(e.body.drafts)?e.body.drafts.length:0} drafts were saved before the batch stopped. Review saved drafts before making another request.`);}}finally{finish();}};
+  useResourceRefresh(['assistant'], refresh, true);
   useEffect(()=>{void run(async()=>{const r=await api.getAccounts();const a=r.accounts.filter((a:any)=>a.platform==='facebook' && a.account_type==='page' && !a.archived_at);setAccounts(a);if(a.length)setAccountId(a[0].id);const s=await workspace.assistant('status');setStatus(s);});},[]);
   useEffect(()=>{
     let active=true;setSelected(null);setContent('');setChecked([]);setOwnerApproved(false);setProfile(null);setDrafts([]);setComments([]);setCommentId('');setReplyContext(null);setReplyReceipt(null);setConfirmSend(false);
-    if(!accountId)return;setBusy(true);setError('');
+    if(!accountId)return;begin();setError('');
     void (async()=>{try {
       const [p,d,c]=await Promise.all([workspace.assistant(`profiles/${accountId}`),workspace.assistant(`drafts?accountId=${encodeURIComponent(accountId)}`),api.getComments({accountId})]);
       if(active){setProfile(p.profile);setDrafts(d.drafts);setComments(c.comments || []);}
-    }catch(e:any){if(active)setError(e.message);}finally{if(active)setBusy(false);}})();
+    }catch(e:any){if(active)setError(e.message);}finally{finish();}})();
     return()=>{active=false;};
   },[accountId]);
-  const load=(d:any)=>{setSelected(d);setContent(d.content);setAudit([]);setReplyReceipt(null);setConfirmSend(false);if(d.kind==='reply')void workspace.assistant(`drafts/${d.id}/reply-receipt?accountId=${encodeURIComponent(d.account_id)}`).then(setReplyReceipt).catch(()=>{});};
+  const load=(d:any)=>{if(d.account_id!==currentAccount.current)return;setSelected(d);currentDraft.current=d.id;setContent(d.content);setAudit([]);setReplyReceipt(null);setConfirmSend(false);if(d.kind==='reply')void workspace.assistant(`drafts/${d.id}/reply-receipt?accountId=${encodeURIComponent(d.account_id)}`).then(receipt=>{if(currentDraft.current===d.id&&currentAccount.current===d.account_id)setReplyReceipt(receipt);}).catch(()=>{});};
   const request=(value=idea)=>({accountId,kind,idea:value,existingDraft,mediaDescription,commentId});
   const review=(approve:boolean)=>void run(async()=>{const r=await workspace.assistant(`drafts/${selected.id}/${approve?'approve':'reject'}`,'POST',{revision:selected.revision,accountId});load(r.draft);await refresh();setMessage(approve?'Exact revision approved. It remains unpublished.':'Draft rejected.');});
-  return <div className="space-y-5 max-w-6xl">
+  return <fieldset disabled={busy} className="space-y-5 max-w-6xl min-w-0">
     <div><h2 className="text-2xl font-bold">Content Assistant</h2><p className="text-slate-400 text-sm mt-1">Prepare, review and edit Page posts and replies. Every output stays a draft; automatic public replies are disabled.</p></div>
     <div className="p-4 border border-border rounded-xl bg-surface-card space-y-2" role="status">
       <p className="text-honey-400 text-sm">{status?.fixture ? status.notice : 'Prepare drafts directly or with your external creative assistant. Saving and reviewing drafts requires no application model request.'}</p>
@@ -76,5 +84,5 @@ export function ContentAssistantView() {
         {profile && <details className="bg-surface-card border border-border rounded-xl p-4"><summary className="font-semibold cursor-pointer">Owner voice profile · {profile.provisional?'Provisional':'Owner examples supplied'}</summary><p className="text-xs text-slate-400 mt-3">Supply only owner-approved examples and facts. Test captions are never imported as writing samples.</p><div className="grid sm:grid-cols-2 gap-3 mt-3">{Object.entries(profileLabels).map(([k,label])=><label className="text-xs" key={k}>{label}<input className={`${inputClass} mt-1`} value={profile[k] || ''} onChange={e=>setProfile({...profile,[k]:e.target.value})}/></label>)}</div><div className="space-y-3 mt-3">{Object.entries(listLabels).map(([k,label])=><label className="block text-xs" key={k}>{label} (one per line)<textarea aria-label={label} className={`${inputClass} mt-1`} rows={3} value={(profile[k] || []).join('\n')} onChange={e=>setProfile({...profile,[k]:e.target.value.split('\n')})}/></label>)}<label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={ownerApproved} onChange={e=>setOwnerApproved(e.target.checked)}/>I confirm these writing examples, facts and FAQ answers are owner approved.</label><button className={buttonClass} disabled={busy} onClick={()=>void run(async()=>{const p={...profile,confirmOwnerApproved:ownerApproved};Object.keys(listLabels).forEach(k=>p[k]=(p[k] || []).filter((x:string)=>x.trim()));setProfile((await workspace.assistant(`profiles/${accountId}`,'PUT',p)).profile);setMessage('Voice profile saved.');})}>Save voice profile</button></div></details>}
       </section>
     </div>
-  </div>;
+  </fieldset>;
 }

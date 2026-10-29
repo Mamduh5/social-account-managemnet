@@ -3,19 +3,26 @@ import { api } from '../../api/client';
 import { HandoffModal } from './HandoffModal';
 import { PublishingDestination } from '../../types';
 import { RotateCcw, ExternalLink, AlertCircle } from 'lucide-react';
+import { usePublishingHistory } from '../../hooks/usePublishingHistory';
+import type { HistoryPeriod, HistoryTimestamp } from '../../api/publishing-history';
 
 export interface QueueTableProps {
   queue: PublishingDestination[];
   onRetry: (id: string) => void;
   onCancel: (id: string) => void;
   onRefresh: () => void;
+  activeTotal?: number;
+  activeHasMore?: boolean;
+  enabled?: boolean;
 }
 
-export const QueueTable: React.FC<QueueTableProps> = ({
+const DestinationList: React.FC<QueueTableProps & { title: string; timestamp?: HistoryTimestamp }> = ({
   queue,
   onRetry,
   onCancel,
   onRefresh,
+  title,
+  timestamp = 'updated',
 }) => {
   const [reconcileError, setReconcileError] = useState('');
   const [reconcilingId, setReconcilingId] = useState<string | null>(null);
@@ -29,7 +36,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
       <div className="bg-surface-card border border-border rounded-2xl p-5 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <div>
-            <h3 className="text-lg font-bold text-slate-100">Publishing Queue & Post History</h3>
+            <h3 className="text-lg font-bold text-slate-100">{title}</h3>
             <p className="text-xs text-slate-400">
               Independent per-destination status, progress, and retry controls
             </p>
@@ -55,6 +62,8 @@ export const QueueTable: React.FC<QueueTableProps> = ({
               const isPublished = item.status === 'published';
               const requiresReconciliation = isFailed && Boolean(item.submission_state || item.remote_post_id);
               const isProcessing = ['preparing', 'branding', 'uploading'].includes(item.status);
+              const displayTime = timestamp === 'created' ? item.created_at : timestamp === 'scheduled' ? item.scheduled_at : item.updated_at;
+              const displayLabel = timestamp === 'created' ? 'Created' : timestamp === 'scheduled' ? 'Scheduled' : 'Updated';
 
               return (
                 <div 
@@ -68,7 +77,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
                       <img 
-                        src={item.avatar_url || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150'} 
+                        src={item.avatar_url || '/avatar.svg'}
                         alt={item.account_name} 
                         className="w-10 h-10 rounded-xl object-cover border border-border shrink-0" 
                       />
@@ -83,6 +92,7 @@ export const QueueTable: React.FC<QueueTableProps> = ({
                         </div>
                         <p className="text-xs text-slate-400 font-medium mt-0.5 truncate">{item.post_title}</p>
                         <p className="text-[10px] text-slate-400 uppercase mt-1">{(item.content_type || 'reel').replace('_', ' ')}</p>
+                        <p className="text-[10px] text-slate-400 mt-1">{displayLabel}: {displayTime ? new Date(displayTime.replace(' ', 'T') + (/Z$|[+-]\d\d:\d\d$/.test(displayTime) ? '' : 'Z')).toLocaleString('en-GB', { timeZone: 'Asia/Bangkok', hour12: false }) + ' (Asia/Bangkok)' : timestamp === 'scheduled' ? 'Not scheduled' : 'Unavailable'}</p>
                         {item.status === 'scheduled' && item.scheduled_at && (
                           <p className="text-xs text-slate-300 mt-1">Scheduled for {new Date(item.scheduled_at).toLocaleString('en-GB', { timeZone: 'Asia/Bangkok', hour12: false })} (Asia/Bangkok)</p>
                         )}
@@ -184,4 +194,41 @@ export const QueueTable: React.FC<QueueTableProps> = ({
       {handoffId && <HandoffModal destinationId={handoffId} onClose={() => setHandoffId(null)} onConfirmed={onRefresh} />}
     </div>
   );
+};
+
+const filterClass = 'bg-surface border border-border rounded-xl px-3 py-2 text-xs text-slate-200';
+export const QueueTable: React.FC<QueueTableProps> = ({ queue, onRetry, onCancel, onRefresh, activeTotal, activeHasMore, enabled = true }) => {
+  const history = usePublishingHistory(enabled);
+  const refresh = () => { onRefresh(); void history.refresh(); };
+  const filters = history.filters;
+  return <section className="space-y-4" aria-label="Publishing Queue & Post History">
+    <h2 className="text-lg font-bold">Publishing Queue & Post History</h2>
+    <details className="border border-border rounded-2xl p-3 bg-surface-card">
+      <summary className="cursor-pointer text-sm font-semibold">Active queue ({activeTotal ?? queue.length})</summary>
+      {activeHasMore && <p className="text-xs text-honey-400 mt-2">Showing the first {queue.length} active destinations. Browse all records with the status filters below.</p>}
+      <DestinationList title="Active publishing destinations" queue={queue} onRetry={onRetry} onCancel={onCancel} onRefresh={refresh} />
+    </details>
+    <div className="bg-surface-card border border-border rounded-2xl p-4 space-y-3">
+      <h3 className="font-semibold text-sm">Browse publishing history</h3>
+      <p className="text-xs text-slate-400">One row per destination. Retries update the same record. Date filters use Asia/Bangkok; calendar weeks start Monday. Completed means published, including explicitly recorded manual confirmations.</p>
+      <div className="flex flex-wrap gap-3">
+        <label className="text-xs space-y-1">Timestamp<select aria-label="History timestamp" className={`${filterClass} block`} value={filters.timestamp} onChange={e => history.updateFilters({ timestamp: e.target.value as HistoryTimestamp })}><option value="created">Created</option><option value="scheduled">Scheduled</option><option value="updated">Updated</option></select></label>
+        <label className="text-xs space-y-1">Order<select aria-label="History order" className={`${filterClass} block`} value={filters.direction} onChange={e => history.updateFilters({ direction: e.target.value as 'asc' | 'desc' })}><option value="desc">Newest first</option><option value="asc">Oldest first</option></select></label>
+        <label className="text-xs space-y-1">Outcome<select aria-label="History outcome" className={`${filterClass} block`} value={filters.outcome} onChange={e => history.updateFilters({ outcome: e.target.value as typeof filters.outcome, status: '' })}><option value="all">All outcomes</option><option value="completed">Completed / Published</option><option value="failed">Failed</option></select></label>
+        <label className="text-xs space-y-1">Status<select aria-label="History status" className={`${filterClass} block`} value={filters.status} onChange={e => history.updateFilters({ status: e.target.value, outcome: 'all' })}><option value="">All statuses</option>{['draft','scheduled','preparing','branding','uploading','awaiting_confirmation','published','failed','cancelled'].map(status => <option key={status} value={status}>{status.replaceAll('_', ' ')}</option>)}</select></label>
+        <label className="text-xs space-y-1">Platform<select aria-label="History platform" className={`${filterClass} block`} value={filters.platform} onChange={e => history.updateFilters({ platform: e.target.value as typeof filters.platform })}><option value="">All platforms</option><option value="facebook">Facebook</option><option value="tiktok">TikTok</option></select></label>
+        <label className="text-xs space-y-1">Dates<select aria-label="History date period" className={`${filterClass} block`} value={filters.period} onChange={e => history.updateFilters({ period: e.target.value as HistoryPeriod })}><option value="all">All dates</option><option value="today">Today</option><option value="date">Specific date</option><option value="week">Calendar week</option><option value="last7">Last 7 days</option><option value="month">Calendar month</option><option value="last30">Last 30 days</option><option value="custom">Custom range</option></select></label>
+        {['date','week','month'].includes(filters.period) && <label className="text-xs space-y-1">Date in selected period<input aria-label="History date" className={`${filterClass} block`} type="date" value={filters.date} onChange={e => history.updateFilters({ date: e.target.value })} /></label>}
+        {filters.period === 'custom' && <><label className="text-xs space-y-1">From<input aria-label="History from date" className={`${filterClass} block`} type="date" value={filters.fromDate} onChange={e => history.updateFilters({ fromDate: e.target.value })} /></label><label className="text-xs space-y-1">Through<input aria-label="History through date" className={`${filterClass} block`} type="date" value={filters.toDate} onChange={e => history.updateFilters({ toDate: e.target.value })} /></label></>}
+        <label className="text-xs space-y-1">Per page<select aria-label="History page size" className={`${filterClass} block`} value={filters.limit} onChange={e => history.updateFilters({ limit: Number(e.target.value) })}>{[20,50,100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
+      </div>
+      <p className="text-xs text-slate-400">{filters.timestamp === 'created' ? 'Created: when this destination was registered.' : filters.timestamp === 'scheduled' ? 'Scheduled: planned publication time; unscheduled records appear last.' : 'Updated: most recent local destination change; records may move when their status changes.'}</p>
+      {history.error && <p role="alert" className="text-xs text-rose-300">{history.error} <button className="underline" onClick={() => void history.refresh()}>Retry history read</button></p>}
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs" aria-live="polite">
+        <span>{history.loading ? 'Loading history…' : history.page ? `${history.page.total === 0 ? 0 : history.offset + 1}–${history.offset + history.page.items.length} of ${history.page.total} destinations` : 'History has not loaded.'}</span>
+        <div className="flex gap-2"><button className="scc-btn-secondary" disabled={history.loading || history.offset === 0} onClick={() => history.setOffset(Math.max(0, history.offset - filters.limit))}>Previous history page</button><button className="scc-btn-secondary" disabled={history.loading || !history.page?.hasMore} onClick={() => history.setOffset(history.offset + filters.limit)}>Next history page</button><button className="scc-btn-secondary" disabled={history.loading} onClick={() => void history.refresh()}>Refresh history</button></div>
+      </div>
+    </div>
+    {history.page && <DestinationList title="Destination history" timestamp={filters.timestamp} queue={history.page.items} onRetry={onRetry} onCancel={onCancel} onRefresh={refresh} />}
+  </section>;
 };

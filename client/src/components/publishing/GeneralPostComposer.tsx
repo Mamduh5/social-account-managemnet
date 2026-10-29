@@ -19,7 +19,7 @@ export function GeneralPostComposer({ accounts, contentType, onContentTypeChange
       <section className={cardClass}>
         <div className="flex items-center justify-between gap-3">
           <h3 className="font-bold">{typeLabels[contentType]} Page draft</h3>
-          <button type="button" className={buttonClass} onClick={draft.newDraft}>New Draft</button>
+          <button type="button" className={buttonClass} disabled={draft.busy} onClick={draft.newDraft}>New Draft</button>
         </div>
         <p className="text-xs text-slate-400">Draft-only mode is enabled. Save, review and approve first; dispatch is a separate explicit action. TikTok general posts are unavailable.</p>
         <label className="block space-y-1 text-xs font-semibold">Draft title
@@ -127,7 +127,7 @@ export function GeneralPostComposer({ accounts, contentType, onContentTypeChange
           {savedDrafts.map(item => <div key={item.id} data-draft-id={item.id} className={'p-3 rounded-xl border space-y-2 ' + (draft.current?.id === item.id ? 'border-terracotta-500' : 'border-border')}>
             <div className="flex gap-2 items-start">
               <input type="checkbox" aria-label={'Select draft for batch approval ' + item.title} checked={draft.batchIds.includes(item.id)} disabled={item.status === 'queued' || draft.busy} onChange={e => draft.setBatchIds(prev => e.target.checked ? [...prev, item.id] : prev.filter(id => id !== item.id))} />
-              <button type="button" onClick={() => draft.loadDraft(item)} className="text-left min-w-0" aria-label={'Load draft ' + item.title}><span className="block font-semibold text-sm break-words">{item.title}</span><span className="text-[11px] text-slate-400">{typeLabels[item.contentType as GeneralPostType]} · revision {item.revision} · {item.status}</span></button>
+              <button type="button" disabled={draft.busy} onClick={() => draft.loadDraft(item)} className="text-left min-w-0" aria-label={'Load draft ' + item.title}><span className="block font-semibold text-sm break-words">{item.title}</span><span className="text-[11px] text-slate-400">{typeLabels[item.contentType as GeneralPostType]} · revision {item.revision} · {item.status}</span></button>
             </div>
             <p className="text-xs text-slate-400 whitespace-pre-wrap line-clamp-3">{item.destinations[0]?.caption}</p>
             <p className="text-[10px] text-slate-400">{item.destinations.length} destination(s){item.scheduledAt ? ' · ' + new Date(item.scheduledAt).toLocaleString('en-GB', { timeZone: 'Asia/Bangkok', hour12: false }) + ' Asia/Bangkok' : ''}</p>

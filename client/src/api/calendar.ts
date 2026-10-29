@@ -6,10 +6,11 @@ import {
   CampaignReview,
 } from '../types/calendar';
 
+import { request as httpRequest } from './http';
 const BASE_URL = '/api/calendar';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  return httpRequest<T>(`${BASE_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -17,11 +18,6 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     },
   });
 
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'Calendar API request failed');
-  }
-  return data;
 }
 
 export const calendarApi = {

@@ -1,8 +1,16 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api/client';
 import { CommentItem, Account, Category } from '../types';
+import { ApiError } from '../api/http';
+import { readAccounts, readCategories } from '../api/reference-resources';
+import { useResourceRefresh } from '../api/resource-events';
+import { useFeatureActive } from '../features/FeatureActivity';
 
 export function useInbox(selectedCategory: string) {
+  const active = useFeatureActive();
+  const generation = useRef(0);
+  const replyLock = useRef(false);
+  const [error, setError] = useState('');
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -26,43 +34,55 @@ export function useInbox(selectedCategory: string) {
   const [replyError, setReplyError] = useState<{ message: string; nativeUrl?: string } | null>(null);
 
   const loadData = useCallback(async () => {
+    const request = ++generation.current;
     try {
-      const [cmtRes, accRes, catRes] = await Promise.all([
-        api.getComments({
+      const cmtRes = await api.getComments({
           platform: platformFilter,
           accountId: accountFilter,
           categoryId: selectedCategory !== 'all' ? selectedCategory : '',
           status: statusFilter,
           awaitingReply: awaitingReplyOnly ? 'true' : '',
           search: searchQuery,
-        }),
-        api.getAccounts(),
-        api.getCategories(),
-      ]);
-
+        });
+      if (request !== generation.current) return;
       setComments(cmtRes.comments || []);
       if (cmtRes.stats) setStats(cmtRes.stats);
-      setAccounts(accRes.accounts || []);
-      setCategories(catRes.categories || []);
+      setError('');
     } catch (err) {
-      console.error(err);
+      if (request === generation.current) setError(err instanceof Error ? err.message : 'Comments could not be loaded.');
     }
   }, [platformFilter, accountFilter, statusFilter, awaitingReplyOnly, selectedCategory, searchQuery]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (!active) return;
+    const timer = setTimeout(() => { void loadData(); }, searchQuery ? 250 : 0);
+    return () => { clearTimeout(timer); generation.current++; };
+  }, [loadData, active, searchQuery]);
+  const loadReferences = useCallback(async () => {
+    try {
+      const [accRes, catRes] = await Promise.all([readAccounts(), readCategories()]);
+      setAccounts(accRes.accounts || []); setCategories(catRes.categories || []);
+    } catch (err) { setError(err instanceof Error ? err.message : 'Account filters are unavailable.'); }
+  }, []);
+  useEffect(() => { if (active) void loadReferences(); }, [active, loadReferences]);
+  useResourceRefresh(['inbox'], loadData);
+  useResourceRefresh(['accounts', 'categories'], loadReferences);
+  const latestReply = useRef({ activeReplyId, replyText });
+  latestReply.current = { activeReplyId, replyText };
 
   const handleSendReply = async (commentId: string) => {
-    if (!replyText.trim()) return;
+    if (!replyText.trim() || replyLock.current) return;
+    replyLock.current = true;
+    const submittedText = replyText;
     setReplySubmitting(true);
     setReplyError(null);
 
     try {
       const res = await api.replyComment(commentId, replyText);
       if (res.success) {
-        setReplyText('');
-        setActiveReplyId(null);
+        if (latestReply.current.activeReplyId === commentId && latestReply.current.replyText === submittedText) {
+          setReplyText(''); setActiveReplyId(null);
+        }
         await loadData();
       } else {
         setReplyError({
@@ -71,9 +91,10 @@ export function useInbox(selectedCategory: string) {
         });
       }
     } catch (err: any) {
-      setReplyError({ message: err.message });
+      setReplyError({ message: err.message, nativeUrl: err instanceof ApiError ? err.nativeUrl : undefined });
     } finally {
       setReplySubmitting(false);
+      replyLock.current = false;
     }
   };
 
@@ -82,7 +103,7 @@ export function useInbox(selectedCategory: string) {
       await api.reactComment(commentId);
       await loadData();
     } catch (err) {
-      console.error(err);
+      setError(err instanceof Error ? err.message : 'Reaction could not be saved.');
     }
   };
 
@@ -91,7 +112,7 @@ export function useInbox(selectedCategory: string) {
       await api.updateCommentStatus(commentId, newStatus, newStatus === 'handled' ? false : undefined);
       await loadData();
     } catch (err) {
-      console.error(err);
+      setError(err instanceof Error ? err.message : 'Comment status could not be saved.');
     }
   };
 
@@ -132,6 +153,7 @@ export function useInbox(selectedCategory: string) {
 
   return {
     comments,
+    error,
     accounts,
     categories,
     stats,

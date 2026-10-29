@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useFeatureActive } from '../features/FeatureActivity';
 import { api } from '../api/client';
 import { Account } from '../types';
 import { DraftAttachment, DraftDestination, DraftInput, GeneralPostType, ImageAsset, PostCapabilities, PublishingDraft } from '../types/general-posts';
@@ -9,6 +10,9 @@ const normalized = (value: DraftInput) => ({ title: value.title, contentType: va
 const bangkokTime = (value?: string | null) => value ? new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value)).replace(' ', 'T') : '';
 
 export function useGeneralPosts(accounts: Account[], contentType: GeneralPostType, onContentTypeChange: (type: GeneralPostType) => void, onQueued: () => void) {
+  const active = useFeatureActive();
+  const librarySequence = useRef(0);
+  const commandInFlight = useRef(false);
   const [drafts, setDrafts] = useState<PublishingDraft[]>([]);
   const [images, setImages] = useState<ImageAsset[]>([]);
   const [capabilities, setCapabilities] = useState<Record<string, PostCapabilities>>({});
@@ -26,17 +30,20 @@ export function useGeneralPosts(accounts: Account[], contentType: GeneralPostTyp
   const accountIds = accounts.map(a => a.id).join(',');
 
   async function loadLibrary() {
+    const token = ++librarySequence.current;
     const [d, m] = await Promise.all([api.getPublishingDrafts(), api.getImages()]);
+    if (token !== librarySequence.current) return;
     setDrafts(d.drafts); setImages(m.images);
   }
-  useEffect(() => { loadLibrary().catch(e => setError(e.message)); }, []);
+  useEffect(() => { if (active) loadLibrary().catch(e => setError(e.message)); return () => { librarySequence.current++; }; }, [active]);
   useEffect(() => {
-    let active = true;
+    if (!active) return;
+    let current = true;
     Promise.all(accounts.map(async a => [a.id, await api.getPostCapabilities(a.id)] as const)).then(items => {
-      if (active) setCapabilities(Object.fromEntries(items));
-    }).catch(e => { if (active) setError(e.message); });
-    return () => { active = false; };
-  }, [accountIds]);
+      if (current) setCapabilities(Object.fromEntries(items));
+    }).catch(e => { if (current) setError(e.message); });
+    return () => { current = false; };
+  }, [active, accountIds]);
 
   function input(): DraftInput {
     const stamp = scheduled && scheduleTime ? Date.parse(scheduleTime + '+07:00') : NaN;
@@ -70,9 +77,11 @@ export function useGeneralPosts(accounts: Account[], contentType: GeneralPostTyp
   }
   function updateAttachments(id: string, next: DraftAttachment[]) { updateDestination(id, { attachments: next }); }
   async function run(work: () => Promise<void>) {
+    if (commandInFlight.current) return;
+    commandInFlight.current = true;
     setBusy(true); setError('');
     try { await work(); } catch (e) { setError(e instanceof Error ? e.message : 'The request failed.'); }
-    finally { setBusy(false); }
+    finally { commandInFlight.current = false; setBusy(false); }
   }
   function save() { return run(async () => {
     if (!title.trim()) throw new Error('Enter a draft title.');

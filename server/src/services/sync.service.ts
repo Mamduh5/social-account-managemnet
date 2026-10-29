@@ -23,8 +23,9 @@ export class SyncService {
   private bootTimer: NodeJS.Timeout | null = null;
   private isSyncing = false;
   private intervalMs = 15 * 60 * 1000; // 15 minutes default conservative polling
+  private accountSyncs = new Map<string, ReturnType<SyncService['performAccountSync']>>();
 
-  get activeSynchronization(){return this.isSyncing;}
+  get activeSynchronization(){return this.isSyncing || this.accountSyncs.size > 0;}
 
   start(intervalMs?: number): void {
     if (intervalMs) {
@@ -115,7 +116,16 @@ export class SyncService {
     };
   }
 
-  async syncAccount(accountId: string): Promise<{
+  syncAccount(accountId: string) {
+    const active = this.accountSyncs.get(accountId);
+    if (active) return active;
+    const pending = this.performAccountSync(accountId);
+    this.accountSyncs.set(accountId,pending);
+    void pending.finally(() => { if (this.accountSyncs.get(accountId) === pending) this.accountSyncs.delete(accountId); }).catch(() => {});
+    return pending;
+  }
+
+  private async performAccountSync(accountId: string): Promise<{
     success: boolean;
     metricsSynced: number;
     commentsSynced: number;
@@ -383,6 +393,10 @@ export class SyncService {
   }
 
   recordObservation(payload: ManualObservationPayload): any {
+    if (payload.source !== undefined && !['browser_verified','manual'].includes(payload.source)) throw new Error('Owner observations must use manual or browser_verified provenance');
+    const counts = [payload.viewCount,payload.likeCount,payload.commentCount,payload.shareCount];
+    if (counts.some(value => value !== null && value !== undefined && (!Number.isSafeInteger(value) || value < 0))) throw new Error('Metric counts must be nonnegative safe integers or unavailable');
+    if (!counts.some(value => value !== null && value !== undefined)) throw new Error('Record at least one observed metric');
     const dest = db.prepare(`
       SELECT pd.*, a.platform, a.name as account_name
       FROM publishing_destinations pd
@@ -391,6 +405,7 @@ export class SyncService {
     `).get(payload.destinationId) as any;
 
     if (!dest) throw new Error('Publishing destination not found');
+    if (dest.status !== 'published' || !dest.remote_post_id) throw new Error('Record observations only for a confirmed publication with a saved remote identity');
 
     const observed_at = new Date().toISOString();
     const source = payload.source || 'browser_verified';

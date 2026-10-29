@@ -1,4 +1,5 @@
 import { DraftInput, ImageAsset, PublishingDraft, PostCapabilities } from '../types/general-posts';
+import { checked, httpFetch as fetch } from './http';
 import { HiddenWatchFilePage, TestDataDetail, TestDataPage, TestDataPreview, TestDataSelection, WatchFilePage } from '../types/test-data';
 import {
   AccountsResponse,
@@ -16,11 +17,6 @@ import {
 } from '../types';
 
 const API_BASE = '/api';
-async function checked(res: Response) {
-  const body = await res.json();
-  if (!res.ok || body.error || body.success === false) throw new Error(body.error || body.message || 'Request failed');
-  return body;
-}
 
 
 export const api = {
@@ -263,8 +259,11 @@ export const api = {
   },
 
   // Activity
-  async getActivity(limit = 50): Promise<ActivityResponse> {
-    const res = await fetch(`${API_BASE}/activity?limit=${limit}`);
+  async getActivity(limit = 50, filters: { offset?: number; severity?: string; type?: string } = {}): Promise<ActivityResponse> {
+    const query = new URLSearchParams({ limit: String(limit), offset: String(filters.offset || 0) });
+    if (filters.severity) query.set('severity', filters.severity);
+    if (filters.type) query.set('type', filters.type);
+    const res = await fetch(`${API_BASE}/activity?${query}`);
     return checked(res);
   },
 

@@ -1,36 +1,49 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../api/client';
 import { ActivityEvent } from '../types';
+import { useFeatureActive } from '../features/FeatureActivity';
+import { useResourceRefresh } from '../api/resource-events';
 import { 
   Activity, CheckCircle2, AlertTriangle, AlertCircle, 
   Info, RefreshCw 
 } from 'lucide-react';
 
 export const ActivityView: React.FC = () => {
+  const active = useFeatureActive();
+  const request = useRef(0);
+  const [error, setError] = useState('');
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [severityFilter, setSeverityFilter] = useState('');
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    const token = ++request.current;
     try {
-      const res = await api.getActivity(100);
+      const res = await api.getActivity(50, { offset, severity: severityFilter });
+      if (token !== request.current) return;
+      if (res.total && offset >= res.total) { setOffset(Math.floor((res.total - 1) / 50) * 50); return; }
       setEvents(res.events || []);
+      setTotal(res.total ?? res.events.length); setError('');
     } catch (err) {
-      console.error(err);
+      if (token === request.current) setError(err instanceof Error ? err.message : 'Activity is unavailable.');
     }
-  };
+  }, [offset, severityFilter]);
 
   useEffect(() => {
+    if (!active) return;
     loadData();
     const interval = setInterval(loadData, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    return () => { clearInterval(interval); request.current++; };
+  }, [loadData, active]);
+  useResourceRefresh(['activity'], loadData);
 
-  const filteredEvents = severityFilter
-    ? events.filter(e => e.severity === severityFilter)
-    : events;
+  const filteredEvents = events;
 
   return (
     <div className="space-y-6">
+      {error && <p role="alert" className="text-xs text-rose-300">{error}</p>}
+      <div className="flex items-center gap-3 text-xs"><button className="scc-btn-secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>Newer Activity</button><span>{total ? `${offset + 1}–${Math.min(offset + 50,total)} of ${total}` : 'No activity'}</span><button className="scc-btn-secondary" disabled={offset + 50 >= total} onClick={() => setOffset(offset + 50)}>Older Activity</button></div>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface-card p-5 sm:p-6 rounded-2xl border border-border shadow-xs">
         <div>
@@ -51,7 +64,7 @@ export const ActivityView: React.FC = () => {
           {/* Severity filter */}
           <select
             value={severityFilter}
-            onChange={(e) => setSeverityFilter(e.target.value)}
+            onChange={(e) => { setSeverityFilter(e.target.value); setOffset(0); }}
             className="bg-surface border border-border rounded-xl px-3 py-2 min-h-9 text-xs text-slate-200 focus:border-terracotta-500 cursor-pointer"
           >
             <option value="">All Severities</option>

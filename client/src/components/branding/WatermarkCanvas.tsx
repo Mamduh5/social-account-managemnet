@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BrandKit } from '../../types';
 import { brandingElements, calculateBrandingPosition, getBrandingLayout } from '../../../../server/src/domain/branding-layout';
+import { useFeatureActive } from '../../features/FeatureActivity';
 
 export interface WatermarkCanvasProps {
   brandKit: BrandKit;
@@ -15,6 +16,7 @@ export interface WatermarkCanvasProps {
 export const WatermarkCanvas: React.FC<WatermarkCanvasProps> = ({
   brandKit, width, height, aspectRatio = '9:16', sourceUrl, sourceWidth, sourceHeight,
 }) => {
+  const active = useFeatureActive();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [showGuides, setShowGuides] = useState(false);
@@ -28,6 +30,7 @@ export const WatermarkCanvas: React.FC<WatermarkCanvasProps> = ({
   const elements = brandingElements(brandKit);
 
   useEffect(() => {
+    if (!active) return;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
@@ -105,7 +108,7 @@ export const WatermarkCanvas: React.FC<WatermarkCanvasProps> = ({
     };
     renderFrame();
     return () => cancelAnimationFrame(animationFrame);
-  }, [brandKit, aspectRatio, frameWidth, frameHeight, sourceUrl, showGuides]);
+  }, [brandKit, aspectRatio, frameWidth, frameHeight, sourceUrl, showGuides, active]);
 
   return (
     <div className="max-w-full space-y-2">

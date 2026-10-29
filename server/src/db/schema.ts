@@ -2,6 +2,7 @@ import {initializeContentWorkspace} from './content-workspace.js';
 import {initializeGeneralPublishingSchema} from './general-posts-schema.js';
 import {initializeCalendarSchema} from './calendar-schema.js';
 import { db } from './database.js';
+import {initializeArchitectureSchema} from './architecture-schema.js';
 
 export function initializeDatabase() {
   const hadPublishingPosts=!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='publishing_posts'").get();
@@ -284,6 +285,7 @@ export function initializeDatabase() {
     initializeGeneralPublishingSchema(db);
     initializeContentWorkspace();
     initializeCalendarSchema(db);
+    initializeArchitectureSchema(db);
   }
   // Existing databases require the explicit, copy-rehearsed V1.11 migration.
   // Even a ready V1.10 database must not acquire calendar tables during boot.

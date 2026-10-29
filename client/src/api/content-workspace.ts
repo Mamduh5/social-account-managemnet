@@ -1,8 +1,8 @@
 import type { GroupListFilters, GroupMembershipInput, GroupPackageDto, GroupPlanDto, GroupPlanInput, GroupPreparedDto, GroupPrepareInput, GroupReceiptInput, GroupReminderDto, GroupReminderInput } from '../../../server/src/domain/groups';
+import { request as httpRequest } from './http';
 
 async function request<T = any>(url:string,method='GET',body?:unknown): Promise<T> {
-  const response=await fetch(`/api/${url}`,{method,headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined});
-  const data=await response.json();if (!response.ok || data.error) throw new Error(data.error || 'Workspace request failed');return data;
+  return httpRequest<T>(`/api/${url}`,{method,headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined});
 }
 export const contentWorkspaceApi={
   assistant:(path:string,method='GET',body?:unknown)=>request(`assistant/${path}`,method,body),

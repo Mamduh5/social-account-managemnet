@@ -1,6 +1,7 @@
 import {generalPostsReady} from '../db/general-posts-schema.js';
 import { db } from '../db/database.js';
 import { activityRepo } from './activity.repo.js';
+import { pipelineVideoMatchesSource } from '../domain/pipeline-identity.js';
 import {
   VideoEntity,
   BrandedVideoEntity,
@@ -56,8 +57,13 @@ export class PublishingRepository {
     return video;
   }
 
-  getVideoByPipelineJobId(pipelineJobId: string): VideoEntity | undefined {
-    return db.prepare('SELECT * FROM videos WHERE pipeline_job_id = ?').get(pipelineJobId) as any;
+  getVideoByPipelineJobId(pipelineJobId: string, sourceUrl?: string): VideoEntity | undefined {
+    const rows = this.getPipelineJobVideos(pipelineJobId);
+    return sourceUrl ? rows.find(row => pipelineVideoMatchesSource(row.metadata_json, sourceUrl)) : rows[0];
+  }
+
+  getPipelineJobVideos(pipelineJobId: string): VideoEntity[] {
+    return db.prepare('SELECT * FROM videos WHERE pipeline_job_id = ? ORDER BY created_at DESC,id').all(pipelineJobId) as VideoEntity[];
   }
 
   insertVideo(data: {
@@ -431,6 +437,7 @@ export class PublishingRepository {
       AND (pd.error_message IS NULL OR pd.error_message NOT LIKE 'Interrupted by server restart%')
       AND (p.scheduled_at IS NULL OR julianday(p.scheduled_at) <= julianday('now'))
       ${campaignClause}
+      ORDER BY pd.created_at ASC, pd.id ASC
       LIMIT ?
     `).all(limit) as PendingQueueJob[];
   }

@@ -11,20 +11,26 @@ type Attempt = {draftId:string;revision:number;accountId:string;commentId:string
 export class ReplyDraftsService {
   constructor(private assistant:ContentAssistantService=contentAssistantService,private connectorFor:(account:any)=>AccountConnector=getConnector) {}
   private key(accountId:string,commentId:string){return `reply-comment:${accountId}:${commentId}`;}
-  private attempt(key:string):Attempt|undefined {
-    const row=db.prepare("SELECT detail_json FROM content_workspace_audit WHERE entity_id=? AND action IN ('reply_submission_intent','reply_remote_created','reply_receipt_confirmed') ORDER BY rowid DESC LIMIT 1").get(key) as any;
+  private attempt(key:string,accountId?:string,externalCommentId?:string):Attempt|undefined {
+    // A content reset may remove the local comment row. Remote identity remains
+    // stable when synchronization imports that same comment with a new local ID.
+    const row=db.prepare(`SELECT detail_json FROM content_workspace_audit
+      WHERE (entity_id=? OR (entity_id LIKE 'reply-comment:%' AND json_valid(detail_json)
+        AND json_extract(detail_json,'$.accountId')=? AND json_extract(detail_json,'$.externalCommentId')=?))
+      AND action IN ('reply_submission_intent','reply_remote_created','reply_receipt_confirmed') ORDER BY rowid DESC LIMIT 1`).get(key,accountId??null,externalCommentId??null) as any;
     return row?JSON.parse(row.detail_json):undefined;
   }
   status(id:string,accountId:string) {
     const draft=repo.draft(id);
     if (!draft || draft.account_id!==accountId || draft.kind!=='reply') throw new Error('Reply draft not found for the selected Page');
     const context=JSON.parse(draft.context_json);
-    const attempt=this.attempt(this.key(accountId,context.commentId));
+    const attempt=this.attempt(this.key(accountId,context.commentId),accountId,context.externalCommentId);
     return {state:attempt?.confirmed?'confirmed':attempt?'held_for_reconciliation':'not_sent',replyId:attempt?.replyId || null,remoteUrl:attempt?.remoteUrl || null,
       submittedRevision:attempt?.revision || null,currentRevision:draft.revision,sameDraft:!attempt || attempt.draftId===id,automaticRepliesEnabled:false};
   }
   async sendManual(commentId:string,input:{accountId:string;text:string}) {
-    if (this.attempt(this.key(input.accountId,commentId))) throw new Error('A reply submission already exists for this comment. Reconcile it in Content Assistant; sending again is blocked');
+    const comment=inboxRepo.getCommentWithAccount(commentId);
+    if (this.attempt(this.key(input.accountId,commentId),input.accountId,comment?.external_comment_id)) throw new Error('A reply submission already exists for this comment. Reconcile it in Content Assistant; sending again is blocked');
     const context=this.assistant.replyContext({accountId:input.accountId,commentId});
     const draft=this.assistant.replyDraft({...input,commentId,content:input.text,contextFingerprint:context.contextFingerprint});
     if (draft.content!==input.text) throw new Error('Credential-like text was redacted. Review the saved reply draft in Content Assistant before approval or sending');
@@ -47,7 +53,7 @@ export class ReplyDraftsService {
     const key=this.key(account.id,context.commentId);
     const attempt:Attempt={draftId:id,revision:draft.revision,accountId:account.id,commentId:context.commentId,externalCommentId:context.externalCommentId,content:draft.content,graphPageId:String(account.external_id)};
     db.transaction(()=>{
-      if (this.attempt(key)) throw new Error('A reply submission already exists for this comment. Reconcile it; sending again is blocked');
+      if (this.attempt(key,account.id,context.externalCommentId)) throw new Error('A reply submission already exists for this comment. Reconcile it; sending again is blocked');
       const comment=inboxRepo.getCommentWithAccount(context.commentId);
       if (!comment || comment.has_replied || comment.reply_id) throw new Error('This comment already has a reply or is unavailable');
       repo.audit(key,'reply_submission_intent',draft.revision,attempt);
@@ -67,7 +73,7 @@ export class ReplyDraftsService {
   async reconcile(id:string,input:any) {
     const draft=repo.draft(id);
     if (!draft || draft.account_id!==input.accountId || draft.kind!=='reply') throw new Error('Reply draft not found for selected Page');
-    const context=JSON.parse(draft.context_json),key=this.key(input.accountId,context.commentId),attempt=this.attempt(key);
+    const context=JSON.parse(draft.context_json),key=this.key(input.accountId,context.commentId),attempt=this.attempt(key,input.accountId,context.externalCommentId);
     if (!attempt || attempt.draftId!==id || !attempt.replyId) throw new Error('No saved remote reply ID is available; inspect the native thread without resending');
     if (attempt.confirmed) return {success:true,...this.status(id,input.accountId)};
     const account=accountsRepo.getAccountById(input.accountId);

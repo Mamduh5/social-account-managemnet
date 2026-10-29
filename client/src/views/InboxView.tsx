@@ -11,6 +11,7 @@ interface Props {
 export const InboxView: React.FC<Props> = ({ selectedCategory }) => {
   const {
     comments,
+    error,
     accounts,
     stats,
     platformFilter,
@@ -46,6 +47,7 @@ export const InboxView: React.FC<Props> = ({ selectedCategory }) => {
 
   return (
     <div className="space-y-6">
+      {error && <p role="alert" className="text-sm text-rose-300">{error} <button className="underline" onClick={() => void loadData()}>Retry</button></p>}
       <div className="p-4 bg-terracotta-500/10 border border-terracotta-500/25 rounded-2xl text-xs text-terracotta-300 flex items-center justify-between gap-3 shadow-xs">
         <span>Engagement requires authorized platform data. Open Native Account from Accounts to manage comments when API access is unavailable. Demo threads are excluded.</span>
         <span className="text-[10px] bg-terracotta-500/20 text-terracotta-300 px-2.5 py-0.5 rounded-md font-mono uppercase font-bold shrink-0">

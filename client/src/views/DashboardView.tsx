@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../api/client';
 import { Account, PublishingDestination, ActivityEvent, CommentItem } from '../types';
 import { 
@@ -6,6 +6,9 @@ import {
   Eye, ArrowUpRight, Film, PlusCircle, Sparkles 
 } from 'lucide-react';
 import { MetricCard } from '../components/common/MetricCard';
+import { useFeatureActive } from '../features/FeatureActivity';
+import { useResourceRefresh } from '../api/resource-events';
+import { readAccounts } from '../api/reference-resources';
 
 interface Props {
   onNavigate: (tab: string) => void;
@@ -13,6 +16,9 @@ interface Props {
 }
 
 export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory }) => {
+  const active = useFeatureActive();
+  const generation = useRef(0), pending = useRef(false);
+  const [error, setError] = useState('');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [queue, setQueue] = useState<PublishingDestination[]>([]);
   const [comments, setComments] = useState<CommentItem[]>([]);
@@ -20,29 +26,36 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
   const [analytics, setAnalytics] = useState<any>(null);
 
   const loadData = useCallback(async () => {
+    if (pending.current) return;
+    pending.current = true;
+    const token = ++generation.current;
     try {
-      const [accRes, qRes, cmtRes, actRes, anaRes] = await Promise.all([
-        api.getAccounts(),
+      const [accRes, qRes, cmtRes, actRes, anaRes] = await Promise.allSettled([
+        readAccounts(),
         api.getQueue(),
         api.getComments({ awaitingReply: 'true', limit: '5' }),
         api.getActivity(6),
         api.getAnalyticsOverview(),
       ]);
-      setAccounts((accRes.accounts || []).filter((a: Account) => !a.is_demo));
-      setQueue((qRes.queue || []).filter((q: PublishingDestination) => !q.is_demo));
-      setComments(cmtRes.comments || []);
-      setActivities(actRes.events || []);
-      setAnalytics(anaRes);
+      if (token !== generation.current) return;
+      if (accRes.status === 'fulfilled') setAccounts((accRes.value.accounts || []).filter((a: Account) => !a.is_demo));
+      if (qRes.status === 'fulfilled') setQueue((qRes.value.queue || []).filter((q: PublishingDestination) => !q.is_demo));
+      if (cmtRes.status === 'fulfilled') setComments(cmtRes.value.comments || []);
+      if (actRes.status === 'fulfilled') setActivities(actRes.value.events || []);
+      if (anaRes.status === 'fulfilled') setAnalytics(anaRes.value);
+      setError([accRes,qRes,cmtRes,actRes,anaRes].some(result => result.status === 'rejected') ? 'Some dashboard resources are unavailable. Last successful values are retained.' : '');
     } catch (err) {
       console.error('Error loading dashboard:', err);
-    }
+    } finally { pending.current = false; }
   }, []);
 
   useEffect(() => {
+    if (!active) return;
     loadData();
     const interval = setInterval(loadData, 5000);
-    return () => clearInterval(interval);
-  }, [loadData]);
+    return () => { clearInterval(interval); generation.current++; };
+  }, [loadData, active]);
+  useResourceRefresh(['accounts', 'publishing', 'inbox', 'analytics', 'activity'], loadData);
 
   const filteredAccounts = selectedCategory === 'all'
     ? accounts
@@ -53,6 +66,7 @@ export const DashboardView: React.FC<Props> = ({ onNavigate, selectedCategory })
 
   return (
     <div className="space-y-6">
+      {error && <p role="alert" className="text-xs text-amber-300">{error} <button className="underline" onClick={() => void loadData()}>Retry</button></p>}
       {/* Studio Hearth Greeting Header */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-surface-card via-surface-card to-surface border border-border p-5 sm:p-6 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">

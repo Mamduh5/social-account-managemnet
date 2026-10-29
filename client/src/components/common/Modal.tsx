@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 import { themeTokens } from '../../theme/tokens';
+import { useFeatureActive } from '../../features/FeatureActivity';
 
 export interface ModalProps {
   isOpen: boolean;
@@ -18,7 +19,7 @@ export interface ModalProps {
 }
 
 export const Modal: React.FC<ModalProps> = ({
-  isOpen,
+  isOpen: requestedOpen,
   onClose,
   title,
   subtitle,
@@ -29,6 +30,8 @@ export const Modal: React.FC<ModalProps> = ({
   initialFocusRef,
   dismissible = true,
 }) => {
+  const featureActive = useFeatureActive();
+  const isOpen = requestedOpen && featureActive;
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const callbacks = useRef({ onClose, dismissible, initialFocusRef });

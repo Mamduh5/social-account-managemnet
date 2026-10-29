@@ -66,12 +66,13 @@ export class InboxRepository {
 
     for (const r of rows) {
       r.replies = [];
-      commentMap.set(r.external_comment_id, r);
+      commentMap.set(JSON.stringify([r.account_id,r.external_comment_id]), r);
     }
 
     for (const r of rows) {
-      if (r.parent_comment_id && commentMap.has(r.parent_comment_id)) {
-        commentMap.get(r.parent_comment_id).replies.push(r);
+      const parentKey = JSON.stringify([r.account_id,r.parent_comment_id]);
+      if (r.parent_comment_id && commentMap.has(parentKey)) {
+        commentMap.get(parentKey).replies.push(r);
       } else {
         topLevel.push(r);
       }

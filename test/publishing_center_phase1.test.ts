@@ -802,7 +802,10 @@ test('PublishingView UI: real compiled CSS, accurate dispatch branding modes, ro
 
   const pageErrors: string[] = [];
   page.on('pageerror', (err) => pageErrors.push(err.message));
-  await page.route('**/*', (route) => route.abort());
+  // A fulfilled virtual localhost document supplies genuine Web Crypto/session storage.
+  // There is no listener or network connection; every other request is blocked.
+  await page.route('**/*', route => route.request().url() === 'http://scc-fixture.localhost/'
+    ? route.fulfill({ contentType: 'text/html', body: '<!DOCTYPE html><html><head></head><body><div id="root"></div></body></html>' }) : route.abort());
 
   t.after(async () => {
     await context.close();
@@ -810,7 +813,8 @@ test('PublishingView UI: real compiled CSS, accurate dispatch branding modes, ro
   });
 
   // Render against the REAL compiled application CSS (no test-only overflow or max-width hacks)
-  await page.setContent('<!DOCTYPE html><html><head></head><body><div id="root"></div></body></html>');
+  await page.goto('http://scc-fixture.localhost/');
+  assert.equal(await page.evaluate(() => !!crypto.subtle), true);
   await page.addStyleTag({ content: uiCss });
   await page.addScriptTag({ content: uiBundle });
 
@@ -1006,6 +1010,8 @@ test('PublishingView UI: real compiled CSS, accurate dispatch branding modes, ro
       if (u.pathname === '/api/publishing/queue') {
         return json({ queue: [] });
       }
+      if (u.pathname === '/api/publishing/queue/active') return json({queue:[],total:0,limit:100,hasMore:false});
+      if (u.pathname === '/api/publishing/history') return json({items:[],total:0,limit:Number(u.searchParams.get('limit')||20),offset:Number(u.searchParams.get('offset')||0),hasMore:false,timestamp:'created',direction:'desc',startAt:null,endAt:null});
       if (u.pathname === '/api/pipeline/sync') {
         if (win.holdSync) await new Promise<void>(resolve => { win.releaseSync = resolve; });
         return json({ success: true, jobs: [], page: { limit: 12, returned: 0, hasMore: false, nextCursor: null }, health: { reachable: true, status: 'connected' } });
@@ -1166,7 +1172,7 @@ test('PublishingView UI: real compiled CSS, accurate dispatch branding modes, ro
     win.failWatchRefresh=true;
     window.dispatchEvent(new Event('scc:cleanup-changed'));
   });
-  await page.getByRole('alert').getByText('Synthetic watch refresh failure').waitFor();
+  await page.getByRole('alert').getByText('The service could not be reached. Retry the read when it is available.',{exact:true}).waitFor();
   assert.equal(await page.getByText('duplicate.mp4',{exact:true}).count(),0,'failed post-cleanup refresh does not retain stale watch entries');
   await page.evaluate(() => {
     (window as any).hiddenWatchPaths=[];

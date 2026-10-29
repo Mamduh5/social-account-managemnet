@@ -1,3 +1,4 @@
+import {aggregateLatest,dailyCumulativeTrends} from './analytics-aggregation.js';
 import { db } from '../db/database.js';
 import { PostMetricsSnapshot, AccountMetricsSnapshot, SyncStateEntity, VideoPerformanceItem } from '../domain/types.js';
 import { randomUUID } from 'node:crypto';
@@ -138,70 +139,8 @@ export class AnalyticsRepository {
   }
 
   getOverviewTotals(filter?: AnalyticsFilter): any {
-    let where = 'WHERE a.is_demo = 0 AND a.archived_at IS NULL';
-    const params: any[] = [];
-
-    if (filter?.platform) {
-      where += ' AND a.platform = ?';
-      params.push(filter.platform);
-    }
-    if (filter?.accountId) {
-      where += ' AND a.id = ?';
-      params.push(filter.accountId);
-    }
-    if (filter?.categoryId) {
-      where += ' AND a.category_id = ?';
-      params.push(filter.categoryId);
-    }
-
-    // Sum up the most recent snapshot for each published destination
-    const postTotals = db.prepare(`
-      WITH LatestSnapshots AS (
-        SELECT pms.*,
-          ROW_NUMBER() OVER(PARTITION BY pms.destination_id ORDER BY pms.observed_at DESC) as rn
-        FROM post_metrics_snapshots pms
-        JOIN publishing_destinations pd ON pd.id = pms.destination_id
-        JOIN accounts a ON a.id = pd.account_id
-        ${where}
-      )
-      SELECT 
-        sum(view_count) as total_views,
-        sum(like_count) as total_likes,
-        sum(comment_count) as total_comments,
-        sum(share_count) as total_shares,
-        count(DISTINCT destination_id) as total_synced_videos
-      FROM LatestSnapshots
-      WHERE rn = 1
-    `).get(...params) as any;
-
-    // Also get follower total from accounts
-    const accountTotals = db.prepare(`
-      SELECT 
-        CASE WHEN count(${this.followerValueSql()}) = count(id) AND count(id) > 0
-          THEN sum(${this.followerValueSql()}) ELSE NULL END as total_followers,
-        count(id) as total_accounts,
-        MAX(last_synced_at) as last_sync_time
-      FROM accounts a
-      ${where}
-    `).get(...params) as any;
-
-    const hasSnapshots = Boolean(postTotals && postTotals.total_synced_videos > 0);
-    const views = hasSnapshots ? postTotals.total_views : null;
-    const engagements = (postTotals?.total_likes || 0) + (postTotals?.total_comments || 0) + (postTotals?.total_shares || 0);
-    const avg_engagement_rate = (views !== null && views > 0) ? Number(((engagements / views) * 100).toFixed(2)) : 0;
-
-    return {
-      total_views: views,
-      total_likes: hasSnapshots ? postTotals?.total_likes : null,
-      total_comments: hasSnapshots ? postTotals?.total_comments : null,
-      total_shares: hasSnapshots ? postTotals?.total_shares : null,
-      total_followers: accountTotals?.total_followers ?? null,
-      total_followers_gained: null,
-      total_accounts: accountTotals?.total_accounts || 0,
-      total_synced_videos: postTotals?.total_synced_videos || 0,
-      avg_engagement_rate,
-      last_sync_time: accountTotals?.last_sync_time || null,
-    };
+    const row=aggregateLatest(filter,'all',this.followerValueSql())[0];
+    return {...row,total_accounts:row.account_count,total_followers_gained:null};
   }
 
   getVideoPerformanceList(filter?: AnalyticsFilter): VideoPerformanceItem[] {
@@ -224,7 +163,7 @@ export class AnalyticsRepository {
     const query = `
       WITH LatestPostSnapshots AS (
         SELECT pms.*,
-          ROW_NUMBER() OVER(PARTITION BY pms.destination_id ORDER BY pms.observed_at DESC) as rn
+          ROW_NUMBER() OVER(PARTITION BY pms.destination_id ORDER BY pms.observed_at DESC, pms.rowid DESC) as rn
         FROM post_metrics_snapshots pms
       )
       SELECT 
@@ -249,8 +188,8 @@ export class AnalyticsRepository {
         pms.comment_count as comments,
         pms.share_count as shares,
         pms.observed_at,
-        COALESCE(pms.source, 'browser_verified') as source,
-        COALESCE(pms.provenance_status, 'confirmed') as provenance_status,
+        COALESCE(pms.source, 'manual') as source,
+        COALESCE(pms.provenance_status, 'unavailable') as provenance_status,
         pms.status_detail
       FROM publishing_destinations pd
       JOIN accounts a ON pd.account_id = a.id
@@ -259,157 +198,25 @@ export class AnalyticsRepository {
       LEFT JOIN categories cat ON a.category_id = cat.id
       LEFT JOIN LatestPostSnapshots pms ON pms.destination_id = pd.id AND pms.rn = 1
       ${where}
-      ORDER BY pd.published_at DESC
+      ORDER BY pd.published_at DESC, pd.id DESC
     `;
 
     return db.prepare(query).all(...params) as any[];
   }
 
-  getPlatformComparison(): any[] {
-    return db.prepare(`
-      WITH LatestPostSnapshots AS (
-        SELECT pms.*,
-          ROW_NUMBER() OVER(PARTITION BY pms.destination_id ORDER BY pms.observed_at DESC) as rn
-        FROM post_metrics_snapshots pms
-        JOIN publishing_destinations pd ON pd.id = pms.destination_id
-        JOIN accounts a ON a.id = pd.account_id
-        WHERE a.is_demo = 0 AND a.archived_at IS NULL
-      )
-      SELECT 
-        a.platform,
-        count(DISTINCT a.id) as account_count,
-        COALESCE(sum(lps.view_count), 0) as total_views,
-        COALESCE(sum(lps.like_count), 0) as total_likes,
-        COALESCE(sum(lps.comment_count), 0) as total_comments,
-        COALESCE(sum(lps.share_count), 0) as total_shares,
-        (SELECT CASE WHEN count(${this.followerValueSql('af')}) = count(*) AND count(*) > 0
-          THEN sum(${this.followerValueSql('af')}) ELSE NULL END FROM accounts af
-          WHERE af.platform = a.platform AND af.is_demo = 0 AND af.archived_at IS NULL) as total_followers,
-        round(
-          case when sum(lps.view_count) > 0 
-               then (CAST((sum(lps.like_count) + sum(lps.comment_count) + sum(lps.share_count)) AS FLOAT) / sum(lps.view_count)) * 100.0
-               else 0.0 
-          end, 2
-        ) as avg_engagement_rate
-      FROM accounts a
-      LEFT JOIN publishing_destinations pd ON pd.account_id = a.id AND pd.status = 'published'
-      LEFT JOIN LatestPostSnapshots lps ON lps.destination_id = pd.id AND lps.rn = 1
-      WHERE a.is_demo = 0 AND a.archived_at IS NULL
-      GROUP BY a.platform
-    `).all();
-  }
+  getPlatformComparison(filter?: AnalyticsFilter): any[] { return aggregateLatest(filter,'platform',this.followerValueSql()); }
 
-  getCategoryComparison(): any[] {
-    return db.prepare(`
-      WITH LatestPostSnapshots AS (
-        SELECT pms.*,
-          ROW_NUMBER() OVER(PARTITION BY pms.destination_id ORDER BY pms.observed_at DESC) as rn
-        FROM post_metrics_snapshots pms
-        JOIN publishing_destinations pd ON pd.id = pms.destination_id
-        JOIN accounts a ON a.id = pd.account_id
-        WHERE a.is_demo = 0 AND a.archived_at IS NULL
-      )
-      SELECT 
-        c.id, c.name, c.color, c.slug,
-        count(DISTINCT a.id) as account_count,
-        COALESCE(sum(lps.view_count), 0) as total_views,
-        COALESCE(sum(lps.like_count), 0) as total_likes,
-        COALESCE(sum(lps.comment_count), 0) as total_comments,
-        COALESCE(sum(lps.share_count), 0) as total_shares,
-        round(
-          case when sum(lps.view_count) > 0 
-               then (CAST((sum(lps.like_count) + sum(lps.comment_count) + sum(lps.share_count)) AS FLOAT) / sum(lps.view_count)) * 100.0
-               else 0.0 
-          end, 2
-        ) as avg_engagement_rate
-      FROM categories c
-      JOIN accounts a ON c.id = a.category_id
-      LEFT JOIN publishing_destinations pd ON pd.account_id = a.id AND pd.status = 'published'
-      LEFT JOIN LatestPostSnapshots lps ON lps.destination_id = pd.id AND lps.rn = 1
-      WHERE a.is_demo = 0 AND a.archived_at IS NULL
-      GROUP BY c.id
-      ORDER BY total_views DESC
-    `).all();
-  }
+  getCategoryComparison(filter?: AnalyticsFilter): any[] { return aggregateLatest(filter,'category',this.followerValueSql()); }
 
-  getAccountRankings(filter?: AnalyticsFilter): any[] {
-    let where = 'WHERE a.is_demo = 0 AND a.archived_at IS NULL';
-    const params: any[] = [];
+  getAccountRankings(filter?: AnalyticsFilter): any[] { return aggregateLatest(filter,'account',this.followerValueSql()); }
 
-    if (filter?.platform) {
-      where += ' AND a.platform = ?';
-      params.push(filter.platform);
-    }
-    if (filter?.categoryId) {
-      where += ' AND a.category_id = ?';
-      params.push(filter.categoryId);
-    }
-
-    return db.prepare(`
-      WITH LatestPostSnapshots AS (
-        SELECT pms.*,
-          ROW_NUMBER() OVER(PARTITION BY pms.destination_id ORDER BY pms.observed_at DESC) as rn
-        FROM post_metrics_snapshots pms
-      )
-      SELECT 
-        a.id, a.name, a.handle, a.platform, a.avatar_url, a.last_synced_at,
-        c.name as category_name, c.color as category_color,
-        COALESCE(sum(lps.view_count), 0) as total_views,
-        COALESCE(sum(lps.like_count), 0) as total_likes,
-        COALESCE(sum(lps.comment_count), 0) as total_comments,
-        COALESCE(sum(lps.share_count), 0) as total_shares,
-        ${this.followerValueSql()} as current_followers,
-        round(
-          case when sum(lps.view_count) > 0 
-               then (CAST((sum(lps.like_count) + sum(lps.comment_count) + sum(lps.share_count)) AS FLOAT) / sum(lps.view_count)) * 100.0
-               else 0.0 
-          end, 2
-        ) as engagement_rate
-      FROM accounts a
-      LEFT JOIN categories c ON a.category_id = c.id
-      JOIN publishing_destinations pd ON pd.account_id = a.id AND pd.status = 'published'
-      JOIN LatestPostSnapshots lps ON lps.destination_id = pd.id AND lps.rn = 1
-      ${where}
-      GROUP BY a.id
-      ORDER BY total_views DESC
-    `).all(...params);
-  }
-
-  getDailyTrends(filter?: AnalyticsFilter): any[] {
-    let where = 'WHERE a.is_demo = 0 AND a.archived_at IS NULL';
-    const params: any[] = [];
-
-    if (filter?.platform) {
-      where += ' AND a.platform = ?';
-      params.push(filter.platform);
-    }
-    if (filter?.accountId) {
-      where += ' AND a.id = ?';
-      params.push(filter.accountId);
-    }
-
-    // Group observations by date
-    return db.prepare(`
-      SELECT 
-        date(pms.observed_at) as date,
-        sum(case when a.platform = 'facebook' then pms.view_count else 0 end) as facebook_views,
-        sum(case when a.platform = 'tiktok' then pms.view_count else 0 end) as tiktok_views,
-        sum(pms.view_count) as total_views,
-        sum(pms.like_count) as total_likes,
-        sum(pms.comment_count) as total_comments
-      FROM post_metrics_snapshots pms
-      JOIN accounts a ON pms.account_id = a.id
-      ${where}
-      GROUP BY date(pms.observed_at)
-      ORDER BY date ASC
-    `).all(...params);
-  }
+  getDailyTrends(filter?: AnalyticsFilter): any[] { return dailyCumulativeTrends(filter); }
 
   getPostHistory(destinationId: string): PostMetricsSnapshot[] {
     return db.prepare(`
       SELECT * FROM post_metrics_snapshots
       WHERE destination_id = ?
-      ORDER BY observed_at ASC
+      ORDER BY observed_at ASC, rowid ASC
     `).all(destinationId) as any[];
   }
 

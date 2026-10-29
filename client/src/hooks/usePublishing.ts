@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api/client';
+import { publicationCommand, acknowledgePublicationCommand } from '../api/publication-command';
+import { publishingHistoryApi } from '../api/publishing-history';
+import { useFeatureActive } from '../features/FeatureActivity';
+import { useResourceRefresh } from '../api/resource-events';
 import {
   Account,
   VideoItem,
-  PublishingPost,
   PublishingDestination,
   DiscoveredPipelineJob,
   PipelineHealthStatus,
@@ -353,13 +356,18 @@ export function resolveDestinationMediaPayload(
 }
 
 export function usePublishing() {
+  const featureActive = useFeatureActive();
+  const featureActiveRef = useRef(featureActive); featureActiveRef.current = featureActive;
   const [activeTab, setActiveTab] = useState<'compose' | 'queue' | 'library'>('compose');
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [allAccounts, setAccounts] = useState<Account[]>([]);
   const [showDemoAccounts, setShowDemoAccounts] = useState(false);
   const accounts = allAccounts.filter((a) => showDemoAccounts || !a.is_demo);
-  const [posts, setPosts] = useState<PublishingPost[]>([]);
   const [queue, setQueue] = useState<PublishingDestination[]>([]);
+  const [activeQueueTotal, setActiveQueueTotal] = useState(0);
+  const [activeQueueHasMore, setActiveQueueHasMore] = useState(false);
+  const [resourceError, setResourceError] = useState('');
+  const videosSequence = useRef(0), accountsSequence = useRef(0), queueSequence = useRef(0);
   const [pipelineFiles, setPipelineFiles] = useState<any[]>([]);
   const [watchIdentityIncomplete, setWatchIdentityIncomplete] = useState(false);
   const [pipelineJobs, setPipelineJobs] = useState<DiscoveredPipelineJob[]>([]);
@@ -438,6 +446,7 @@ export function usePublishing() {
       queryOverride?: Partial<PipelineJobsQueryParams>,
       options?: { append?: boolean; cursor?: string | null; silent?: boolean }
     ) => {
+      if (!featureActiveRef.current) return;
       const effectiveQuery = {
         ...pipelineQueryRef.current,
         ...(queryOverride || {}),
@@ -562,17 +571,21 @@ export function usePublishing() {
     []
   );
 
-  // Operational state load (videos, accounts, posts, queue) — safe for background polling without resetting discovery filters
-  const loadOperationalData = useCallback(async () => {
+  const loadVideos = useCallback(async () => {
+    const token = ++videosSequence.current;
     try {
-      const [vRes, aRes, pRes, qRes] = await Promise.all([
-        api.getVideos(),
-        api.getAccounts(),
-        api.getPosts(),
-        api.getQueue(),
-      ]);
+      const vRes = await api.getVideos();
+      if (token !== videosSequence.current) return;
       const loadedVideos = vRes.videos || [];
       setVideos(loadedVideos);
+      setSelectedVideoIdState((prev) => prev || loadedVideos[0]?.id || '');
+    } catch (err) { if (token === videosSequence.current) setResourceError(err instanceof Error ? err.message : 'Video library unavailable.'); }
+  }, []);
+  const loadAccounts = useCallback(async () => {
+    const token = ++accountsSequence.current;
+    try {
+      const aRes = await api.getAccounts();
+      if (token !== accountsSequence.current) return;
       setAccounts(aRes.accounts || []);
       try {
         const prepareId = sessionStorage.getItem('prepareAccountId');
@@ -583,14 +596,27 @@ export function usePublishing() {
       } catch {
         // Ignore sessionStorage SecurityError in restricted/blank origins
       }
-      setPosts(pRes.posts || []);
-      setQueue(qRes.queue || []);
-
-      setSelectedVideoIdState((prev) => prev || loadedVideos[0]?.id || '');
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) { if (token === accountsSequence.current) setResourceError(err instanceof Error ? err.message : 'Accounts unavailable.'); }
   }, []);
+  const loadQueue = useCallback(async () => {
+    const token = ++queueSequence.current;
+    try {
+      const result = await publishingHistoryApi.active();
+      if (token !== queueSequence.current) return;
+      setQueue(result.queue || []); setActiveQueueTotal(result.total); setActiveQueueHasMore(result.hasMore);
+    } catch (err) { if (token === queueSequence.current) setResourceError(err instanceof Error ? err.message : 'Active queue unavailable.'); }
+  }, []);
+  useResourceRefresh(['publishing'], loadQueue);
+  useResourceRefresh(['videos'], loadVideos);
+  useResourceRefresh(['accounts'], loadAccounts);
+  const refreshPublishing = useCallback(async () => {
+    await loadQueue();
+    window.dispatchEvent(new Event('scc:history-changed'));
+  }, [loadQueue]);
+  const loadOperationalData = useCallback(async () => {
+    setResourceError('');
+    await Promise.all([loadVideos(), loadAccounts(), loadQueue()]);
+  }, [loadVideos, loadAccounts, loadQueue]);
 
   const loadData = useCallback(async () => {
     await Promise.all([
@@ -600,6 +626,7 @@ export function usePublishing() {
   }, [loadOperationalData, fetchPipelineDiscovery]);
 
   useEffect(() => {
+    if (!featureActive) return;
     loadData();
     const onCleanupChanged = () => {
       // A failed refresh must not leave a newly hidden watch entry on screen.
@@ -607,8 +634,10 @@ export function usePublishing() {
       void loadData();
     };
     window.addEventListener('scc:cleanup-changed', onCleanupChanged);
-    const interval = setInterval(loadOperationalData, 5000);
+    let polling = false;
+    const interval = setInterval(async () => { if (polling) return; polling = true; try { await loadQueue(); } finally { polling = false; } }, 5000);
     return () => {
+      videosSequence.current++; accountsSequence.current++; queueSequence.current++;
       window.removeEventListener('scc:cleanup-changed', onCleanupChanged);
       clearInterval(interval);
       if (searchDebounceTimerRef.current) {
@@ -616,7 +645,7 @@ export function usePublishing() {
       }
       discoveryAbortRef.current?.abort();
     };
-  }, [loadData, loadOperationalData]);
+  }, [featureActive, loadData, loadQueue]);
 
   // Update pipeline query and fetch matching page 1 (with debouncing for rapid text search updates)
   const updatePipelineQuery = useCallback(
@@ -680,10 +709,10 @@ export function usePublishing() {
   // Safe master video switch: revalidates saved branded variant selections across composer & all destinations
   const setSelectedVideoId = useCallback(
     (nextVideoId: string) => {
-      setSelectedVideoIdState((prevVideoId) => {
-        if (prevVideoId === nextVideoId) return prevVideoId;
+        if (selectedVideoId === nextVideoId) return;
         const nextVideo = videos.find((v) => v.id === nextVideoId);
         const validVariantIds = new Set((nextVideo?.branded_variants || []).map((v) => v.id));
+        const invalidatedAny = Object.values(destinationConfig).some(entry => entry.mediaMode === 'saved_variant' && (!entry.selectedVariantId || !validVariantIds.has(entry.selectedVariantId)));
 
         setSelectedVariantIdState((prevVar) => {
           if (prevVar === 'original' || prevVar === 'dispatch_branding') return prevVar;
@@ -693,11 +722,9 @@ export function usePublishing() {
         setDestinationConfig((prevConfig) => {
           const updated = { ...prevConfig };
           let changed = false;
-          let invalidatedAny = false;
           for (const [accId, entry] of Object.entries(updated)) {
             if (entry.mediaMode === 'saved_variant') {
               if (!entry.selectedVariantId || !validVariantIds.has(entry.selectedVariantId)) {
-                invalidatedAny = true;
                 changed = true;
                 updated[accId] = {
                   ...entry,
@@ -707,24 +734,17 @@ export function usePublishing() {
               }
             }
           }
-          if (invalidatedAny && nextVideo) {
-            setMediaSelectionNotice(
-              `Switched master video to "${nextVideo.title}". Previously selected saved branded version does not belong to this master and was cleared — please select a valid variant or choose another media mode.`
-            );
-          } else {
-            setMediaSelectionNotice('');
-          }
           return changed ? updated : prevConfig;
         });
+        setMediaSelectionNotice(invalidatedAny && nextVideo ? `Switched master video to "${nextVideo.title}". Previously selected saved branded version does not belong to this master and was cleared — please select a valid variant or choose another media mode.` : '');
 
         if (nextVideo) {
           setPostTitle(nextVideo.title);
         }
 
-        return nextVideoId;
-      });
+        setSelectedVideoIdState(nextVideoId);
     },
-    [videos]
+    [videos, selectedVideoId, destinationConfig]
   );
 
   // Also revalidate if the currently selected video's variants array changes (e.g. a variant was deleted)
@@ -885,7 +905,7 @@ export function usePublishing() {
       setUploadProgress(60);
       const res = await api.uploadVideo(formData);
       setUploadProgress(100);
-      await loadOperationalData();
+      await loadVideos();
       if (res.videoId) {
         setSelectedVideoIdState(res.videoId);
         setPostTitle(res.title);
@@ -910,7 +930,7 @@ export function usePublishing() {
 
     try {
       const res = await api.importPipelineFile(filePath, filename.replace(/\.mp4$/i, ''));
-      await loadOperationalData();
+      await loadVideos();
       setPipelineFiles((prev) =>
         prev.map((f) => (f.fullPath === filePath ? { ...f, isImported: true, importedVideoId: res.videoId } : f))
       );
@@ -963,7 +983,7 @@ export function usePublishing() {
         },
       }));
 
-      await loadOperationalData();
+      await loadVideos();
       if (res.videoId) {
         setSelectedVideoId(res.videoId);
         if (title) setPostTitle(title);
@@ -1021,7 +1041,6 @@ export function usePublishing() {
       setPipelineIncompleteReason(res.incompleteReason);
       setPipelineTotalMatched(res.totalMatched);
       setPipelineErrorKind(res.errorKind);
-      await loadOperationalData();
     } catch (err: any) {
       if (err?.name === 'AbortError' || reqSeq !== discoverySeqRef.current) return;
       const errMsg = err instanceof Error ? err.message : 'Upstream AI video pipeline is not reachable.';
@@ -1036,9 +1055,9 @@ export function usePublishing() {
   const handleDeleteBrandedVariant = async (variantId: string) => {
     try {
       await api.deleteBrandedVariant(variantId);
-      await loadOperationalData();
+      await loadVideos();
     } catch (err) {
-      console.error('Error deleting branded variant:', err);
+      setResourceError(err instanceof Error ? err.message : 'Could not delete the branded variant.');
     }
   };
 
@@ -1143,15 +1162,18 @@ export function usePublishing() {
       const topLevelVariant =
         selectedVariantId === 'dispatch_branding' ? null : selectedVariantId || 'original';
 
-      await api.createPost({
+      const payload = {
         videoId: selectedVideoId,
         title: postTitle,
         scheduledAt,
         selectedVariantId: topLevelVariant,
         destinations,
-      });
+      };
+      const commandId = await publicationCommand(payload);
+      await api.createPost({ ...payload, commandId });
+      acknowledgePublicationCommand(commandId);
 
-      await loadOperationalData();
+      await refreshPublishing();
       setActiveTab('queue');
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Publishing request failed.');
@@ -1165,18 +1187,18 @@ export function usePublishing() {
   const handleRetryDestination = async (id: string) => {
     try {
       await api.retryDestination(id);
-      await loadOperationalData();
+      await refreshPublishing();
     } catch (err) {
-      console.error(err);
+      setResourceError(err instanceof Error ? err.message : 'Destination could not be retried.');
     }
   };
 
   const handleCancelDestination = async (id: string) => {
     try {
       await api.cancelDestination(id);
-      await loadOperationalData();
+      await refreshPublishing();
     } catch (err) {
-      console.error(err);
+      setResourceError(err instanceof Error ? err.message : 'Destination could not be cancelled.');
     }
   };
 
@@ -1187,8 +1209,10 @@ export function usePublishing() {
     setShowDemoAccounts,
     videos,
     accounts,
-    posts,
     queue,
+    activeQueueTotal,
+    activeQueueHasMore,
+    resourceError,
     pipelineFiles,
     watchIdentityIncomplete,
     pipelineJobs,
@@ -1237,6 +1261,7 @@ export function usePublishing() {
     submitError,
     loadData,
     loadOperationalData,
+    refreshPublishing,
     handleFileUpload,
     handleImportPipelineFile,
     handleImportPipelineJob,

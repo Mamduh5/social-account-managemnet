@@ -17,6 +17,7 @@ export class QueueService {
   private isRunning = false;
   private inFlight = new Set<string>();
   private intervalTimer: NodeJS.Timeout | null = null;
+  private readonly concurrency = 2;
 
   get activeJobCount(){return this.inFlight.size;}
 
@@ -93,7 +94,12 @@ export class QueueService {
     }
 
     // 2. Fetch up to 2 queued/preparing jobs to process concurrently
-    const pendingJobs = publishingRepo.getPendingQueueJobs(2);
+    const available = this.concurrency - this.inFlight.size;
+    if (available <= 0) return;
+    // Include in-flight rows in the scan budget: a rendering job remains in
+    // the repository's preparing/branding result until upload starts.
+    const pendingJobs = publishingRepo.getPendingQueueJobs(this.concurrency + this.inFlight.size)
+      .filter(job => !this.inFlight.has(job.id)).slice(0, available);
 
     for (const job of pendingJobs) {
       this.executeDestinationJob(job).catch((err) => {

@@ -12,8 +12,8 @@ analyticsRouter.get('/overview', (req, res) => {
   };
 
   const totals = analyticsRepo.getOverviewTotals(filter);
-  const platformComparison = analyticsRepo.getPlatformComparison();
-  const categoryComparison = analyticsRepo.getCategoryComparison();
+  const platformComparison = analyticsRepo.getPlatformComparison(filter);
+  const categoryComparison = analyticsRepo.getCategoryComparison(filter);
   const accountRankings = analyticsRepo.getAccountRankings(filter);
   const dailyTrends = analyticsRepo.getDailyTrends(filter);
   const videoPerformance = analyticsRepo.getVideoPerformanceList(filter);
@@ -25,6 +25,7 @@ analyticsRouter.get('/overview', (req, res) => {
     categoryComparison,
     accountRankings,
     dailyTrends,
+    dailyTrendsSemantics: 'Latest cumulative observation per destination per Asia/Bangkok day; not daily gains.',
     videoPerformance,
     syncStates,
     isSimulatedNotice: 'Real platform metrics with proven provenance. Demo data excluded.',
@@ -67,10 +68,10 @@ analyticsRouter.post('/observe', (req, res) => {
   try {
     const snapshot = syncService.recordObservation({
       destinationId,
-      viewCount: viewCount !== undefined && viewCount !== null ? Number(viewCount) : null,
-      likeCount: likeCount !== undefined && likeCount !== null ? Number(likeCount) : null,
-      commentCount: commentCount !== undefined && commentCount !== null ? Number(commentCount) : null,
-      shareCount: shareCount !== undefined && shareCount !== null ? Number(shareCount) : null,
+      viewCount: viewCount ?? null,
+      likeCount: likeCount ?? null,
+      commentCount: commentCount ?? null,
+      shareCount: shareCount ?? null,
       source: source || 'browser_verified',
       notes,
     });

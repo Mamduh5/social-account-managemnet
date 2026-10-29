@@ -5,6 +5,7 @@ import { Button } from '../components/common/Button';
 import { Modal } from '../components/common/Modal';
 import { DiscoveredPipelineJob, PipelineJobsPageResponse } from '../types';
 import { HiddenWatchFilePage, TestDataDetail, TestDataPage, TestDataPreview, TestDataRecord, TestDataSelection, WatchFilePage } from '../types/test-data';
+import { useFeatureActive } from '../features/FeatureActivity';
 
 const typeLabels: Record<string, string> = {
   account: 'Account', category: 'Category', video: 'Master video', branded_video: 'Branded video',
@@ -24,6 +25,7 @@ type Mode = 'records' | 'pipeline' | 'hidden' | 'watch';
 type PipelineJob = DiscoveredPipelineJob & {hidden?: boolean;ownerClassification?: TestDataRecord['classification'];sourceFingerprint?: string};
 
 export const TestDataManagerView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const active = useFeatureActive();
   const [mode, setMode] = useState<Mode>('records');
   const [type, setType] = useState('all');
   const [searchInput, setSearchInput] = useState('');
@@ -68,7 +70,7 @@ export const TestDataManagerView: React.FC<{ onBack: () => void }> = ({ onBack }
 
   useEffect(() => () => { requestGeneration.current++; }, []);
   useEffect(() => {
-    if (mode !== 'records') return;
+    if (!active || mode !== 'records') return;
     const controller = new AbortController();
     setLoading(true); setError(null); setPage(null);
     api.getTestData(type, search, offset, controller.signal, {classification,source,eligibility,status}).then(result => {
@@ -77,8 +79,9 @@ export const TestDataManagerView: React.FC<{ onBack: () => void }> = ({ onBack }
       if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Unable to load records');
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [mode, type, search, offset, retry, classification, source, eligibility, status]);
+  }, [active, mode, type, search, offset, retry, classification, source, eligibility, status]);
   useEffect(() => {
+    if (!active) return;
     if (!inspected) { setDetail(null); return; }
     const controller = new AbortController();
     setDetailLoading(true); setDetailError(null); setDetail(null);
@@ -86,9 +89,9 @@ export const TestDataManagerView: React.FC<{ onBack: () => void }> = ({ onBack }
       .catch((err:unknown) => { if (!controller.signal.aborted) setDetailError(err instanceof Error ? err.message : 'Unable to load details'); })
       .finally(() => { if (!controller.signal.aborted) setDetailLoading(false); });
     return () => controller.abort();
-  }, [inspected, retry]);
+  }, [active, inspected, retry]);
   useEffect(() => {
-    if (mode === 'records' || mode === 'watch') return;
+    if (!active || mode === 'records' || mode === 'watch') return;
     let current = true; const controller = new AbortController();
     setLoading(true); setError(null); setPipeline(null); setHiddenPage(null);
     const request = mode === 'pipeline'
@@ -97,9 +100,9 @@ export const TestDataManagerView: React.FC<{ onBack: () => void }> = ({ onBack }
     request.catch((err:unknown) => { if (current) setError(err instanceof Error ? err.message : 'Unable to load Pipeline items'); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; controller.abort(); };
-  }, [mode, pipelineCursor, hiddenOffset, search, retry]);
+  }, [active, mode, pipelineCursor, hiddenOffset, search, retry]);
   useEffect(() => {
-    if (mode !== 'watch') return;
+    if (!active || mode !== 'watch') return;
     const controller = new AbortController();
     setLoading(true); setError(null); setWatchPage(null); setHiddenWatchPage(null);
     const request = watchVisibility === 'hidden'
@@ -108,7 +111,7 @@ export const TestDataManagerView: React.FC<{ onBack: () => void }> = ({ onBack }
     request.catch((err:unknown)=>{if(!controller.signal.aborted)setError(err instanceof Error?err.message:'Unable to load watch-directory entries');})
       .finally(()=>{if(!controller.signal.aborted)setLoading(false);});
     return ()=>controller.abort();
-  },[mode,watchVisibility,watchOffset,retry]);
+  },[active,mode,watchVisibility,watchOffset,retry]);
 
   const resetPage = () => { setOffset(0); setPreviousOffsets([]); };
   const toggleRecord = (record: TestDataRecord, checked: boolean) => {
@@ -164,13 +167,22 @@ export const TestDataManagerView: React.FC<{ onBack: () => void }> = ({ onBack }
     if (deleteInFlight.current) return;
     requestGeneration.current++; setReviewOpen(false); setPreview(null); setReviewError(null); setConfirmation('');
   };
-  const openReview = async () => {
-    if (!selected.length) return;
+  const reviewSelection = async (records:TestDataSelection[]) => {
+    if (!records.length) return;
     const generation = ++requestGeneration.current;
     setReviewOpen(true); setPreview(null); setReviewError(null); setConfirmation(''); setPreviewLoading(true); setOutcome(null);
-    try { const result = await api.previewTestDataDeletion(selected); if (generation === requestGeneration.current) setPreview(result); }
+    try { const result = await api.previewTestDataDeletion(records); if (generation === requestGeneration.current) setPreview(result); }
     catch (err:unknown) { if (generation === requestGeneration.current) setReviewError(err instanceof Error ? err.message : 'Could not review this selection'); }
     finally { if (generation === requestGeneration.current) setPreviewLoading(false); }
+  };
+  const openReview = () => { void reviewSelection(selected); };
+  const addReviewedDependencies = () => {
+    if (!preview?.suggestedRecords?.length || previewLoading || deleting) return;
+    const next=[...selected];
+    for(const record of preview.suggestedRecords) if(!next.some(item=>keyFor(item)===keyFor(record))) next.push({type:record.type,id:record.id});
+    if(next.length>25) {setReviewError('Select at most 25 records. Remove part of the selection before adding dependencies.');return;}
+    setSelected(next);
+    void reviewSelection(next);
   };
   const confirmDeletion = async () => {
     if (!preview?.canDelete || confirmation !== preview.confirmationPhrase || deleteInFlight.current) return;
@@ -190,6 +202,7 @@ export const TestDataManagerView: React.FC<{ onBack: () => void }> = ({ onBack }
     <header className="bg-surface-card p-5 rounded-2xl border border-border space-y-2">
       <div className="text-[11px] font-bold uppercase tracking-wider text-terracotta-400 flex items-center gap-1.5"><Database className="w-4 h-4" /> Data management</div>
       <h2 className="text-xl font-black text-slate-100">Manage Demo &amp; Test Data</h2>
+      <p className="text-sm text-slate-300">Remove explicitly selected SCC library records and terminal local publishing history. Social accounts, credentials, original files, Pipeline data and external posts are preserved.</p>
       <p className="text-sm text-slate-400">Identify records by source and relationships before deciding what to remove. A title or simulator mode does not prove test provenance.</p>
     </header>
     <nav aria-label="Data inventory" className="flex flex-wrap gap-2">
@@ -299,7 +312,8 @@ export const TestDataManagerView: React.FC<{ onBack: () => void }> = ({ onBack }
     <Modal isOpen={reviewOpen} onClose={closeReview} title="Review deletion" maxWidth="max-w-2xl" manageFocus initialFocusRef={cancelRef} dismissible={!deleting} scrollBody>
       <div className="overflow-y-auto min-h-0 space-y-4 text-sm text-slate-300">
         {previewLoading && <p role="status">Checking the selected records and dependencies...</p>}{reviewError && <p role="alert" className="text-rose-400">{reviewError}</p>}
-        {preview && <>{preview.canDelete ? <p>Proposed deletion: <strong className="text-slate-100">{preview.total} database {preview.total===1?'row':'rows'}</strong>. This cannot be undone by the application.</p> : <p>No rows can be deleted from this selection. A blocked record prevents the entire operation.</p>}
+        {preview && <>{preview.canDelete ? <p>Proposed deletion: <strong className="text-slate-100">{preview.total} SCC database {preview.total===1?'row':'rows'}</strong>. Local media files and external posts remain. This cannot be undone by the application.</p> : <p>No rows can be deleted from this selection. A blocked record prevents the entire operation.</p>}
+          {!!preview.suggestedRecords?.length && <section className="rounded-xl border border-honey-500/40 p-3 space-y-3" aria-label="Required removable dependencies"><p className="font-semibold text-slate-100">Select related records together</p><p>The following dependencies can be removed with your selection. Add them explicitly, then review the exact expanded rows before confirming.</p><ul className="list-disc pl-5">{preview.suggestedRecords.map(record=><li key={keyFor(record)} className="break-words">{labelFor(record)}: {record.name || record.id} <span className="text-xs">({record.id})</span></li>)}</ul><Button onClick={addReviewedDependencies} disabled={previewLoading || deleting}>Add listed dependencies and review again</Button></section>}
           {preview.records.map(record=><section key={keyFor(record)} className="border border-border rounded-xl p-3 space-y-2"><p className="font-semibold text-slate-100 break-words">{labelFor(record)}: {record.name || '(Unnamed record)'}</p><p className="text-xs break-all">ID: {record.id}</p><p className={record.eligible?'text-sage-400':'text-rose-400'}>{record.eligible?'Eligible':'Blocked'}: {record.reason}</p><div><strong>Dependencies:</strong>{record.dependencies.length ? <ul className="list-disc pl-5">{record.dependencies.map((dependency,i)=><li key={i} className="break-words">{dependency}</li>)}</ul> : <p>None reported.</p>}</div><div><strong>Rows to delete:</strong>{record.rows.length ? <ul className="list-disc pl-5">{record.rows.map(row=><li key={JSON.stringify([row.table,row.id])} className="break-all">{row.table}: {row.id}</li>)}</ul> : <p>None.</p>}</div></section>)}
           {preview.additionalChanges.length>0 && <div><strong className="text-slate-100">Additional changes:</strong><ul className="list-disc pl-5">{preview.additionalChanges.map((item,i)=><li key={i} className="break-words">{item}</li>)}</ul></div>}<div><strong className="text-slate-100">Unchanged:</strong><ul className="list-disc pl-5">{preview.unchanged.map((item,i)=><li key={i}>{item}</li>)}</ul></div>
           {!preview.canDelete && <p role="alert" className="text-rose-400">This selection is blocked. Cancel and change the selection before reviewing again.</p>}{preview.canDelete && <label className="flex flex-col gap-1.5 text-slate-100 font-semibold">Type {preview.confirmationPhrase} to permanently delete these rows<input value={confirmation} onChange={event=>setConfirmation(event.target.value)} autoComplete="off" className={choiceClass}/></label>}

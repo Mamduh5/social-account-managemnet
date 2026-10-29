@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { VideoPerformanceItem } from '../../types';
 import { api } from '../../api/client';
+import { Modal } from '../common/Modal';
 import { X, Eye, ThumbsUp, MessageSquare, Share2, ShieldCheck, ExternalLink } from 'lucide-react';
 
 interface Props {
@@ -11,11 +12,11 @@ interface Props {
 }
 
 export const RecordObservationModal: React.FC<Props> = ({ video, isOpen, onClose, onSuccess }) => {
-  const [viewCount, setViewCount] = useState<number | string>(video.views ?? 0);
-  const [likeCount, setLikeCount] = useState<number | string>(video.likes ?? 0);
-  const [commentCount, setCommentCount] = useState<number | string>(video.comments ?? 0);
-  const [shareCount, setShareCount] = useState<number | string>(video.shares ?? 0);
-  const [source, setSource] = useState('browser_verified');
+  const [viewCount, setViewCount] = useState<number | string>(video.views ?? '');
+  const [likeCount, setLikeCount] = useState<number | string>(video.likes ?? '');
+  const [commentCount, setCommentCount] = useState<number | string>(video.comments ?? '');
+  const [shareCount, setShareCount] = useState<number | string>(video.shares ?? '');
+  const [source, setSource] = useState('manual');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,27 +49,8 @@ export const RecordObservationModal: React.FC<Props> = ({ video, isOpen, onClose
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-surface-card border border-border rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-        <div className="p-5 border-b border-border flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-terracotta-500/10 text-terracotta-400 rounded-xl">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-100 text-sm">Record Verified Observation</h3>
-              <p className="text-[11px] text-slate-400">Explicitly labeled observation with full provenance</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-100 hover:bg-surface-hover rounded-lg transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+    <Modal isOpen={isOpen} onClose={onClose} title="Record Verified Observation" subtitle="Leave unknown counts blank. Provider provenance is assigned by the server." manageFocus scrollBody dismissible={!saving}>
+        <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto min-h-0">
           {error && (
             <div className="p-3 bg-rose-500/15 border border-rose-500/25 rounded-xl text-xs text-rose-300">
               {error}
@@ -197,6 +179,7 @@ export const RecordObservationModal: React.FC<Props> = ({ video, isOpen, onClose
             <button
               type="button"
               onClick={onClose}
+              disabled={saving}
               className="px-4 py-2 bg-surface hover:bg-surface-hover text-slate-300 rounded-xl text-xs font-semibold border border-border transition-colors cursor-pointer"
             >
               Cancel
@@ -210,7 +193,6 @@ export const RecordObservationModal: React.FC<Props> = ({ video, isOpen, onClose
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 };

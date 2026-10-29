@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {db} from '../db/database.js';
 import {inventoryTypes, readTestDataInventory, readInventoryRecord} from '../repositories/test-data-inventory.repo.js';
 import {readRecordEvidence} from '../repositories/test-data-details.repo.js';
-import {commitDeletion, deletionSnapshot, type Selection} from '../repositories/test-data-deletion.repo.js';
+import {commitDeletion, deletionSnapshot, suggestedCleanupDependencies, type Selection} from '../repositories/test-data-deletion.repo.js';
 import {eventService} from '../services/events.service.js';
 
 export const testDataInventoryRouter = Router();
@@ -28,7 +28,7 @@ testDataInventoryRouter.post('/preview',sameOrigin,(req,res)=>{
     if(previews.size>=200) previews.delete(previews.keys().next().value!);
     const auditId='test-data-deletion-'+randomUUID(),canDelete=snapshot.records.every(r=>r.eligible);
     previews.set(previewId,{items,fingerprint:snapshot.fingerprint,expires:Date.now()+5*60*1000,auditId});
-    return res.json({previewId,records:snapshot.records,total:canDelete?snapshot.records.reduce((n,r)=>n+r.rows.length,0):0,canDelete,unchanged:['Unselected protected records and existing audit history are retained.','All local media files, Pipeline data, and social-platform content are retained.'],additionalChanges:canDelete?[`One deletion-history row will be added to activity_events with ID ${auditId}.`]:[],reversible:false,confirmationPhrase:'DELETE'});
+    return res.json({previewId,records:snapshot.records,suggestedRecords:canDelete?[]:suggestedCleanupDependencies(db,items),total:canDelete?snapshot.records.reduce((n,r)=>n+r.rows.length,0):0,canDelete,unchanged:['All social accounts, credentials, identities and connections are retained.','Unselected protected records and existing audit/accounting history are retained.','All local media files, Pipeline data, and social-platform content are retained.'],additionalChanges:canDelete?[`One deletion-history row will be added to activity_events with ID ${auditId}; publication receipts and retry counts are retained there.`]:[],reversible:false,confirmationPhrase:'DELETE'});
   } catch {return res.status(503).json({error:'Unable to verify all database relationships; deletion is unavailable.'});}
 });
 

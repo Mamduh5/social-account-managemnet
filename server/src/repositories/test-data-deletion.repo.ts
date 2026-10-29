@@ -9,6 +9,30 @@ export type Impact = Selection & {name:string; eligible:boolean; selectable?:boo
 const tables: Record<string,string> = {category:'categories',account:'accounts',assistant_draft:'assistant_drafts',publishing_draft:'publishing_drafts',publishing_post:'publishing_posts',publishing_destination:'publishing_destinations',video:'videos',branded_video:'branded_videos'};
 const ident = (s:string) => '"'+s.replace(/"/g,'""')+'"';
 const digest = (value:unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const terminalPosts = new Set(['failed', 'cancelled', 'completed', 'partial_failure']);
+const terminalDestinations = new Set(['failed', 'cancelled', 'published']);
+
+function scheduledProblem(row:any):boolean {
+  return !!row.scheduled_at && (!Number.isFinite(Date.parse(row.scheduled_at)) || Date.parse(row.scheduled_at)>Date.now());
+}
+
+/** These are local history removals, never account or remote-platform commands. */
+function destinationProblems(row:any, account:any):string[] {
+  const problems:string[]=[];
+  if(!account) problems.push('The destination account is missing; resolve its identity before removing history.');
+  if(!terminalDestinations.has(row.status)) problems.push(`Destination is ${row.status}; active jobs and manual handoffs must be resolved before removing local history.`);
+  if(row.campaign_id || row.approval_draft_id) problems.push('Campaign or approved-draft lineage must be retained.');
+  if(row.submission_state) problems.push('A saved submission intent must be reconciled before removing local history.');
+  const externalEvidence=!!(row.remote_post_id || row.remote_post_url || row.published_at || row.confirmation_source || row.verification_status==='confirmed');
+  if(row.status!=='published' && externalEvidence) problems.push('The terminal status has remote publication evidence; reconcile the outcome before removing local history.');
+  if(row.status==='published') {
+    const legacySimulator=account?.is_demo===1 && account?.connector_mode==='simulator' && !externalEvidence;
+    const confirmedReceipt=row.verification_status==='confirmed' && ['api','manual','simulator'].includes(row.confirmation_source)
+      && !!row.remote_post_url && !!row.published_at && (row.confirmation_source!=='api' || !!row.remote_post_id);
+    if(!legacySimulator && !confirmedReceipt) problems.push('Published history needs a confirmed receipt or an explicit simulator identity; uncertain publication evidence is retained.');
+  }
+  return problems;
+}
 
 /** Conservative reference inspection: every declared FK, ID column, and JSON value.
  * Existing assistant-draft audit rows are deliberately retained, never deleted. */
@@ -22,6 +46,8 @@ export function referencesBatch(db:Database.Database, items:Selection[]): Map<st
   const add=(item:Selection,text:string)=>result.get(JSON.stringify([item.type,item.id]))!.push(text);
   const all=db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as {name:string}[];
   for(const {name} of all) {
+    // Durable command receipts are tombstones, not live graph dependencies. Keep them unchanged.
+    if(name==='publishing_commands') continue;
     const columns=db.pragma(`table_info(${ident(name)})`) as {name:string;type:string}[];
     const foreign=db.pragma(`foreign_key_list(${ident(name)})`) as {table:string;from:string}[];
     const names=new Set(foreign.filter(f=>Object.values(tables).includes(f.table)).map(f=>f.from));
@@ -78,7 +104,7 @@ export function inspectDeletion(db:Database.Database, item:Selection, summaryOnl
   const classification=getOwnerClassification(db,item.type,item.id);
   if(classification==='owner_marked_keep') problems.push('Owner marked this record Keep; remove that designation first.');
   if(item.type==='video') {
-    if(!['manual_upload','pipeline_import'].includes(row.source_type) || !localManagedPath(row.file_path,'uploads')) problems.push('Only locally managed SCC upload/import records are supported; file ownership is not established.');
+    if(!['manual_upload','pipeline_import','webhook'].includes(row.source_type) || !localManagedPath(row.file_path,'uploads')) problems.push('Only locally managed SCC upload/import records are supported; file ownership is not established.');
     dependencies.push('Only the SCC library row will be removed. The master file and upstream Pipeline data remain unchanged.');
   }
   if(item.type==='branded_video') {
@@ -96,26 +122,22 @@ export function inspectDeletion(db:Database.Database, item:Selection, summaryOnl
     retained.push(paths);
   }
   if(item.type==='publishing_post') {
-    if(row.status!=='failed' || row.campaign_id || (row.scheduled_at && (!Number.isFinite(Date.parse(row.scheduled_at)) || Date.parse(row.scheduled_at)>Date.now()))) problems.push('Only terminal failed, unscheduled, non-campaign posts can be removed.');
+    if(!terminalPosts.has(row.status)) problems.push(`Publication is ${row.status}; only terminal local history can be removed.`);
+    if(row.campaign_id) problems.push('Campaign-linked publication history must be retained.');
+    if(scheduledProblem(row)) problems.push('A future or invalid schedule must be resolved before removing local history.');
     const children=db.prepare('SELECT * FROM publishing_destinations WHERE post_id=? ORDER BY id LIMIT 101').all(item.id) as any[];
     retained.push(children);
-    if(!children.length || children.length>100) problems.push('A complete bounded set of failed simulator destinations is required.');
+    if(children.length>100) problems.push('More than 100 destinations require a separate bounded history review.');
     for(const child of children.slice(0,100)) dependencies.push(`Publishing destination ID ${child.id}: ${child.status}; account ID ${child.account_id} remains unchanged.`);
   }
   if(item.type==='publishing_destination') {
     const account=db.prepare('SELECT * FROM accounts WHERE id=?').get(row.account_id) as any;
     const parent=db.prepare('SELECT * FROM publishing_posts WHERE id=?').get(row.post_id) as any;
-    const aliases=db.prepare('SELECT platform,identity_key FROM account_identities WHERE account_id=? ORDER BY platform,identity_key LIMIT 1').all(row.account_id);
-    const sessions=db.prepare('SELECT 1 FROM oauth_sessions WHERE account_id=? LIMIT 1').all(row.account_id);
-    retained.push(account ?? null,parent ?? null,aliases.length,sessions.length);
-    let emptyScopes=false;
-    try {const scopes=JSON.parse(account?.granted_scopes_json || '[]');emptyScopes=Array.isArray(scopes)&&scopes.length===0;} catch {}
-    if(!account || account.is_demo!==1 || account.connector_mode!=='simulator' || account.external_id || account.identity_verified_at || account.access_token || account.refresh_token || account.refresh_expires_at || account.public_url || Number(account.connection_revision || 0)!==0 || !['registered','disconnected'].includes(account.connection_status) || !emptyScopes || aliases.length || sessions.length)
-      problems.push('Destination account is not an isolated simulator without external identity.');
-    if(!parent || parent.status!=='failed' || parent.campaign_id || (parent.scheduled_at && (!Number.isFinite(Date.parse(parent.scheduled_at)) || Date.parse(parent.scheduled_at)>Date.now()))) problems.push('Parent publication is active, scheduled, or campaign-linked.');
-    if(row.status!=='failed' || row.remote_post_id || row.remote_post_url || row.published_at || row.submission_state || row.confirmation_source || row.campaign_id || row.approval_draft_id || row.verification_status==='confirmed')
-      problems.push('Destination has an active, external, uncertain, approved, or non-failed publication state.');
-    dependencies.push(`Account ID ${row.account_id} remains unchanged; retry count ${row.retry_count} is contained in this destination row.`);
+    retained.push(account ?? null,parent ?? null);
+    if(!parent || !terminalPosts.has(parent.status) || parent.campaign_id || scheduledProblem(parent)) problems.push('Parent publication is active, scheduled, or campaign-linked.');
+    problems.push(...destinationProblems(row,account));
+    dependencies.push(`Account ID ${row.account_id}, its credentials, identities and connections remain unchanged. Retry count ${row.retry_count} and publication receipts are retained in the deletion audit.`);
+    if(row.remote_post_id || row.remote_post_url) dependencies.push('The confirmed remote post remains on its social platform. Its saved receipt is retained in the local deletion audit.');
   }
   if((item.type==='video'||item.type==='publishing_post') && problems.length===0) {
     const evidence=readRecordEvidence(db,item);
@@ -123,8 +145,7 @@ export function inspectDeletion(db:Database.Database, item:Selection, summaryOnl
     if(!evidence?.complete) problems.push('Dependency inspection is incomplete; deletion is unavailable.');
   }
   if(item.type==='account') {
-    if(row.is_demo!==1 || row.connector_mode!=='simulator' || row.status!=='disconnected' || !['registered','disconnected'].includes(row.connection_status) || row.external_id || row.identity_verified_at || row.access_token || row.refresh_token || row.public_url)
-      problems.push('Only disconnected simulator accounts without credentials or external identity can be considered; externally identified accounts are protected.');
+    problems.push('Social accounts, credentials and connections are preserved. Use Accounts to archive an account; this manager never deletes accounts.');
     if(row.category_id) {dependencies.push(`Category ID ${row.category_id} remains unchanged.`); retained.push(db.prepare('SELECT * FROM categories WHERE id=?').get(row.category_id) ?? null);}
   }
   if(item.type==='publishing_draft') {
@@ -150,9 +171,15 @@ export function inspectDeletion(db:Database.Database, item:Selection, summaryOnl
   }
   const triggers=db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name=?").all(table) as {name:string}[];
   if(triggers.length) problems.push('Table triggers require separate review.');
-  const refs=((batchRefs || referencesBatch(db,[item])).get(JSON.stringify([item.type,item.id])) || []).filter(ref=>!selectedRef(ref,selected));
+  const allRefs=(batchRefs || referencesBatch(db,[item])).get(JSON.stringify([item.type,item.id])) || [];
+  // Activity metadata is a retained audit reference, not a live foreign key. A
+  // sanitized removal receipt below preserves the identity of removed resources.
+  const auditRefs=allRefs.filter(ref=>['video','branded_video','publishing_post','publishing_destination'].includes(item.type)
+    && /^activity_events ID .+ \(metadata_json\)$/.test(ref));
+  dependencies.push(...auditRefs.map(ref=>'Audit history retained: '+ref));
+  const refs=allRefs.filter(ref=>!auditRefs.includes(ref) && !selectedRef(ref,selected));
   dependencies.push(...refs.map(r=>'Referenced by '+r));
-  if(refs.length) problems.push('Related database records must be preserved.');
+  if(refs.length) problems.push('Select the listed removable dependencies together. Unselected drafts, campaign, engagement and accounting references must be preserved.');
   let selectable=problems.length===0, review=false;
   if(summaryOnly && item.type==='publishing_post' && !selectable) {
     const graph=deletionSnapshot(db,[item]);
@@ -160,22 +187,41 @@ export function inspectDeletion(db:Database.Database, item:Selection, summaryOnl
     review=selectable;
   }
   if(summaryOnly && !selectable && ['video','branded_video'].includes(item.type) && classification!=='owner_marked_keep') {
-    const related:Selection[] = [];
-    if(item.type==='video') {
-      const variants=db.prepare('SELECT id FROM branded_videos WHERE video_id=? ORDER BY id LIMIT 26').all(item.id) as {id:string}[];
-      const posts=db.prepare('SELECT id FROM publishing_posts WHERE video_id=? ORDER BY id LIMIT 26').all(item.id) as {id:string}[];
-      related.push(...variants.map(v=>({type:'branded_video',id:v.id})),...posts.map(v=>({type:'publishing_post',id:v.id})));
-    } else {
-      const posts=db.prepare('SELECT DISTINCT p.id FROM publishing_posts p LEFT JOIN publishing_destinations d ON d.post_id=p.id WHERE p.selected_variant_id=? OR d.selected_variant_id=? OR d.branded_video_path=? ORDER BY p.id LIMIT 26').all(item.id,item.id,row.file_path) as {id:string}[];
-      related.push(...posts.map(v=>({type:'publishing_post',id:v.id})));
-    }
+    const related=cleanupDependencies(db,[item]);
     if(related.length>0 && related.length<25) {
       const graph=deletionSnapshot(db,[item,...related]);
       selectable=graph.records.every(record=>record.eligible);
       review=selectable;
     }
   }
-  return {impact:{...item,name,eligible:problems.length===0,selectable,review,reason:problems.join(' ') || 'No protected relationships found. Owner selection does not establish fixture provenance.',dependencies,rows:problems.length?[]:[{table,id:item.id}]},snapshot:{row,refs,triggers,dependencies,problems,retained,classification}};
+  return {impact:{...item,name,eligible:problems.length===0,selectable,review,reason:problems.join(' ') || 'Only the reviewed SCC records will be removed. Owner labels do not establish fixture provenance.',dependencies,rows:problems.length?[]:[{table,id:item.id}]},snapshot:{row,refs,auditRefs,triggers,dependencies,problems,retained,classification}};
+}
+
+/** Bounded suggestions only. Nothing is implicitly selected or deleted. */
+export function cleanupDependencies(db:Database.Database,items:Selection[]):Selection[] {
+  const selected=new Set(items.map(item=>JSON.stringify([item.type,item.id])));
+  const related=new Map<string,Selection>();
+  const add=(item:Selection)=>{const key=JSON.stringify([item.type,item.id]);if(!selected.has(key)) related.set(key,item);};
+  for(const item of items) {
+    if(item.type==='video') {
+      for(const row of db.prepare('SELECT id FROM branded_videos WHERE video_id=? ORDER BY id LIMIT 26').all(item.id) as {id:string}[]) add({type:'branded_video',id:row.id});
+      for(const row of db.prepare('SELECT id FROM publishing_posts WHERE video_id=? ORDER BY id LIMIT 26').all(item.id) as {id:string}[]) add({type:'publishing_post',id:row.id});
+    }
+  }
+  for(const item of [...items,...related.values()]) if(item.type==='branded_video') {
+    const variant=db.prepare('SELECT file_path FROM branded_videos WHERE id=?').get(item.id) as {file_path:string}|undefined;
+    if(!variant) continue;
+    for(const row of db.prepare('SELECT DISTINCT p.id FROM publishing_posts p LEFT JOIN publishing_destinations d ON d.post_id=p.id WHERE p.selected_variant_id=? OR d.selected_variant_id=? OR d.branded_video_path=? ORDER BY p.id LIMIT 26').all(item.id,item.id,variant.file_path) as {id:string}[]) add({type:'publishing_post',id:row.id});
+  }
+  return [...related.values()];
+}
+
+export function suggestedCleanupDependencies(db:Database.Database,items:Selection[]):(Selection & {name:string})[] {
+  const related=cleanupDependencies(db,items);
+  if(!related.length || items.length+related.length>25) return [];
+  const snapshot=deletionSnapshot(db,[...items,...related]);
+  if(snapshot.records.some(record=>!record.eligible)) return [];
+  return related.map(item=>({...item,name:snapshot.records.find(record=>record.type===item.type && record.id===item.id)!.name}));
 }
 
 export function deletionSnapshot(db:Database.Database, items:Selection[]) {
@@ -212,6 +258,9 @@ export function commitDeletion(db:Database.Database, items:Selection[], fingerpr
     const rows=before.records.flatMap(record=>record.rows);
     if(new Set(rows.map(row=>JSON.stringify([row.table,row.id]))).size!==rows.length) throw new Error('STALE_PREVIEW');
     rows.sort((a,b)=>(order[a.table]??4)-(order[b.table]??4));
+    const preservedHistory=rows.filter(row=>row.table==='publishing_destinations').map(row=>db.prepare(`SELECT id,post_id,account_id,status,retry_count,remote_post_id,remote_post_url,published_at,verification_status,confirmation_source,created_at,updated_at FROM publishing_destinations WHERE id=?`).get(row.id));
+    const preservedPosts=rows.filter(row=>row.table==='publishing_posts').map(row=>db.prepare('SELECT id,video_id,status,scheduled_at,timezone,selected_variant_id,created_at,updated_at FROM publishing_posts WHERE id=?').get(row.id));
+    const preservedMedia=rows.filter(row=>row.table==='videos').map(row=>db.prepare('SELECT id,source_type,original_filename,pipeline_job_id,created_at FROM videos WHERE id=?').get(row.id));
     for(const row of rows) {
       if(!Object.values(tables).includes(row.table)) throw new Error('STALE_PREVIEW');
       const r=db.prepare(`DELETE FROM ${ident(row.table)} WHERE id=?`).run(row.id);
@@ -219,7 +268,7 @@ export function commitDeletion(db:Database.Database, items:Selection[], fingerpr
     }
     if((db.pragma('foreign_key_check') as unknown[]).length) throw new Error('FOREIGN_KEY_CHECK_FAILED');
     db.prepare("INSERT INTO activity_events(id,type,title,message,severity,metadata_json) VALUES (?,?,?,?,?,?)")
-      .run(auditId,'test_data_deleted','Owner deleted selected records',`Deleted ${rows.length} local database rows`,'warning',JSON.stringify({records:items,rows}));
+      .run(auditId,'test_data_deleted','Owner deleted selected SCC records',`Deleted ${rows.length} local database rows; accounts, media files and external content retained`,'warning',JSON.stringify({version:2,records:items,rows,preservedHistory,preservedPosts,preservedMedia}));
     return {deleted:items,count:items.length,rowCount:rows.length,auditId};
   }).immediate();
 }

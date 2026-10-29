@@ -17,6 +17,8 @@ import {publishingRepo} from './repositories/publishing.repo.js';
 import {publishingStartupHold} from './domain/runtime-recovery.js';
 import {generalPostsReady} from './db/general-posts-schema.js';
 import {calendarSchemaReady} from './db/calendar-schema.js';
+import {architectureSchemaReady} from './db/architecture-schema.js';
+import {jsonErrorHandler} from './http-errors.js';
 import {emptyCapabilities} from './connectors/registry.js';
 import {accountsRouter} from './routes/accounts.routes.js';
 import {connectionsRouter} from './routes/connections.routes.js';
@@ -61,6 +63,7 @@ async function boot(){
  await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(port,'127.0.0.1',()=>{server.removeListener('error',reject);resolve();});});
  if(managed&&!generalPostsReady(db))throw new Error('OWNER_SCHEMA_MAINTENANCE_REQUIRED');
  if(managed&&!calendarSchemaReady(db))throw new Error('OWNER_V111_SCHEMA_MAINTENANCE_REQUIRED');
+  if(managed&&!architectureSchemaReady(db))throw new Error('OWNER_ARCHITECTURE_SCHEMA_MAINTENANCE_REQUIRED');
  initializeDatabase();if(process.env.SCC_SEED_DEMOS!=='false')seedInitialData();indexExistingIdentities();
  app.use('/uploads/renders',express.static(rendersDir,{acceptRanges:true}));
  app.use('/uploads',express.static(uploadsDir,{acceptRanges:true}));
@@ -74,8 +77,10 @@ async function boot(){
  app.use('/api/publishing',generalPublishingRouter);app.use('/api/publishing',publishingRouter);
  app.use('/api/branding',brandingRouter);app.use('/api/inbox',inboxRouter);app.use('/api/activity',activityRouter);app.use('/api/analytics',analyticsRouter);app.use('/api/pipeline',pipelineRouter);app.use('/api/bridge',bridgeRouter);app.use('/api/events',eventsRouter);
  if(managed)app.use('/api/internal/runtime',runtimeControlRouter({token:process.env.SCC_RUNTIME_CONTROL_TOKEN||'',busy,shutdown}));
+  app.use('/api',(_req,res)=>res.status(404).json({error:'API resource not found',code:'NOT_FOUND'}));
  const clientDist=path.resolve(process.env.SCC_CLIENT_DIST||path.resolve(process.cwd(),'client/dist'));
  if(fs.existsSync(clientDist)){app.use(express.static(clientDist));app.use((req,res,next)=>{if(req.method==='GET'&&!req.path.startsWith('/api')&&!req.path.startsWith('/uploads'))return res.sendFile(path.join(clientDist,'index.html'),{dotfiles:'allow'});next();});}
+  app.use(jsonErrorHandler);
  publishingHold=managed?publishingStartupHold(publishingRepo.getStartupSafetyJobs()):null;
  if(!publishingHold&&!paused)queueService.start();else if(publishingHold)console.warn('[Runtime] '+publishingHold);
  if(!paused)syncService.start();ready=true;
@@ -85,4 +90,4 @@ process.on('SIGINT',()=>{if(!busy())shutdown();else console.warn('[Runtime] Shut
 process.on('SIGTERM',()=>{if(!busy())shutdown();else console.warn('[Runtime] Shutdown deferred: an operation is active.');});
 process.on('uncaughtException',(error:any)=>{console.error('[Runtime] Fatal error; code '+String(error?.code||'UNCAUGHT'));queueService.stop();syncService.stop();process.exit(1);});
 process.on('unhandledRejection',()=>console.error('[Runtime] An asynchronous operation failed; inspect its bounded status in the application.'));
-void boot().catch((error:any)=>{console.error('[Runtime] Startup failed: '+(error?.code==='EADDRINUSE'?'PORT_IN_USE':['OWNER_SCHEMA_MAINTENANCE_REQUIRED','OWNER_V111_SCHEMA_MAINTENANCE_REQUIRED'].includes(error?.message)?error.message:'BOOT_FAILURE'));queueService.stop();syncService.stop();server.close();try{db.close();}catch{}process.exit(1);});
+void boot().catch((error:any)=>{console.error('[Runtime] Startup failed: '+(error?.code==='EADDRINUSE'?'PORT_IN_USE':['OWNER_SCHEMA_MAINTENANCE_REQUIRED','OWNER_V111_SCHEMA_MAINTENANCE_REQUIRED','OWNER_ARCHITECTURE_SCHEMA_MAINTENANCE_REQUIRED'].includes(error?.message)?error.message:'BOOT_FAILURE'));queueService.stop();syncService.stop();server.close();try{db.close();}catch{}process.exit(1);});

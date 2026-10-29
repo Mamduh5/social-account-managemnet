@@ -2,21 +2,26 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { randomUUID } from 'node:crypto';
 import { uploadsDir } from '../db/database.js';
 import { ffmpegService } from '../services/ffmpeg.service.js';
 import { publishingRepo } from '../repositories/publishing.repo.js';
 import { publishingService } from '../services/publishing.service.js';
+import { finalizeManualUpload } from '../services/manual-upload.service.js';
+import { publishingHistoryService } from '../services/publishing-history.service.js';
 
 export const publishingRouter = Router();
 
 // Multer storage for manual MP4 uploads
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    cb(null, uploadsDir);
+    const staging = path.join(uploadsDir, '.incoming');
+    fs.mkdirSync(staging, { recursive: true });
+    cb(null, staging);
   },
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname);
-    const id = `upload-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+    const id = `upload-${randomUUID()}`;
     cb(null, `${id}${ext}`);
   },
 });
@@ -40,37 +45,11 @@ publishingRouter.post('/upload', upload.single('video'), async (req, res) => {
   }
 
   const file = req.file;
-  const videoId = `vid-${Date.now().toString(36)}`;
   const title = req.body.title || file.originalname.replace(/\.[^/.]+$/, '');
   const categoryId = req.body.categoryId || null;
 
   try {
-    const meta = await ffmpegService.probeVideo(file.path);
-    const thumbPath = path.resolve(uploadsDir, `${videoId}_thumb.jpg`);
-    await ffmpegService.generateThumbnail(file.path, thumbPath);
-
-    publishingRepo.insertVideo({
-      id: videoId,
-      title,
-      sourceType: 'manual_upload',
-      originalFilename: file.originalname,
-      filePath: file.path,
-      fileSize: file.size,
-      duration: meta.duration,
-      width: meta.width,
-      height: meta.height,
-      aspectRatio: meta.aspectRatio,
-      thumbnailPath: fs.existsSync(thumbPath) ? thumbPath : null,
-      categoryId,
-    });
-
-    res.json({
-      success: true,
-      videoId,
-      title,
-      duration: meta.duration,
-      aspectRatio: meta.aspectRatio,
-    });
+    res.json(await finalizeManualUpload(file, title, categoryId));
   } catch (err: any) {
     res.status(500).json({ error: `Video processing failed: ${err.message}` });
   }
@@ -127,39 +106,22 @@ publishingRouter.get('/videos/:id/stream', (req, res) => {
     return res.status(404).json({ error: 'Video file not found' });
   }
 
-  const stat = fs.statSync(video.file_path);
-  const fileSize = stat.size;
-  const range = req.headers.range;
-
-  if (range) {
-    const parts = range.replace(/bytes=/, "").split("-");
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-    const chunksize = (end - start) + 1;
-    const file = fs.createReadStream(video.file_path, { start, end });
-    const head = {
-      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-      'Accept-Ranges': 'bytes',
-      'Content-Length': chunksize,
-      'Content-Type': 'video/mp4',
-    };
-    res.writeHead(206, head);
-    file.pipe(res);
-  } else {
-    const head = {
-      'Content-Length': fileSize,
-      'Content-Type': 'video/mp4',
-      'Accept-Ranges': 'bytes',
-    };
-    res.writeHead(200, head);
-    fs.createReadStream(video.file_path).pipe(res);
-  }
+  res.sendFile(path.resolve(video.file_path), { acceptRanges: true }, error => {
+    if (!error) return;
+    if (res.headersSent) { res.destroy(); return; }
+    const status = Number((error as any).statusCode || (error as any).status) || 500;
+    if (status === 416) { res.status(416).end(); return; }
+    res.status(status).json({ error: 'Video could not be streamed.' });
+  });
 });
 
 // CREATE Post with Multi-Destination Targets
 publishingRouter.post('/posts', (req, res) => {
   try {
+    const commandId = req.body.commandId || req.header('Idempotency-Key');
+    if (!commandId) return res.status(400).json({ error: 'commandId is required. Keep the same command ID until its saved outcome is known.' });
     const result = publishingService.createPost({
+      commandId,
       videoId: req.body.videoId,
       title: req.body.title,
       scheduledAt: req.body.scheduledAt,
@@ -184,6 +146,14 @@ publishingRouter.get('/queue', (_req, res) => {
   const queue = publishingRepo.getLiveQueue();
   res.json({ queue });
 });
+
+publishingRouter.get('/history', (req, res) => {
+  try { res.json(publishingHistoryService.history(req.query)); }
+  catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid history filters.' }); }
+});
+
+// Operational polling is bounded and separate from historical browsing.
+publishingRouter.get('/queue/active', (_req, res) => res.json(publishingHistoryService.active()));
 
 // RETRY a single failed destination (Preserves successful destinations!)
 publishingRouter.post('/destinations/:id/retry', (req, res) => {

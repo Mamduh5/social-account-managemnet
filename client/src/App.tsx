@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from './api/client';
 import { Category } from './types';
 import {
@@ -17,6 +17,8 @@ import { SettingsView } from './views/SettingsView';
 import { ContentAssistantView } from './views/ContentAssistantView';
 import { GroupsWorkspaceView } from './views/GroupsWorkspaceView';
 import { CalendarView } from './views/CalendarView';
+import { RetainedFeature } from './features/FeatureActivity';
+import { invalidateResources, useResourceRefresh } from './api/resource-events';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<string>(new URLSearchParams(window.location.search).has('connectionAccount') ? 'accounts' : 'dashboard');
@@ -25,12 +27,15 @@ export function App() {
   const [targetBrandingAccountId, setTargetBrandingAccountId] = useState<string | undefined>(undefined);
   const [sseConnected, setSseConnected] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const categoryRequest = useRef(0);
 
   // Warm theme state: 'dark' (Warm Charcoal) or 'light' (Cozy Linen)
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('scc-theme');
-      if (saved === 'light' || saved === 'dark') return saved;
+      try {
+        const saved = localStorage.getItem('scc-theme');
+        if (saved === 'light' || saved === 'dark') return saved;
+      } catch { /* The app remains usable when browser storage is restricted. */ }
     }
     return 'dark';
   });
@@ -44,35 +49,51 @@ export function App() {
       root.classList.remove('light');
       root.setAttribute('data-theme', 'dark');
     }
-    localStorage.setItem('scc-theme', theme);
+    try { localStorage.setItem('scc-theme', theme); } catch { /* Keep theme in memory. */ }
   }, [theme]);
 
   const toggleTheme = () => {
     setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
   };
 
+  const refreshCategories = () => {
+    const request = ++categoryRequest.current;
+    return api.getCategories().then(res => {
+    if (request !== categoryRequest.current) return;
+    const available = res.categories || [];
+    setCategories(available);
+    setSelectedCategory(current => current !== 'all' && !available.some(category => category.id === current) ? 'all' : current);
+  }).catch(() => { /* Retain the last successful category resource while offline. */ });
+  };
+  useResourceRefresh(['categories'], refreshCategories);
+
   useEffect(() => {
-    api.getCategories().then((res) => {
-      setCategories(res.categories || []);
-    });
+    void refreshCategories();
 
     // Connect to Server-Sent Events for real-time progress & notifications
     const eventSource = new EventSource('/api/events');
-    eventSource.onopen = () => setSseConnected(true);
+    eventSource.onopen = () => {
+      setSseConnected(true);
+      invalidateResources(['accounts', 'categories', 'publishing', 'calendar', 'inbox', 'analytics', 'activity', 'videos', 'groups', 'assistant']);
+    };
     eventSource.onerror = () => setSseConnected(false);
     const refreshAfterCleanup = () => {
-      api.getCategories().then((res) => {
-        const available = res.categories || [];
-        setCategories(available);
-        setSelectedCategory(current => current !== 'all' && !available.some(category => category.id === current) ? 'all' : current);
-      }).catch(() => {});
+      invalidateResources(['categories', 'accounts', 'publishing', 'videos', 'pipeline', 'calendar', 'activity']);
       window.dispatchEvent(new Event('scc:cleanup-changed'));
     };
     eventSource.addEventListener('cleanup:changed', refreshAfterCleanup);
+    eventSource.addEventListener('destination_updated', () => invalidateResources(['publishing', 'calendar', 'activity']));
+    eventSource.addEventListener('campaign_updated', () => invalidateResources(['calendar', 'publishing']));
+    eventSource.addEventListener('analytics:synced', () => invalidateResources(['analytics', 'inbox', 'accounts', 'activity']));
     window.addEventListener('scc:cleanup-local', refreshAfterCleanup);
+    const resync = () => { if (document.visibilityState !== 'hidden') invalidateResources(['accounts', 'categories', 'publishing', 'calendar', 'inbox', 'analytics', 'activity', 'videos', 'groups', 'assistant']); };
+    window.addEventListener('online', resync);
+    document.addEventListener('visibilitychange', resync);
 
     return () => {
       window.removeEventListener('scc:cleanup-local', refreshAfterCleanup);
+      window.removeEventListener('online', resync);
+      document.removeEventListener('visibilitychange', resync);
       eventSource.close();
     };
   }, []);
@@ -203,10 +224,11 @@ export function App() {
         {/* Top Header Bar */}
         <header className="h-16 bg-surface/85 backdrop-blur-md border-b border-border px-3 sm:px-6 flex items-center justify-between sticky top-0 z-20">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            {/* Global Content Category Selector */}
-            <div className="flex items-center gap-1.5 sm:gap-2 text-xs min-w-0">
-              <span className="text-slate-400 font-medium hidden sm:inline shrink-0">Category:</span>
+            {/* Category scope is explicit; Page-specific editors use their own identity selectors. */}
+            {['dashboard','accounts','inbox'].includes(activeTab) && <div className="flex items-center gap-1.5 sm:gap-2 text-xs min-w-0">
+              <span className="text-slate-400 font-medium hidden sm:inline shrink-0">{activeTab === 'dashboard' ? 'Account category:' : 'Category:'}</span>
               <select
+                aria-label={activeTab === 'dashboard' ? 'Account category' : 'Category filter'}
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
                 className="bg-surface text-slate-100 border border-border hover:border-slate-600 rounded-lg px-2 sm:px-2.5 py-1.5 text-xs font-semibold focus:outline-none focus:border-terracotta-500 cursor-pointer max-w-[155px] sm:max-w-none truncate"
@@ -216,7 +238,7 @@ export function App() {
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
-            </div>
+            </div>}
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
@@ -224,7 +246,7 @@ export function App() {
             <div className="flex items-center gap-1.5 text-xs px-2 sm:px-2.5 py-1 rounded-full bg-surface border border-border">
               <Radio className={`w-3 h-3 sm:w-3.5 sm:h-3.5 ${sseConnected ? 'text-sage-400 animate-pulse' : 'text-slate-500'}`} />
               <span className="text-[10px] sm:text-[11px] text-slate-300 font-medium">
-                {sseConnected ? 'Live' : 'Syncing'}
+                {sseConnected ? 'Live updates' : 'Updates offline'}
               </span>
             </div>
 
@@ -242,42 +264,42 @@ export function App() {
 
         {/* View Router */}
         <main className="flex-1 p-3.5 sm:p-6 overflow-y-auto overflow-x-hidden">
-          {activeTab === 'dashboard' && (
+          <RetainedFeature name="dashboard" activeTab={activeTab}>
             <DashboardView onNavigate={(tab) => setActiveTab(tab)} selectedCategory={selectedCategory} />
-          )}
-          {activeTab === 'accounts' && (
+          </RetainedFeature>
+          <RetainedFeature name="accounts" activeTab={activeTab}>
             <AccountsView
               onNavigateToBranding={handleNavigateToBranding}
               onPreparePublication={(id) => { sessionStorage.setItem('prepareAccountId', id); setActiveTab('publishing'); }}
               selectedCategory={selectedCategory}
             />
-          )}
-          {activeTab === 'calendar' && (
+          </RetainedFeature>
+          <RetainedFeature name="calendar" activeTab={activeTab}>
             <CalendarView selectedCategory={selectedCategory} />
-          )}
-          {activeTab === 'publishing' && (
+          </RetainedFeature>
+          <RetainedFeature name="publishing" activeTab={activeTab}>
             <PublishingView selectedCategory={selectedCategory} />
-          )}
-          {activeTab === 'assistant' && <ContentAssistantView />}
-          {activeTab === 'groups' && <GroupsWorkspaceView />}
-          {activeTab === 'branding' && (
+          </RetainedFeature>
+          <RetainedFeature name="assistant" activeTab={activeTab}><ContentAssistantView /></RetainedFeature>
+          <RetainedFeature name="groups" activeTab={activeTab}><GroupsWorkspaceView /></RetainedFeature>
+          <RetainedFeature name="branding" activeTab={activeTab}>
             <BrandingStudioView
               initialAccountId={targetBrandingAccountId}
               selectedCategory={selectedCategory}
             />
-          )}
-          {activeTab === 'inbox' && (
+          </RetainedFeature>
+          <RetainedFeature name="inbox" activeTab={activeTab}>
             <InboxView selectedCategory={selectedCategory} />
-          )}
-          {activeTab === 'activity' && (
+          </RetainedFeature>
+          <RetainedFeature name="activity" activeTab={activeTab}>
             <ActivityView />
-          )}
-          {activeTab === 'analytics' && (
+          </RetainedFeature>
+          <RetainedFeature name="analytics" activeTab={activeTab}>
             <AnalyticsView />
-          )}
-          {activeTab === 'settings' && (
+          </RetainedFeature>
+          <RetainedFeature name="settings" activeTab={activeTab}>
             <SettingsView />
-          )}
+          </RetainedFeature>
         </main>
       </div>
     </div>

@@ -43,6 +43,7 @@ export interface BrandKitOptions {
 export class FFmpegService {
   private fontPath: string;
   private activeRenders = new Map<string, Promise<string>>();
+  isRendering(filePath: string) { return this.activeRenders.has(path.resolve(filePath)); }
 
   constructor() {
     // One Unicode face for Thai and English keeps glyph metrics consistent with

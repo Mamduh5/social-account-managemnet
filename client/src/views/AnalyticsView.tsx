@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../api/client';
 import { 
   HelpCircle, BarChart3, TrendingUp, Users, Eye, ThumbsUp, MessageSquare, 
@@ -6,8 +6,16 @@ import {
 } from 'lucide-react';
 import { AnalyticsOverviewResponse, VideoPerformanceItem, Account, Category } from '../types';
 import { RecordObservationModal } from '../components/analytics/RecordObservationModal';
+import { readAccounts, readCategories } from '../api/reference-resources';
+import { useFeatureActive } from '../features/FeatureActivity';
+import { useResourceRefresh } from '../api/resource-events';
+const metric = (value: number | null | undefined) => value == null ? 'Unavailable' : Number(value).toLocaleString();
+const rate = (value: number | null | undefined) => value == null ? 'Unavailable' : `${value}%`;
 
 export const AnalyticsView: React.FC = () => {
+  const active = useFeatureActive();
+  const generation = useRef(0);
+  const [error, setError] = useState('');
   const [data, setData] = useState<AnalyticsOverviewResponse | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -24,29 +32,37 @@ export const AnalyticsView: React.FC = () => {
   const [selectedVideoForObs, setSelectedVideoForObs] = useState<VideoPerformanceItem | null>(null);
 
   const loadAnalytics = useCallback(async () => {
+    const request = ++generation.current;
+    setLoading(true);
     try {
-      const [res, accRes, catRes] = await Promise.all([
-        api.getAnalyticsOverview({
+      const res = await api.getAnalyticsOverview({
           platform: platformFilter || undefined,
           accountId: accountFilter || undefined,
           categoryId: categoryFilter || undefined,
-        }),
-        api.getAccounts(),
-        api.getCategories(),
-      ]);
+        });
+      if (request !== generation.current) return;
       setData(res);
-      setAccounts(accRes.accounts.filter((a: Account) => !a.is_demo));
-      setCategories(catRes.categories);
+      setError('');
     } catch (err) {
-      console.error('Failed to load analytics:', err);
+      if (request === generation.current) setError(err instanceof Error ? err.message : 'Analytics could not be loaded.');
     } finally {
-      setLoading(false);
+      if (request === generation.current) setLoading(false);
     }
   }, [platformFilter, accountFilter, categoryFilter]);
 
   useEffect(() => {
-    loadAnalytics();
-  }, [loadAnalytics]);
+    if (active) void loadAnalytics();
+    return () => { generation.current++; };
+  }, [loadAnalytics, active]);
+  const loadReferences = useCallback(async () => {
+    try {
+      const [accRes, catRes] = await Promise.all([readAccounts(), readCategories()]);
+      setAccounts(accRes.accounts.filter(account => !account.is_demo)); setCategories(catRes.categories);
+    } catch (err) { setError(err instanceof Error ? err.message : 'Analytics filters are unavailable.'); }
+  }, []);
+  useEffect(() => { if (active) void loadReferences(); }, [active, loadReferences]);
+  useResourceRefresh(['analytics'], loadAnalytics);
+  useResourceRefresh(['accounts', 'categories'], loadReferences);
 
   const handleSyncNow = async () => {
     setSyncing(true);
@@ -77,11 +93,10 @@ export const AnalyticsView: React.FC = () => {
     }
   };
 
-  if (loading || !data) {
+  if (!data) {
     return (
       <div className="bg-surface-card border border-border rounded-2xl p-12 text-center text-slate-400">
-        <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-terracotta-400" />
-        Loading genuine social analytics engine...
+        {loading ? <><RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-terracotta-400" />Loading genuine social analytics engine...</> : <><p role="alert">{error || 'Analytics is unavailable.'}</p><button onClick={() => void loadAnalytics()} className="scc-btn-secondary mt-3">Retry Analytics</button></>}
       </div>
     );
   }
@@ -90,6 +105,8 @@ export const AnalyticsView: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {error && <p role="alert" className="text-sm text-rose-300">{error} <button onClick={() => void loadAnalytics()} className="underline">Retry</button></p>}
+      {loading && <p role="status" className="text-xs text-slate-400">Refreshing analytics…</p>}
       {/* Notice Banner: Honest Demo & Provenance Labeling */}
       <div className="p-4 bg-terracotta-500/10 border border-terracotta-500/25 rounded-2xl text-xs text-terracotta-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
         <div className="flex items-center gap-2.5">
@@ -238,7 +255,7 @@ export const AnalyticsView: React.FC = () => {
         <div className="bg-surface-card border border-border p-4 rounded-2xl shadow-xs">
           <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Engagement Rate</p>
           <h3 className="text-xl font-black text-slate-100 mt-1">
-            {totals?.total_views === null ? 'Unavailable' : `${totals?.avg_engagement_rate ?? '0'}%`}
+            {rate(totals?.avg_engagement_rate)}
           </h3>
           <p className="text-[10px] text-sage-400 mt-1 font-medium">Interactions / Views</p>
         </div>
@@ -270,21 +287,21 @@ export const AnalyticsView: React.FC = () => {
                     <span className="text-xs text-slate-400 font-medium">{p.account_count} accounts</span>
                   </div>
 
-                  <p className="text-2xl font-black text-slate-100 tracking-tight">{Number(p.total_views).toLocaleString()}</p>
+                  <p className="text-2xl font-black text-slate-100 tracking-tight">{metric(p.total_views)}</p>
                   <p className="text-[11px] text-slate-400 mb-3">Total Video Views</p>
 
                   <div className="space-y-2 pt-3 border-t border-border text-xs">
                     <div className="flex justify-between text-slate-300">
                       <span>Likes:</span>
-                      <strong className="text-slate-100">{Number(p.total_likes).toLocaleString()}</strong>
+                      <strong className="text-slate-100">{metric(p.total_likes)}</strong>
                     </div>
                     <div className="flex justify-between text-slate-300">
                       <span>Comments:</span>
-                      <strong className="text-slate-100">{Number(p.total_comments).toLocaleString()}</strong>
+                      <strong className="text-slate-100">{metric(p.total_comments)}</strong>
                     </div>
                     <div className="flex justify-between text-slate-300">
                       <span>Engagement Rate:</span>
-                      <strong className="text-sage-400 font-bold">{p.avg_engagement_rate}%</strong>
+                      <strong className="text-sage-400 font-bold">{rate(p.avg_engagement_rate)}</strong>
                     </div>
                   </div>
                 </div>
@@ -300,8 +317,8 @@ export const AnalyticsView: React.FC = () => {
 
           <div className="space-y-3">
             {categoryComparison?.map((cat: any, i: number) => {
-              const maxViews = Math.max(...categoryComparison.map((c: any) => c.total_views));
-              const pct = Math.round((cat.total_views / (maxViews || 1)) * 100);
+              const maxViews = Math.max(0, ...categoryComparison.filter((c: any) => c.total_views != null).map((c: any) => c.total_views));
+              const pct = cat.total_views == null ? 0 : Math.round((cat.total_views / (maxViews || 1)) * 100);
 
               return (
                 <div key={cat.id} className="bg-surface p-3.5 rounded-xl border border-border text-xs">
@@ -309,14 +326,14 @@ export const AnalyticsView: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cat.color || '#D95D39' }} />
                       <span className="font-bold text-slate-100">{cat.name}</span>
-                      {i === 0 && (
+                      {i === 0 && cat.total_views != null && (
                         <span className="text-[9px] bg-honey-500/20 text-honey-300 border border-honey-500/30 px-1.5 py-0.2 rounded-md font-bold">
                           Top Performing
                         </span>
                       )}
                     </div>
                     <span className="font-mono font-bold text-slate-200">
-                      {Number(cat.total_views).toLocaleString()} views
+                      {metric(cat.total_views)}{cat.total_views == null ? '' : ' views'}
                     </span>
                   </div>
 
@@ -329,7 +346,7 @@ export const AnalyticsView: React.FC = () => {
 
                   <div className="flex items-center justify-between text-[11px] text-slate-400">
                     <span>{cat.account_count} Connected Accounts</span>
-                    <span>Avg Engagement: <strong className="text-sage-400">{cat.avg_engagement_rate}%</strong></span>
+                    <span>Avg Engagement: <strong className="text-sage-400">{rate(cat.avg_engagement_rate)}</strong></span>
                   </div>
                 </div>
               );
@@ -527,14 +544,14 @@ export const AnalyticsView: React.FC = () => {
                     </span>
                   </td>
                   <td className="py-3 font-mono font-semibold text-slate-100">
-                    {Number(acc.total_views).toLocaleString()}
+                    {metric(acc.total_views)}
                   </td>
-                  <td className="py-3 text-slate-300 font-mono">{Number(acc.total_likes).toLocaleString()}</td>
-                  <td className="py-3 text-slate-300 font-mono">{Number(acc.total_comments).toLocaleString()}</td>
+                  <td className="py-3 text-slate-300 font-mono">{metric(acc.total_likes)}</td>
+                  <td className="py-3 text-slate-300 font-mono">{metric(acc.total_comments)}</td>
                   <td className="py-3 font-semibold text-slate-200 font-mono">
                     {acc.current_followers == null ? 'Unavailable' : Number(acc.current_followers).toLocaleString()}
                   </td>
-                  <td className="py-3 text-sage-400 font-bold">{acc.engagement_rate}%</td>
+                  <td className="py-3 text-sage-400 font-bold">{rate(acc.engagement_rate)}</td>
                 </tr>
               ))}
             </tbody>

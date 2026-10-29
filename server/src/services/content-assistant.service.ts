@@ -6,6 +6,11 @@ import { getConnector } from '../connectors/registry.js';
 import { createHash } from 'node:crypto';
 
 const kinds: DraftKind[] = ['post', 'rewrite', 'caption', 'reply'];
+export class AssistantBatchPartialError extends Error {
+  constructor(readonly drafts: ReturnType<typeof repo.insertDraft>[],readonly failedIndex:number,readonly notAttempted:number,reason:string) {
+    super(`${drafts.length} drafts were saved before the batch stopped. ${reason} No automatic retry was made.`);
+  }
+}
 function account(id: unknown) {
   if (typeof id !== 'string') throw new Error('Select an account');
   const row = accountsRepo.getAccountById(id);
@@ -115,8 +120,8 @@ export class ContentAssistantService {
     if (!Array.isArray(inputs) || !inputs.length || inputs.length > limits.max_batch_size) throw new Error(`Batch must contain 1 to ${limits.max_batch_size} requests`);
     if (repo.generatedToday()+this.reserved+inputs.length > limits.daily_draft_limit) throw new Error('Daily draft limit reached');
     const requests=inputs.map(input=>this.request(input)); this.reserved+=requests.length;
+    const drafts: ReturnType<typeof repo.insertDraft>[]=[];
     try {
-      const drafts=[];
       for (const {request,context,flags,accountId} of requests) {
         if (repo.limits().paused) throw new Error('Content generation is paused');
         let result: {text:string;flags?:string[];generation?:AssistantGenerationMetadata};
@@ -126,6 +131,9 @@ export class ContentAssistantService {
         drafts.push(repo.insertDraft({accountId,kind:request.kind,content,source:this.provider.fixture?'fixture':'provider',provider:this.provider.id,context:{...context,...(result.generation?{generation:result.generation}:{})},flags:[...flags,...reviewFlags(content),...(result.flags || []).slice(0,10).map(f=>redactContentSecrets(textValue(f,'Review flag',500)))]}));
       }
       return drafts;
+    } catch(error) {
+      if(drafts.length) throw new AssistantBatchPartialError(drafts,drafts.length,requests.length-drafts.length-1,error instanceof Error?error.message:'Generation failed');
+      throw error;
     } finally { this.reserved-=requests.length; }
   }
   edit(id: string,input: any) {

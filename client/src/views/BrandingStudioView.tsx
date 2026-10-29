@@ -8,6 +8,9 @@ import { WatermarkCanvas } from '../components/branding/WatermarkCanvas';
 import { WatermarkControls } from '../components/branding/WatermarkControls';
 import { Modal } from '../components/common/Modal';
 import { resolveBrandingMode } from '../../../server/src/domain/branding-layout';
+import { useFeatureActive } from '../features/FeatureActivity';
+import { useResourceRefresh } from '../api/resource-events';
+import { readAccounts } from '../api/reference-resources';
 
 interface Props {
   initialAccountId?: string;
@@ -15,6 +18,9 @@ interface Props {
 }
 
 export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
+  const active = useFeatureActive();
+  const [resourceError, setResourceError] = useState('');
+  const appliedTarget = useRef<string | undefined>(undefined);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>(initialAccountId || '');
   const [videos, setVideos] = useState<VideoItem[]>([]);
@@ -75,33 +81,37 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
   const loadData = useCallback(async () => {
     try {
       const [accRes, vidRes] = await Promise.all([
-        api.getAccounts(),
+        readAccounts(),
         api.getVideos(),
       ]);
       const accs = accRes.accounts || [];
       setAccounts(accs);
       const vids = vidRes.videos || [];
       setVideos(vids);
+      setResourceError('');
 
-      const targetId = initialAccountId || accs[0]?.id;
-      if (targetId) {
+      const explicitTargetChanged = initialAccountId && appliedTarget.current !== initialAccountId;
+      const targetId = explicitTargetChanged ? initialAccountId : selectedAccountId || accs[0]?.id;
+      if (targetId && (explicitTargetChanged || !selectedAccountId)) {
+        appliedTarget.current = initialAccountId;
         setSelectedAccountId(targetId);
         const acc = accs.find((a: Account) => a.id === targetId);
         if (acc) setBrandKit(kitForAccount(acc));
       }
 
       if (vids.length > 0) {
-        setSelectedVideoId(vids[0].id);
+        setSelectedVideoId(previous => previous || vids[0].id);
 
       }
     } catch (err) {
-      console.error(err);
+      setResourceError(err instanceof Error ? err.message : 'Branding resources are unavailable.');
     }
-  }, [initialAccountId, loadVariants]);
+  }, [initialAccountId, selectedAccountId, loadVariants]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (active) void loadData();
+  }, [loadData, active]);
+  useResourceRefresh(['accounts', 'videos'], loadData);
 
   useEffect(() => {
     setCaptionOverride(null);
@@ -128,7 +138,7 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
       setTimeout(() => setSaveSuccess(false), 3000);
       setAccounts(prev => prev.map(account => account.id === selectedAccountId ? { ...account, brandKit: { ...brandKit } } : account));
     } catch (err) {
-      console.error(err);
+      setResourceError(err instanceof Error ? err.message : 'Brand kit could not be saved.');
     } finally {
       setSaving(false);
     }
@@ -186,6 +196,7 @@ export const BrandingStudioView: React.FC<Props> = ({ initialAccountId }) => {
 
   return (
     <div className="space-y-6">
+      {resourceError && <p role="alert" className="text-sm text-rose-300">{resourceError} <button onClick={() => void loadData()} className="underline">Retry</button></p>}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface-card p-5 sm:p-6 rounded-2xl border border-border shadow-xs">
         <div>

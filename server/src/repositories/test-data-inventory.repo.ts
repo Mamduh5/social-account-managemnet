@@ -44,7 +44,7 @@ const projections: Record<string, string> = {
 };
 
 export const inventoryTypes = ['all', ...Object.keys(projections)] as const;
-const deletableTypes=new Set(['account','category','video','branded_video','publishing_post','assistant_draft']);
+const deletableTypes=new Set(['category','video','branded_video','publishing_post','assistant_draft']);
 
 function inventoryRecord(db:Database.Database, row:any, refs:ReturnType<typeof referencesBatch>) {
   const {dependency,...fields}=row;
@@ -52,7 +52,7 @@ function inventoryRecord(db:Database.Database, row:any, refs:ReturnType<typeof r
   const classification=getOwnerClassification(db,item.type,item.id);
   const summary=readRecordSummary(db,item);
   const {impact}=inspectDeletion(db,item,true,refs);
-  const eligibility=classification==='owner_marked_keep'?'protected':impact.eligible?'safe':impact.review||impact.selectable?'review':deletableTypes.has(row.type)?'protected':'unsupported';
+  const eligibility=classification==='owner_marked_keep'||row.type==='account'?'protected':impact.eligible?'safe':impact.review||impact.selectable?'review':deletableTypes.has(row.type)?'protected':'unsupported';
   const relationships=[dependency,...impact.dependencies];
   return {...fields,...summary,classification,eligibility,
     protection:classification==='owner_marked_keep'?'Owner marked this record Keep. Remove the designation before deletion.':impact.reason,

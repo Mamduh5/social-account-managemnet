@@ -1,6 +1,6 @@
 import {contentWorkspaceRepo as workspaceReadiness} from '../repositories/content-workspace.repo.js';
 import { Router } from 'express';
-import { contentAssistantService as service } from '../services/content-assistant.service.js';
+import { contentAssistantService as service,AssistantBatchPartialError } from '../services/content-assistant.service.js';
 import { contentWorkspaceRepo as repo } from '../repositories/content-workspace.repo.js';
 import { replyDraftsService as replies } from '../services/reply-drafts.service.js';
 
@@ -25,7 +25,10 @@ assistantRouter.post('/drafts/:id/export-approved',sync(req=>service.exportAppro
 assistantRouter.post('/drafts/:id/reviewed-text',sync(req=>service.approvedText(req.params.id,Number(req.body.revision),req.body.accountId)));
 assistantRouter.get('/drafts/:id/audit',sync(req=>({audit:repo.auditTrail(req.params.id)})));
 assistantRouter.post('/generate',async(req,res)=>{try {res.json({success:true,draft:await service.generate(req.body)});}catch(error:any){res.status(400).json({error:error.message});}});
-assistantRouter.post('/generate-batch',async(req,res)=>{try {res.json({success:true,drafts:await service.batch(req.body.requests)});}catch(error:any){res.status(400).json({error:error.message});}});
+assistantRouter.post('/generate-batch',async(req,res)=>{try {res.json({success:true,drafts:await service.batch(req.body.requests)});}catch(error:any){
+  if(error instanceof AssistantBatchPartialError)return res.status(207).json({success:false,partial:true,drafts:error.drafts,failedIndex:error.failedIndex,notAttempted:error.notAttempted,error:error.message});
+  res.status(400).json({error:error.message});
+}});
 assistantRouter.put('/limits',sync(req=>{
   const b=Number(req.body.maxBatchSize),d=Number(req.body.dailyDraftLimit);
   if (typeof req.body.paused!=='boolean' || !Number.isInteger(b) || b<1 || b>20 || !Number.isInteger(d) || d<1 || d>500) throw new Error('Limits require paused, batch size 1–20, and daily draft limit 1–500');

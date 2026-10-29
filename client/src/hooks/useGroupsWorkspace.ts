@@ -4,6 +4,8 @@ import { groupsApi } from '../api/content-workspace';
 import type { Account } from '../types';
 import type { GroupEligibility, GroupListFilters, GroupMembershipInput, GroupPackageDto, GroupPlanDto, GroupPlanInput, GroupPreparedDto, GroupReminderDto } from '../../../server/src/domain/groups';
 import { createGroupsRequestGuard, emptyGroupDraft } from './groups-selection';
+import { useFeatureActive } from '../features/FeatureActivity';
+import { useResourceRefresh } from '../api/resource-events';
 
 export interface GroupForm extends GroupPlanInput {
   accountId: string; membership: GroupPlanDto['membership']; category: string; notes: string; rules: string;
@@ -17,6 +19,7 @@ function groupForm(group: GroupPlanDto): GroupForm {
 export interface GroupLibraryItem { id: string; kind: 'image' | 'video'; title: string }
 
 export function useGroupsWorkspace() {
+  const active = useFeatureActive();
   const [groups, setGroups] = useState<GroupPlanDto[]>([]);
   const [hasRegisteredGroups, setHasRegisteredGroups] = useState<boolean | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<GroupPlanDto | null>(null);
@@ -178,9 +181,22 @@ export function useGroupsWorkspace() {
       setAccounts(accountResult.accounts.filter(a => a.platform === 'facebook' && a.account_type === 'page' && !a.archived_at && !a.is_demo));
       setMedia([...images.images.map(m => ({ id: m.id, kind: 'image' as const, title: m.original_filename })), ...videos.videos.map(m => ({ id: m.id, kind: 'video' as const, title: m.title }))]);
     });
-    const timer = setInterval(() => setNow(Date.now()), 30_000);
-    return () => { mounted.current = false; selection.current.invalidate(); packages.current.invalidate(); lists.current.invalidate(); registryRequests.current.invalidate(); clearInterval(timer); };
+    return () => { mounted.current = false; selection.current.invalidate(); packages.current.invalidate(); lists.current.invalidate(); registryRequests.current.invalidate(); };
   }, []);
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, [active]);
+  useResourceRefresh(['groups'], refresh, true);
+  useResourceRefresh(['accounts','videos'], async () => {
+    try {
+      const [accountResult,images,videos] = await Promise.all([api.getAccounts(),api.getImages(),api.getVideos()]);
+      if (!mounted.current) return;
+      setAccounts(accountResult.accounts.filter(account=>account.platform==='facebook'&&account.account_type==='page'&&!account.archived_at&&!account.is_demo));
+      setMedia([...images.images.map(media=>({id:media.id,kind:'image' as const,title:media.original_filename})),...videos.videos.map(media=>({id:media.id,kind:'video' as const,title:media.title}))]);
+    } catch (error) { setError(error instanceof Error ? error.message : 'Group media is unavailable.'); }
+  }, true);
   const hasUnsavedChanges = selectedGroup ? JSON.stringify(form) !== JSON.stringify(groupForm(selectedGroup)) : true;
   return { groups, hasRegisteredGroups, selectedGroup, form, setForm, accounts, media, prepared, draft, setDraft, handoff, reminders, now, error, message, setMessage, busy: pending > 0, hasUnsavedChanges,
     run, refresh, selectGroup, newGroup, openPackage, saveGroup, recordMembership, savePrepared, recordReceipt, updateReminder };

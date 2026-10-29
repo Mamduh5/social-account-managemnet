@@ -22,6 +22,7 @@ export const AccountsView: React.FC<Props> = ({
 }) => {
   const {
     accounts,
+    error: resourceError,
     categories,
     testingHealthId,
     loadData,
@@ -128,6 +129,7 @@ export const AccountsView: React.FC<Props> = ({
   const currentPage = Math.min(page, pages - 1);
   return (
     <div className="space-y-6">
+      {resourceError && <p role="alert" className="text-sm text-rose-300">{resourceError} <button onClick={() => void loadData()} className="underline">Retry</button></p>}
       <div className="flex flex-wrap items-center justify-between gap-4 bg-surface-card p-5 rounded-2xl border border-border shadow-xs">
         <div>
           <h2 className="text-xl font-black">

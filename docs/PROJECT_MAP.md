@@ -6,6 +6,8 @@ V1.12 adds `services/operator-workspace.service.ts` and `routes/operator-workspa
 
 ---
 
+The 29 October source architecture implementation adds `api/http.ts`, scoped resource notifications, retained feature editors, a separate paginated Publishing History read model, safe terminal-record cleanup, reference-aware branding artifacts and durable publication command receipts. Read [implementation and validation](qa/ARCHITECTURE_IMPLEMENTATION.md) before using this source in a managed owner release: an explicit additive schema prerequisite is required; no owner activation is implied.
+
 ## 1. High-Level System Architecture
 
 ```mermaid

@@ -377,38 +377,43 @@ export class MetaFacebookConnector implements AccountConnector {
     const url = `${this.baseUrl}/${this.apiVersion}/${targetId}/comments?fields=${encodeURIComponent(fields)}&limit=${options?.limit || 50}`;
     
     try {
-      const res = await fetch(url, { headers:{Authorization:`Bearer ${account.access_token}`},signal: AbortSignal.timeout(15000) });
-      const json = await res.json() as any;
-      if (!res.ok || json.error || !Array.isArray(json.data)) throw new Error('Comment API response unavailable');
-      
-      const results: CommentFetchResult[] = [];
-      for (const c of json.data) {
-        results.push({
-          externalCommentId: c.id,
-          authorName: c.from?.name || 'Facebook User',
-          authorId: c.from?.id,
-          parentCommentId: c.parent?.id,
-          content: c.message || '',
-          createdTime: c.created_time || new Date().toISOString(),
-          likeCount: c.like_count || 0,
-          nativeUrl: `https://facebook.com/${c.id}`,
-        });
-
-        // Add nested replies if present
-        if (c.comments?.data) {
-          for (const reply of c.comments.data) {
-            results.push({
-              externalCommentId: reply.id,
-              authorName: reply.from?.name || 'Facebook User',
-              authorId: reply.from?.id,
-              parentCommentId: c.id,
-              content: reply.message || '',
-              createdTime: reply.created_time || new Date().toISOString(),
-              likeCount: reply.like_count || 0,
-              nativeUrl: `https://facebook.com/${reply.id}`,
-            });
+      const results: CommentFetchResult[] = [],seen=new Set<string>();
+      let pages=0;const deadline=Date.now()+120000;
+      const read=async(pageUrl:string) => {
+        const parsed=new URL(pageUrl);
+        if(parsed.origin!==this.baseUrl || !parsed.pathname.startsWith(`/${this.apiVersion}/`) || !parsed.pathname.endsWith('/comments') || parsed.username || parsed.password) throw new Error('Invalid comment pagination source');
+        // Provider cursors occasionally embed tokens; keep credentials in the
+        // Authorization header and never follow a different host or redirect.
+        parsed.searchParams.delete('access_token');
+        if(seen.has(parsed.href) || ++pages>30 || Date.now()>=deadline) throw new Error('Comment history exceeded its bounded pagination budget');
+        seen.add(parsed.href);
+        const res=await fetch(parsed.href,{headers:{Authorization:`Bearer ${account.access_token}`},signal:AbortSignal.timeout(Math.min(15000,deadline-Date.now())),redirect:'error'});
+        const json=await res.json() as any;
+        if(!res.ok || json.error || !Array.isArray(json.data))throw new Error('Comment API response unavailable');
+        return json;
+      };
+      const append=(comment:any,parentId?:string) => {
+        if(typeof comment.id!=='string' || !comment.id)throw new Error('Invalid comment identity');
+        results.push({externalCommentId:comment.id,authorName:comment.from?.name || 'Facebook User',authorId:comment.from?.id,
+          parentCommentId:parentId || comment.parent?.id,content:comment.message || '',createdTime:comment.created_time || new Date().toISOString(),
+          likeCount:comment.like_count || 0,nativeUrl:`https://facebook.com/${comment.id}`});
+      };
+      let next:string|null=url;
+      while(next) {
+        const page=await read(next);
+        for(const comment of page.data) {
+          append(comment);
+          if(comment.comments?.data) {
+            for(const reply of comment.comments.data)append(reply,comment.id);
+            let repliesNext=comment.comments.paging?.next;
+            while(repliesNext) {
+              const replies=await read(repliesNext);
+              for(const reply of replies.data)append(reply,comment.id);
+              repliesNext=replies.paging?.next;
+            }
           }
         }
+        next=page.paging?.next || null;
       }
       return results;
     } catch {
