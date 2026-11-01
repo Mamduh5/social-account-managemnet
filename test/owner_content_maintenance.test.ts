@@ -8,7 +8,7 @@ import {db,dataDir} from '../server/src/db/database.js';
 import {initializeDatabase} from '../server/src/db/schema.js';
 import {planContentReset,resetContent,retiredManualIds,retainedFingerprint,tableCounts,verifyDatabase} from '../scripts/lib/content-reset.js';
 import {bootMaintenanceCopy} from '../scripts/owner-content-maintenance.js';
-import {architectureSchemaReady,migrateArchitectureDatabase} from '../server/src/db/architecture-schema.js';
+import {architectureSchemaReady,migrateArchitectureDatabase,captureArchitectureDatabase,verifyArchitectureMigration} from '../server/src/db/architecture-schema.js';
 import {assertOwnerQueueSafe,protectedManualDestinationIds} from '../server/src/domain/runtime-recovery.js';
 import {activityRepo} from '../server/src/repositories/activity.repo.js';
 import {contentWorkspaceRepo} from '../server/src/repositories/content-workspace.repo.js';
@@ -87,8 +87,30 @@ test('post-reset migration adds prerequisites without changing retained rows and
   const copy=fixture();try{resetContent(copy,planContentReset(copy),provenance);copy.exec('DROP TABLE publishing_commands; DROP INDEX idx_dest_history_created');
     assert.equal(architectureSchemaReady(copy),false);const before=retainedFingerprint(copy);migrateArchitectureDatabase(copy);
     assert.equal(architectureSchemaReady(copy),true);assert.equal(tableCounts(copy).publishing_commands,0);
-    // The empty new receipts table is additive; all existing data remains identical.
-    copy.exec('DROP TABLE publishing_commands');assert.equal(retainedFingerprint(copy),before);migrateArchitectureDatabase(copy);verifyDatabase(copy);
+    assert.equal(retainedFingerprint(copy),before);verifyDatabase(copy);
+    const snapshot=captureArchitectureDatabase(copy);migrateArchitectureDatabase(copy);assert.deepEqual(captureArchitectureDatabase(copy),snapshot);
+  }finally{copy.close();}
+});
+test('migration comparison rejects record, credential, column, index, table and receipt changes',()=>{
+  for(const mutation of [
+    "UPDATE accounts SET access_token='ALTERED'",
+    "UPDATE accounts SET name='ALTERED'",
+    'ALTER TABLE accounts ADD COLUMN unexpected TEXT',
+    'DROP INDEX idx_dest_history_created',
+    'CREATE INDEX unexpected_index ON accounts(name)',
+    'CREATE TABLE unexpected_table(id TEXT)',
+    "INSERT INTO publishing_commands(command_id,payload_hash,post_id,result_json) VALUES('new','hash','post','{}')",
+  ]){
+    const copy=fixture();try{
+      copy.exec('DROP TABLE publishing_commands');const before=captureArchitectureDatabase(copy);migrateArchitectureDatabase(copy);copy.exec(mutation);
+      assert.throws(()=>verifyArchitectureMigration(before,copy),/changed|Unexpected|prerequisites|empty/);
+    }finally{copy.close();}
+  }
+  const copy=fixture();try{
+    copy.exec("INSERT INTO publishing_commands(command_id,payload_hash,post_id,result_json) VALUES('receipt','hash','post','{}')");
+    const preserved=captureArchitectureDatabase(copy);migrateArchitectureDatabase(copy);assert.deepEqual(captureArchitectureDatabase(copy),preserved);
+    const before=captureArchitectureDatabase(copy);copy.exec("UPDATE publishing_commands SET result_json='changed' WHERE command_id='receipt'");
+    assert.throws(()=>verifyArchitectureMigration(before,copy),/records/);
   }finally{copy.close();}
 });
 test('source runtime boots on a reset copy with no workers or outbound requests',async()=>{

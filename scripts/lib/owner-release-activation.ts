@@ -16,6 +16,8 @@ export interface OwnerReleaseActivationOperations {
   acquire(): () => void;
   readConfiguration(): OwnerConfiguration;
   verify(configuration: OwnerConfiguration): OwnerReleaseManifest;
+  /** An explicit, evidence-verified maintenance path; ordinary updates retain strict source equality. */
+  verifySchemaCompatibility?(previous:OwnerReleaseManifest,candidate:OwnerReleaseManifest):void;
   wasRunning(): boolean;
   stop(configuration: OwnerConfiguration): Promise<void>;
   backup(): Promise<unknown>;
@@ -69,7 +71,8 @@ export async function activateOwnerRelease(
     if (previousManifest.revision !== current.releaseRevision || candidateManifest.revision !== candidate.releaseRevision) {
       throw new Error('Verified manifest does not match its configured release revision');
     }
-    assertNoSchemaChange(previousManifest, candidateManifest);
+    if(ops.verifySchemaCompatibility)ops.verifySchemaCompatibility(previousManifest,candidateManifest);
+    else assertNoSchemaChange(previousManifest, candidateManifest);
     running = ops.wasRunning();
     ops.record({ event: 'owner_release_activation_verified', ...identity, wasRunning: running });
 

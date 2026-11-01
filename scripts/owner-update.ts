@@ -12,12 +12,14 @@ import {
 import {
   verifyOwnerRelease, configurationFingerprint, assertConfigurationFingerprint,
   assertCandidateOwnerConfiguration, acquireOwnerMaintenance,
+  candidateOwnerConfiguration,
 } from './lib/owner-release-core.js';
-import { inspectReleaseSource, prepareOwnerRelease } from './lib/owner-release-prepare.js';
+import { inspectReleaseSource, prepareOwnerRelease, verifyCommittedRelease } from './lib/owner-release-prepare.js';
 import { activateOwnerRelease } from './lib/owner-release-activation.js';
 import { assertOwnerQueueSafe } from '../server/src/domain/runtime-recovery.js';
 import { retiredManualIds } from './lib/content-reset.js';
 import { architectureSchemaReady } from '../server/src/db/architecture-schema.js';
+import { inspectArchitectureRecovery, assertArchitectureReleaseCompatibility, claimArchitectureMaintenance } from './lib/owner-architecture-recovery.js';
 
 const root = path.resolve(__dirname, '..');
 const args = process.argv.slice(2);
@@ -26,17 +28,22 @@ const lastUpdateFile = path.join(root, '.data', 'runtime', 'last-owner-update.js
 
 function parseArguments() {
   let revision: string | undefined;
+  let maintenanceRun: string | undefined;
   for (let index = 0; index < args.length; index++) {
     if (args[index] === '--revision') {
       revision = args[++index];
       if (!revision || !/^[a-f0-9]{40}$/.test(revision)) throw new Error('--revision requires an exact committed SHA');
+    } else if(args[index]==='--maintenance-run'){
+      maintenanceRun=args[++index];
+      if(!maintenanceRun||!path.isAbsolute(maintenanceRun))throw new Error('--maintenance-run requires the original absolute run directory');
     } else if (!['--apply', '--check', '--rollback', '--help'].includes(args[index])) {
       throw new Error('Use --check, --apply, --rollback or --revision SHA');
     }
   }
   if (args.includes('--check') && args.includes('--apply')) throw new Error('--check never activates a release');
   if (args.includes('--rollback') && revision) throw new Error('Rollback uses the saved previous configuration, not --revision');
-  return { revision, apply: args.includes('--apply'), check: args.includes('--check'), rollback: args.includes('--rollback') };
+  if(args.includes('--rollback')&&maintenanceRun)throw new Error('Architecture recovery cannot roll back to the unsafe pre-reset release');
+  return { revision, maintenanceRun, apply: args.includes('--apply'), check: args.includes('--check'), rollback: args.includes('--rollback') };
 }
 
 function readConfiguration(): OwnerConfiguration {
@@ -188,7 +195,7 @@ function promote(config: OwnerConfiguration, expectedFingerprint: string) {
 async function main() {
   const options = parseArguments();
   if (args.includes('--help')) {
-    console.log('owner:update [--check | --apply] [--revision COMMIT]\nDefault: prepare a clean committed release only. --check reads files/process identity without building or HTTP.\n--apply: prepare/reuse, gracefully stop if needed, verify backup, promote, and restart only if previously running.\nowner:rollback [--apply]: review or activate the saved previous release; never restore the database.');
+    console.log('owner:update [--check | --apply] [--revision COMMIT] [--maintenance-run ABSOLUTE_RUN]\nDefault: prepare a clean committed release only. --check reads files/process identity without building or HTTP.\n--apply: prepare/reuse, gracefully stop if needed, verify backup, promote, and restart only if previously running.\nArchitecture recovery verifies original backups, exact additive schema and retained markers; releases the hold only after successful promotion.\nowner:rollback [--apply]: review or activate the saved previous release; never restore the database.');
     return;
   }
   const current = readConfiguration();
@@ -196,15 +203,31 @@ async function main() {
   const verified = verifyOwnerRelease(current.releaseRoot, current.releaseRevision);
   if (options.check) {
     let source: unknown;
+    const blockers:string[]=[];
+    let recovery:unknown;
     try { source = { ready: true, revision: inspectReleaseSource(root, options.revision).revision }; }
     catch (error: any) { source = { ready: false, reason: error.message }; }
+    if(options.maintenanceRun){
+      try{
+        await assertStopped(current);
+        recovery=inspectArchitectureRecovery(current,options.maintenanceRun);
+        const inputs=inspectReleaseSource(root,options.revision),candidate=candidateOwnerConfiguration(current,inputs.revision);
+        const prepared=verifyCommittedRelease(root,candidate.releaseRoot,inputs);
+        assertArchitectureReleaseCompatibility(current,candidate,verified.manifest,prepared.manifest);
+      }catch(error){blockers.push(error instanceof Error?error.message:String(error));}
+    }
     const database = new Database(path.join(current.dataDir, 'social_command_center.db'), {readonly:true,fileMustExist:true});
     let architecture;
-    try { architecture = {schemaReady:architectureSchemaReady(database),retiredManualHolds:retiredManualIds(database),activationRequiresSchemaCompatibilityReview:true}; }
+    try { architecture = {schemaReady:architectureSchemaReady(database),retiredManualHolds:retiredManualIds(database),
+      maintenanceHold:fs.existsSync(path.join(current.runtimeDir,'maintenance.lock')),
+      activationRequiresSchemaCompatibilityReview:!options.maintenanceRun||blockers.length>0}; }
     finally { database.close(); }
     console.log(JSON.stringify({ readOnly: true, configuredRevision: current.releaseRevision, releaseRoot: current.releaseRoot,
       clientDist: current.clientDist, workingClientDist: path.join(root, 'client', 'dist'), manifestFilesVerified: verified.fileCount,
-      runtime: ownedRuntime(current), source, architecture, note: 'build:client does not promote the pinned owner release.' }, null, 2));
+      runtime: ownedRuntime(current), source, architecture,
+      ...(options.maintenanceRun?{recovery,activationReadiness:{ready:blockers.length===0,blockers,activationPerformed:false}}:{}),
+      note: 'build:client does not promote the pinned owner release.' }, null, 2));
+    if(blockers.length)process.exitCode=1;
     return;
   }
   let candidate: OwnerConfiguration;
@@ -234,9 +257,13 @@ async function main() {
     candidate = prepared.candidateConfiguration;
     preparation = { receiptFile: prepared.receiptFile, manifestFingerprint: prepared.receipt.manifestFingerprint };
     if (!options.apply) {
+      if(options.maintenanceRun){
+        await assertStopped(current);inspectArchitectureRecovery(current,options.maintenanceRun);
+        assertArchitectureReleaseCompatibility(current,candidate,verified.manifest,prepared.manifest);
+      }
       console.log(JSON.stringify({ preparedOnly: true, revision: candidate.releaseRevision, releaseRoot: candidate.releaseRoot,
         receiptFile: prepared.receiptFile, activeRevision: current.releaseRevision,
-        next: 'After owner approval: npm run owner:update -- --apply' }, null, 2));
+        next: 'After owner approval: npm run owner:update -- --apply'+(options.maintenanceRun?' --maintenance-run "'+options.maintenanceRun+'"':'') }, null, 2));
       return;
     }
   }
@@ -245,6 +272,7 @@ async function main() {
     return;
   }
   const startup = inspectStartup();
+  if(options.maintenanceRun)await assertStopped(current);
   const updatesRoot = path.join(root, '.data', 'owner-updates');
   privateDirectory(updatesRoot);
   const runDirectory = fs.mkdtempSync(path.join(updatesRoot, options.rollback ? 'rollback-' : 'activate-'));
@@ -255,18 +283,29 @@ async function main() {
   writeJson(receiptFile, receipt);
   fs.copyFileSync(configFile, path.join(runDirectory, 'previous-owner-config.json'), fs.constants.COPYFILE_EXCL);
   if (startup.contents !== undefined) fs.writeFileSync(path.join(runDirectory, 'previous-startup.vbs'), startup.contents, { flag: 'wx' });
+  let recoveryLease:ReturnType<typeof claimArchitectureMaintenance>|undefined;
   const result = await activateOwnerRelease({ authorized: options.apply, current, candidate, expectedConfigurationFingerprint: expectedFingerprint }, {
-    acquire: () => acquireOwnerMaintenance(current, runDirectory).release,
+    acquire: () => {
+      if(!options.maintenanceRun)return acquireOwnerMaintenance(current,runDirectory).release;
+      recoveryLease=claimArchitectureMaintenance(current,candidate,options.maintenanceRun);
+      return ()=>recoveryLease!.release();
+    },
+    ...(options.maintenanceRun?{verifySchemaCompatibility:(previous:typeof verified.manifest,next:typeof verified.manifest)=>{
+      inspectArchitectureRecovery(current,options.maintenanceRun!);
+      verifyCommittedRelease(root,candidate.releaseRoot,inspectReleaseSource(root,candidate.releaseRevision));
+      assertArchitectureReleaseCompatibility(current,candidate,previous,next);
+    }}:{}),
     readConfiguration,
     verify: configuration => verifyOwnerRelease(configuration.releaseRoot, configuration.releaseRevision).manifest,
     wasRunning: () => {
       const state = ownedRuntime(current);
+      if(options.maintenanceRun&&(state.backendPid||state.proxyPid))throw new Error('Recovery requires the owner to remain stopped');
       if ((state.backendPid || state.proxyPid) && state.stateRevision !== current.releaseRevision) {
         throw new Error('Running process release differs from configuration; investigate before maintenance');
       }
       return !!(state.backendPid || state.proxyPid);
     },
-    stop: async configuration => { lifecycle(configuration, 'stop'); await waitForStopped(configuration); },
+    stop: async configuration => { if(!options.maintenanceRun)lifecycle(configuration, 'stop'); await waitForStopped(configuration); },
     backup: async () => {
       const backup = await backupOwner(current, runDirectory);
       receipt.backup = backup;
@@ -294,9 +333,12 @@ async function main() {
           configurationFingerprint(readConfiguration()) === receipt.candidateFingerprint) {
         writeJson(lastUpdateFile, { receiptFile });
       }
+      if(event.event==='owner_release_activation_promoted')recoveryLease?.allowRelease();
     },
   });
-  console.log(JSON.stringify({ ...result, receiptFile, rollback: 'npm run owner:rollback -- --apply' }, null, 2));
+  console.log(JSON.stringify({ ...result, receiptFile, rollback: options.maintenanceRun
+    ? 'Pre-reset release is unsafe and blocked. Retain the forward database and use a verified corrective release.'
+    : 'npm run owner:rollback -- --apply' }, null, 2));
 }
 
 void main().catch(error => { console.error(redactRuntimeLog(error.message)); process.exitCode = 1; });

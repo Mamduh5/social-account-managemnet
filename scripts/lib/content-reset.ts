@@ -50,8 +50,8 @@ export interface ResetPlan {
 
 export function retainedFingerprint(db: Database.Database) {
   return digest(Object.fromEntries([...protectedTables, 'publishing_commands', ...mixedTables]
-    .filter(table => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table))
-    .map(table => [table, rows(db, table, predicates[table] ? `NOT (${predicates[table]})` : '1=1')
+    .map(table => [table, (table === 'publishing_commands' && !db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)
+      ? [] : rows(db, table, predicates[table] ? `NOT (${predicates[table]})` : '1=1'))
       // The newly appended reset receipt is validated separately.
       .filter((row: any) => table !== 'activity_events' || row.type !== resetSafetyType)])));
 }

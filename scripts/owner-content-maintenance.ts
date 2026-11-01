@@ -11,7 +11,7 @@ import { inspectReleaseSource } from './lib/owner-release-prepare.js';
 import { readJson, writeJson, privateDirectory, validateOwnerConfiguration, fingerprint, processIdentity, isOwnedProcess, type OwnerConfiguration, type OwnerState } from './lib/owner-runtime-core.js';
 import { planContentReset, resetContent, retainedFingerprint, retiredManualIds, tableCounts, verifyDatabase } from './lib/content-reset.js';
 import { assertOwnerQueueSafe } from '../server/src/domain/runtime-recovery.js';
-import { migrateArchitectureDatabase, architectureSchemaReady } from '../server/src/db/architecture-schema.js';
+import { migrateArchitectureDatabase, architectureSchemaReady, captureArchitectureDatabase, verifyArchitectureMigration } from '../server/src/db/architecture-schema.js';
 
 const root = path.resolve(__dirname, '..');
 const configFile = path.join(root,'.data','runtime','owner-config.json');
@@ -152,7 +152,9 @@ async function main(){
     owner=new Database(databaseFile,{fileMustExist:true});owner.pragma('foreign_keys=ON');
     report.reset=resetContent(owner,plan,provenance);report.status='reset_verified';writeJson(path.join(runDir,'report.json'),report);
     report.preMigrationBackup=await backup(owner,path.join(runDir,'pre-migration.db'));writeJson(path.join(runDir,'report.json'),report);
+    const beforeMigration=captureArchitectureDatabase(owner);
     report.migration=migrateArchitectureDatabase(owner);verifyDatabase(owner);
+    report.migrationVerification=verifyArchitectureMigration(beforeMigration,owner);
     if(!architectureSchemaReady(owner)||retainedFingerprint(owner)!==plan.protectedFingerprint)throw new Error('Post-migration prerequisite or identity verification failed');
     assertOwnerQueueSafe([],[],Date.now(),retiredManualIds(owner));
     report.after=tableCounts(owner);report.schemaReady=true;report.protectedRowsUnchanged=true;
