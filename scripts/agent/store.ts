@@ -107,6 +107,24 @@ export class AgentStore {
         created_at TEXT NOT NULL, input_hash TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_knowledge_context ON knowledge(account_id,resource_id,created_at);
+      CREATE TABLE IF NOT EXISTS agent_work (
+        id TEXT PRIMARY KEY, input_hash TEXT NOT NULL, snapshot_json TEXT NOT NULL,
+        priority INTEGER NOT NULL, status TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS agent_work_history (
+        task_id TEXT NOT NULL REFERENCES agent_work(id), revision INTEGER NOT NULL,
+        snapshot_json TEXT NOT NULL, PRIMARY KEY(task_id,revision)
+      );
+      CREATE TABLE IF NOT EXISTS agent_work_commands (
+        id TEXT PRIMARY KEY, request_hash TEXT NOT NULL, response_json TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS agent_generation_observations (
+        run_id TEXT NOT NULL REFERENCES jobs(id), sequence INTEGER NOT NULL,
+        snapshot_json TEXT NOT NULL, PRIMARY KEY(run_id,sequence)
+      );
+      CREATE TABLE IF NOT EXISTS agent_provider_claims (
+        scope TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES jobs(id)
+      );
     `);
     // Only marked agent sidecars reach this point. Historical requests cannot be reconstructed.
     const columns = this.db.pragma('table_info(operations)') as { name: string }[];
@@ -209,6 +227,73 @@ export class AgentStore {
   private readKnowledge(row: Record<string, string>): AgentKnowledge {
     return { id: row.id, kind: row.kind as AgentKnowledge['kind'], accountId: row.account_id, resourceId: row.resource_id, text: row.text, source: row.source, evidence: JSON.parse(row.evidence_json), createdAt: row.created_at };
   }
+
+  /** Serializes local work claims/receipts; never holds a transaction across network calls. */
+  transaction<T>(action:()=>T):T { return this.db.transaction(action).immediate(); }
+
+  getWork(id:string):Record<string,any>|null {
+    const row=this.db.prepare('SELECT snapshot_json FROM agent_work WHERE id=?').get(id) as {snapshot_json:string}|undefined;
+    return row?JSON.parse(row.snapshot_json):null;
+  }
+  addWork(id:string,input:unknown,snapshot:Record<string,any>):Record<string,any> {
+    return this.transaction(()=>{
+      const hash=stableHash(input),row=this.db.prepare('SELECT input_hash FROM agent_work WHERE id=?').get(id) as {input_hash:string}|undefined;
+      if(row) {if(row.input_hash!==hash)throw new Error('Task ID belongs to different input');return this.getWork(id)!;}
+      this.db.prepare('INSERT INTO agent_work VALUES (?,?,?,?,?,?)').run(id,hash,canonical(snapshot),snapshot.priority,snapshot.status,snapshot.updatedAt);
+      this.db.prepare('INSERT INTO agent_work_history VALUES (?,?,?)').run(id,snapshot.revision,canonical(snapshot));
+      return snapshot;
+    });
+  }
+  saveWork(snapshot:Record<string,any>):Record<string,any> {
+    this.db.prepare('UPDATE agent_work SET snapshot_json=?,status=?,updated_at=? WHERE id=?').run(canonical(snapshot),snapshot.status,snapshot.updatedAt,snapshot.id);
+    this.db.prepare('INSERT INTO agent_work_history VALUES (?,?,?)').run(snapshot.id,snapshot.revision,canonical(snapshot));
+    return snapshot;
+  }
+  listWork(limit=20,offset=0):Record<string,any>[] {
+    return (this.db.prepare('SELECT snapshot_json FROM agent_work ORDER BY priority DESC,id LIMIT ? OFFSET ?').all(bound(limit),offset) as {snapshot_json:string}[]).map(row=>JSON.parse(row.snapshot_json));
+  }
+  workCount():number {return (this.db.prepare('SELECT count(*) n FROM agent_work').get() as {n:number}).n;}
+  workCandidates():Record<string,any>[] {
+    return (this.db.prepare("SELECT snapshot_json FROM agent_work WHERE status IN ('ready','claimed') ORDER BY priority DESC,id").all() as {snapshot_json:string}[]).map(row=>JSON.parse(row.snapshot_json));
+  }
+  workHistory(id:string,limit=20):unknown[] {
+    return (this.db.prepare('SELECT snapshot_json FROM agent_work_history WHERE task_id=? ORDER BY revision DESC LIMIT ?').all(id,bound(limit)) as {snapshot_json:string}[]).map(row=>JSON.parse(row.snapshot_json));
+  }
+  workCommand(id:string,request:unknown,action:()=>Record<string,any>):Record<string,any> {
+    return this.transaction(()=>{
+      required(id,'work command id');const hash=stableHash(request);
+      const row=this.db.prepare('SELECT request_hash,response_json FROM agent_work_commands WHERE id=?').get(id) as {request_hash:string;response_json:string}|undefined;
+      if(row){if(row.request_hash!==hash)throw new Error('Command ID belongs to different input');return JSON.parse(row.response_json);}
+      const response=action();this.db.prepare('INSERT INTO agent_work_commands VALUES (?,?,?)').run(id,hash,canonical(response));return response;
+    });
+  }
+  generationSnapshot(id:string):Record<string,any>|null {
+    const row=this.db.prepare('SELECT snapshot_json FROM agent_generation_observations WHERE run_id=? ORDER BY sequence DESC LIMIT 1').get(id) as {snapshot_json:string}|undefined;
+    return row?JSON.parse(row.snapshot_json):null;
+  }
+  recordGeneration(id:string,snapshot:Record<string,any>):Record<string,any> {
+    return this.transaction(()=>{
+      const latest=this.generationSnapshot(id);
+      if(latest&&Date.parse(latest.checkedAt)>Date.parse(snapshot.checkedAt))return latest;
+      const seq=(this.db.prepare('SELECT COALESCE(MAX(sequence),0)+1 n FROM agent_generation_observations WHERE run_id=?').get(id) as {n:number}).n;
+      const saved={...snapshot,sequence:seq};
+      this.db.prepare('INSERT INTO agent_generation_observations VALUES (?,?,?)').run(id,seq,canonical(saved));return saved;
+    });
+  }
+  generationHistory(id:string,limit=10):Record<string,any>[] {
+    return (this.db.prepare('SELECT snapshot_json FROM agent_generation_observations WHERE run_id=? ORDER BY sequence DESC LIMIT ?').all(id,bound(limit)) as {snapshot_json:string}[]).map(row=>JSON.parse(row.snapshot_json));
+  }
+  reserveProvider(scope:string,id:string):boolean {
+    return this.transaction(()=>{
+      const row=this.db.prepare('SELECT run_id FROM agent_provider_claims WHERE scope=?').get(scope) as {run_id:string}|undefined;
+      if(row)return row.run_id===id;
+      this.db.prepare('INSERT INTO agent_provider_claims VALUES (?,?)').run(scope,id);return true;
+    });
+  }
+  providerOwner(scope:string):string|null {
+    return (this.db.prepare('SELECT run_id FROM agent_provider_claims WHERE scope=?').get(scope) as {run_id:string}|undefined)?.run_id??null;
+  }
+  releaseProvider(scope:string,id:string):void {this.db.prepare('DELETE FROM agent_provider_claims WHERE scope=? AND run_id=?').run(scope,id);}
 
   close(): void { this.db.close(); }
 }

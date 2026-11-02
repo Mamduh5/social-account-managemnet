@@ -21,9 +21,11 @@ function setup(t: { after: (action: () => void) => void }) {
   const controls: { create?: () => Promise<unknown>; prepare?: (value: any) => Promise<unknown>; source?: string; preparedInput?: any; reconciledInput?: any } = {};
   let draft: any = { id: 'draft-fixture', revision: 1, accountId: content.accountId, payloadHash: exact.payloadHash, status: 'draft', approvedRevision: null, queuedPostId: null };
   const pipeline = {
+    async admission() {return {allowed:true,code:'ready',workerEnabled:true,schedulerEnabled:true};},
+    async inspect() {return {project:await pipeline.status(),original:{projectId:'project-fixture',runId:'run-fixture'},run:{at:new Date().toISOString(),acknowledged:true},session:{active:false,unresolved:false},recovery:{required:false},failure:null,scenes:[],plannedScenes:2};},
     async create() { calls.create++; return controls.create ? controls.create() : { projectId: 'project-fixture' }; },
     async reconcile() { calls.reconcile++; return { projectId: 'project-fixture', state: 'completed' }; },
-    async status() { calls.status++; return { projectId: 'project-fixture', state: 'completed', media: { videoUrl: targets.pipeline + '/scene-video-jobs/project-fixture/artifacts/video' } }; },
+    async status() { calls.status++; return { projectId: 'project-fixture', state: 'completed', progress:{accepted:2,total:2},blockers:[],media: { videoUrl: targets.pipeline + '/scene-video-jobs/project-fixture/artifacts/video' } }; },
   };
   const scc = {
     async pipelineOrigin() { calls.source++; return controls.source ?? targets.pipeline; },

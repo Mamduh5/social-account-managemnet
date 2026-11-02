@@ -2,6 +2,8 @@
 
 The shared TypeScript CLI lets Codex, Gemini, shell scripts and other agents use the existing Gemini Autopilot and SCC APIs. Agents supply creative decisions, captions and hashtags. Existing application workers generate, assemble, brand and dispatch. This CLI adds no provider, server, polling daemon, publishing engine or UI.
 
+For asynchronous generation, independent preparation tasks and compact recovery handoff, follow [non-blocking agent work](AGENT_NONBLOCKING_WORK.md). After `start`, continue useful work with `work-next`; inspect results in a later invocation using one `refresh`. Do not wait in an LLM session for Gemini.
+
 Use Node and the repository's installed dependencies. Run from the SCC repository:
 
 ```powershell
@@ -52,14 +54,15 @@ npm --silent run agent -- start --run garden-001 --input request.json --allow-ge
 
 This journals intent and submits one text-only `POST /gemini-autopilot/queue`. `prompt` can replace `idea`, with exactly one supplied. Dense Mode is explicit: `generation_settings.v1`, `dense_performance`, `performance_tempo:2`; Gemini retains its native 10-second scene duration. Existing provider limits, readiness, paused state and scheduler remain authoritative. A submitted project can remain pending or blocked. The CLI never changes global settings, resumes the scheduler, forces a scene, switches providers or touches Flow. A flag records an authorization supplied by the operator; it does not authorize the agent to generate on its own.
 
-Generation continues through existing workers after the CLI exits. Inspect once when useful:
+Generation continues through existing workers after the CLI exits. Continue independent work now; inspect once in a later invocation:
 
 ```powershell
-npm --silent run agent -- status --run garden-001
+npm --silent run agent -- work-next
+npm --silent run agent -- refresh --run garden-001
 npm --silent run agent -- advance --run garden-001
 ```
 
-`advance` checks once. Incomplete work returns progress/blockers and a suggested later check, with no import or draft creation. Completed work with a final video imports through SCC's existing source-aware, checksum-verified import service, then saves a single unapproved Reel draft. Original Pipeline project ID and source metadata remain on the SCC master. No auto approval or publication occurs. Import/preparation requires this explicit later `advance`; it is not a new background worker. SCC continues queued schedules independently after explicit queueing, while the PC and application remain available.
+`status` and `advance` reuse generation observations for five minutes; `refresh` explicitly reads current project/recovery evidence once. Incomplete work returns progress/blockers and `next:work-next`, with no import or draft creation. Completed work with a final video imports through SCC's existing source-aware, checksum-verified import service, then saves a single unapproved Reel draft. Original Pipeline project ID and source metadata remain on the SCC master. No auto approval or publication occurs. Import/preparation requires this explicit later `advance`; it is not a new background worker. SCC continues queued schedules independently after explicit queueing, while the PC and application remain available.
 
 For an existing Gemini project, avoid generation entirely:
 

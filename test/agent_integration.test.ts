@@ -97,6 +97,9 @@ before(async()=>{
   fixtureBytes=fs.readFileSync(fixtureFile);assert.ok(fixtureBytes.length>1000);
   const pipelineApp=express();pipelineApp.use(express.json());
   pipelineApp.get('/health',(_req,res)=>res.json({status:'ok'}));
+  pipelineApp.get('/gemini-autopilot',(_req,res)=>res.json({provider:'gemini_web',available:true,worker_enabled:true,
+    scheduler:{enabled:true,configured_submission_cap:4,submissions_this_window:0,queue:[...projects.values()].map(project=>({job_id:project.id,title:project.title,status:project.status,paused:true,recovery_attempts:0,runs:[]}))},
+    recovery_status:{submission_unresolved:false},quota_timing:{remaining_blockers:[]}}));
   pipelineApp.post('/gemini-autopilot/queue',(req,res)=>{
     assert.equal(req.body.generation_settings.mode,'dense_performance');assert.equal(req.body.generation_settings.performance_tempo,2);
     assert.equal(req.body.scene_count,2);assert.equal(req.body.aspect_ratio,'9:16');
@@ -148,8 +151,8 @@ test('real SCC workflow imports immutable Pipeline media, prepares a branded dra
   const baselineCreates=createCount;
   const started=await workflow.start('representative',input,true);const projectId=started.projectId as string;
   assert.equal(createCount,baselineCreates+1);
-  assert.equal((await workflow.advance('representative')).next,'check_later');
-  complete(projectId);assert.equal((await pipeline.status(projectId)).media.creativeReview,'not_reviewed');
+  assert.equal((await workflow.advance('representative')).next,'work-next');
+  complete(projectId);await workflow.refresh('representative');assert.equal((await pipeline.status(projectId)).media.creativeReview,'not_reviewed');
   const discovered=await scc.discover({status:'completed',limit:10});
   assert.equal(discovered.sourceContract,'library_v1');assert.ok(discovered.jobs.some((job:any)=>job.jobId===projectId && job.importEligible));
   const ready:any=await workflow.advance('representative');const videoId=ready.videoId as string;
@@ -236,5 +239,6 @@ test('cross-source Pipeline identity and failed generation cannot create an SCC 
   // Deliberately point at the other allowed fixture origin, never an owner/external service.
   await assert.rejects(()=>workflow.advance('source-mismatch'),/different Pipeline URL/);assert.equal(counts().videos,before);
   pipelineService.setPipelineApiUrl(pipelineURL);Object.assign(projects.get(projectId),{status:'failed',diagnostic:{code:'planner_failed',message:'Synthetic fixture failure'}});
-  const failed=await workflow.advance('source-mismatch');assert.equal(failed.next,'inspect_failure');assert.equal(counts().videos,before);
+  await workflow.refresh('source-mismatch');
+  const failed=await workflow.advance('source-mismatch');assert.equal(failed.next,'work-next');assert.equal(counts().videos,before);
 });

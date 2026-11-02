@@ -18,6 +18,10 @@ export interface GeminiQueueRequest {
 
 type Detail = { code?: string; message?: string; next_retry_at?: string };
 interface ProjectResponse {
+  created_at?: string;
+  updated_at?: string;
+  error?: string;
+  scenes?: Array<{order:number;status:string;clip_url?:string}>;
   id?: string;
   title?: string;
   topic?: string;
@@ -110,6 +114,52 @@ export class PipelineAdapter {
 
   async status(projectId: string): Promise<PipelineStatus> {
     return this.project(projectId).then(project => this.compact(project));
+  }
+
+  /** Read-only admission. Native locks and accounting remain authoritative. */
+  async admission():Promise<{allowed:boolean;code:string;workerEnabled:boolean;schedulerEnabled:boolean}> {
+    const r=await this.client.get<Record<string,any>>('/gemini-autopilot');
+    if(r?.provider!=='gemini_web'||!r.scheduler||!Array.isArray(r.scheduler.queue)||typeof r.worker_enabled!=='boolean'||
+      typeof r.scheduler.enabled!=='boolean'||typeof r.recovery_status?.submission_unresolved!=='boolean'||!Array.isArray(r.quota_timing?.remaining_blockers)||
+      !Number.isInteger(r.scheduler.configured_submission_cap)||r.scheduler.configured_submission_cap<1||r.scheduler.configured_submission_cap>20||
+      !Number.isInteger(r.scheduler.submissions_this_window)||r.scheduler.submissions_this_window<0)
+      throw new ApiError(200,'invalid_gemini_admission_response',false);
+    const s=r.scheduler,recovery=r.recovery_status||{};
+    let code='ready';
+    if(r.available!==true)code='provider_unavailable';
+    else if(s.active_run||s.observation_token||recovery.submission_unresolved)code='provider_session_locked';
+    else if(s.recovery_only||s.block_reason||s.storage_block)code='provider_recovery_or_accounting_hold';
+    else if((r.quota_timing?.remaining_blockers||[]).length||
+      (typeof s.configured_submission_cap==='number'&&s.submissions_this_window>=s.configured_submission_cap))code='provider_capacity_wait';
+    else if(s.queue.some((item:any)=>item.paused!==true&&!['completed','failed','skipped'].includes(item.status)))code='provider_work_pending';
+    return {allowed:code==='ready',code,workerEnabled:r.worker_enabled,schedulerEnabled:s.enabled===true};
+  }
+
+  /** One bounded invocation, two existing GETs; never checks the browser or waits for a clip. */
+  async inspect(projectId:string):Promise<Record<string,any>> {
+    const [project,overview]=await Promise.all([this.project(projectId),this.client.get<Record<string,any>>('/gemini-autopilot')]);
+    if(overview?.provider!=='gemini_web'||!Array.isArray(overview.scheduler?.queue))throw new ApiError(200,'invalid_gemini_observation_response',false);
+    const item=overview.scheduler.queue.find((row:any)=>row.job_id===projectId);
+    if(!item)throw new ApiError(200,'missing_gemini_queue_identity',false);
+    const run=(item.runs||[]).at(-1);
+    const recovery=overview.recovery_status?.job_id===projectId?overview.recovery_status:{};
+    let conversationUrl:string|null=null;
+    try {const u=new URL(run?.evidence?.provider_context_url);if(u.protocol==='https:'&&u.hostname==='gemini.google.com'&&/^\/app\/[A-Za-z0-9_-]+$/.test(u.pathname)&&!u.search&&!u.hash&&!u.username&&!u.password)conversationUrl=u.href;}catch{}
+    const failure=run?.diagnostic||item.failure_history?.at(-1)||project.diagnostic||(run?.failure?{code:run.failure}:null);
+    return {project:this.compact(project),createdAt:project.created_at??null,updatedAt:project.updated_at??null,
+      plannedScenes:project.scenes?.length??0,scenes:(project.scenes||[]).map(s=>({order:s.order,status:s.status,hasClip:!!s.clip_url})),
+      original:{projectId,runId:run?.id??null,sceneOrder:run?.scene_order??null,accountId:run?.account_id??null,conversationUrl},
+      run:{status:run?.status??null,at:run?.at??null,expiresAt:run?.expires_at??null,finishedAt:run?.finished_at??null,
+        submissionIntent:run?.submission_intent===true,acknowledged:run?.submission_acknowledged===true},
+      session:{active:!!run&&overview.scheduler.active_run===run.id,activeRunId:overview.scheduler.active_run??null,
+        observationLocked:!!overview.scheduler.observation_token,providerSession:text(run?.session,120),unresolved:recovery.submission_unresolved===true,
+        nativeBlock:text(overview.scheduler.block_reason,80)},
+      recovery:{state:text(recovery.state,80),required:recovery.needs_recovery===true,attempts:item.recovery_attempts??0,
+        outcome:text(item.last_recovery_outcome,100),submissionOutcome:text(recovery.submission_outcome,80),
+        nextRetryAt:text(recovery.next_retry_at||item.next_retry_at,40),canRecover:recovery.can_recover_video===true,
+        nextAction:text(recovery.next_action),retryMaySubmit:recovery.next_retry_may_submit===true},
+      failure:failure?{code:text(failure.code,80),stage:text(failure.stage,80),message:text(failure.message),at:text(failure.occurred_at,40)}:null,
+      providerNotice:text(recovery.provider_notice),error:text(project.error)};
   }
 
   /** Attach a known exact project after an uncertain create, using reads only. */

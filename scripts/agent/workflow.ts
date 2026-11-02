@@ -2,6 +2,8 @@ import { AgentStore, stableHash } from './store.js';
 import { ApiError } from './http.js';
 import { PipelineAdapter, geminiQueueRequest, type PipelineCreateInput } from './pipeline.js';
 import { SccAdapter } from './scc.js';
+import {GenerationStatus,compactGeneration} from './generation-status.js';
+import {AgentWorkQueue,compactWork} from './work-queue.js';
 
 export class WorkflowError extends Error {
   constructor(readonly code: string, message: string) { super(message); }
@@ -26,8 +28,13 @@ export interface ExactApproval { revision: number; accountId: string; payloadHas
 
 /** A short-lived orchestrator. Application workers own all generation and dispatch. */
 export class AgentWorkflow {
+  readonly generations:GenerationStatus;
+  readonly work:AgentWorkQueue;
   constructor(readonly store: AgentStore, readonly pipeline: PipelineAdapter, readonly scc: SccAdapter,
-    readonly targets: {pipeline: string; scc: string}) {}
+    readonly targets: {pipeline: string; scc: string},readonly clock:()=>Date=()=>new Date()) {
+    this.generations=new GenerationStatus(store,pipeline,'gemini_web:'+targets.pipeline,clock);
+    this.work=new AgentWorkQueue(store,clock);
+  }
 
   private job(id: string) {
     const job = this.store.getJob(id);
@@ -95,20 +102,38 @@ export class AgentWorkflow {
     if (input.content) this.validateContent(input.content);
     this.store.createJob(id, {...input, targets: this.targets});
     this.job(id);
-    const created = await this.operation(id, 'generation', input.projectId ? {projectId: input.projectId} : input.generation,
+    const scope='gemini_web:'+this.targets.pipeline;
+    if(input.generation&&!this.store.getOperation(id,'generation')) {
+      const admission=await this.pipeline.admission();
+      if(!admission.allowed) {
+        this.store.patchState(id,{admission:{...admission,checkedAt:this.clock().toISOString()}});
+        throw new WorkflowError('provider_busy',admission.code+'. Idea saved locally; continue with work-next. No generation was submitted.');
+      }
+      if(!this.store.reserveProvider(scope,id))throw new WorkflowError('provider_claim_held','Another saved run owns Gemini admission. Refresh its outcome; continue independent work.');
+    }
+    let created:{projectId:string};
+    try { created = await this.operation(id, 'generation', input.projectId ? {projectId: input.projectId} : input.generation,
       async () => {
         if (input.projectId) { await this.pipeline.reconcile(input.projectId); return {projectId: input.projectId}; }
         return this.pipeline.create(input.generation!);
       });
+    } catch(error) {
+      if(this.store.getOperation(id,'generation')?.status==='rejected')this.store.releaseProvider(scope,id);
+      throw error;
+    }
     this.store.patchState(id, {projectId: created.projectId});
-    return this.summary(id);
+    return {...this.summary(id),agentShouldWait:false,execution:'existing_pipeline_worker',next:'work-next'};
   }
 
   summary(id: string) {
     const job = this.job(id);
+    const generation=this.generations.cached(id);
+    const submitted=this.store.getOperation(id,'generation');
     return {runId: id, phase: job.state.phase || 'registered', projectId: job.state.projectId,
       videoId: job.state.videoId, draftId: job.state.draftId, postId: job.state.postId, updatedAt: job.updatedAt,
-      next: job.state.postId ? 'status_or_analytics' : job.state.phase === 'approved' ? 'schedule_requires_separate_authorization' : job.state.draftId ? 'review' : job.state.projectId ? 'advance' : 'reconcile',
+      next: job.state.postId ? 'status_or_analytics' : job.state.phase === 'approved' ? 'schedule_requires_separate_authorization' : job.state.draftId ? 'review' : job.state.projectId ?
+        generation?.condition==='completed'?'inspect_video_then_advance':'work-next':submitted?'reconcile':'work-next',
+      generation:compactGeneration(generation),agentShouldWait:false,
       operations: ['generation','import','prepare','approve','queue'].map(step => {
         const op = this.store.getOperation(id, step);
         return op ? {step, status: op.status} : null;
@@ -118,10 +143,49 @@ export class AgentWorkflow {
   async status(id: string) {
     const job = this.job(id);
     const projectId = job.state.projectId as string | undefined;
-    const generation = projectId ? await this.pipeline.status(projectId) : undefined;
+    const observation = projectId ? await this.generations.read(id,projectId) : undefined;
+    const generation=observation?.evidence?.project;
     const draft = job.state.draftId ? await this.scc.review(job.state.draftId as string) : undefined;
     const publication = job.state.postId ? await this.scc.publication(job.state.postId as string) : undefined;
-    return {...this.summary(id), generation, draft, publication};
+    return {...this.summary(id),generation,observation,draft,publication,agentShouldWait:false,
+      next:observation&&observation.condition!=='completed'?'work-next':this.summary(id).next};
+  }
+
+  async refresh(id:string) {
+    const job=this.job(id),projectId=job.state.projectId as string|undefined;
+    if(!projectId)throw new WorkflowError('project_not_submitted','No known remote ID. Inspect the saved intent; never replay an uncertain submission.');
+    const observation=await this.generations.refresh(id,projectId);
+    return {...this.summary(id),observation,agentShouldWait:false,next:observation.next};
+  }
+
+  recoveryNote(id:string,input:{state:'ended'|'unavailable';reason:string}) {this.job(id);return this.generations.noteBrowserEnd(id,input);}
+  intent(id:string) {const job=this.job(id);return {runId:id,input:job.input,operations:['generation','import','prepare'].map(step=>this.store.getOperation(id,step)).filter(Boolean)};}
+
+  handoff(limit=20) {
+    const groups:Record<string,any[]>={active:[],completed:[],recoveryRequired:[],preparedWaitingForGeneration:[]};
+    const all=this.store.listJobs(100),matching=all.filter(job=>stableHash((job.input as any).targets)===stableHash(this.targets));
+    for(const job of matching) {
+      const saved=this.job(job.id),observation=this.generations.cached(job.id);
+      const intent=this.store.getOperation(job.id,'generation');
+      const item={runId:job.id,title:saved.input.title,projectId:saved.state.projectId??null,
+        condition:observation?.condition??(intent&&['pending','uncertain'].includes(intent.status)?'recovery_required':'not_observed'),stale:observation?.stale??true,
+        lastConfirmedProgressAt:observation?.lastConfirmedProgressAt??null,nextCheckAt:observation?.nextCheckAt??null,
+        original:observation?.evidence?.original??null,firstSubmission:observation?.firstSubmission??null,browserControl:observation?.browserControl??null,
+        failureCode:observation?.evidence?.failure?.code??null,recoveryState:observation?.evidence?.recovery.state??null,
+        recoveryAttempts:observation?.evidence?.recovery.attempts??null};
+      if(!saved.state.projectId&&!this.store.getOperation(job.id,'generation'))groups.preparedWaitingForGeneration.push(item);
+      else if(observation?.condition==='completed')groups.completed.push(item);
+      else if(['recovery_required','suspected_stall','technical_failure'].includes(item.condition))groups.recoveryRequired.push(item);
+      else groups.active.push(item);
+    }
+    const available=this.store.workCandidates().filter(task=>this.work.available(task));
+    const prepared=this.store.listWork(100).filter(task=>task.status==='prepared');
+    return {version:'agent-handoff.v1',at:this.clock().toISOString(),source:'local_sidecar_cache',networkCalls:0,
+      generations:Object.fromEntries(Object.entries(groups).map(([key,rows])=>[key,{total:rows.length,items:rows.slice(0,limit)}])),
+      availableIndependentTasks:available.slice(0,limit).map(compactWork),preparedWork:prepared.slice(0,limit).map(compactWork),
+      decisionsAndObservations:this.store.listKnowledge({limit:Math.min(limit,5)}),next:available.length?'work-next':'add_useful_independent_work',
+      limits:{maxCachedRuns:100,maxPreparedWorkScanned:100,truncatedRuns:all.length===100},
+      autonomousAgentTriggerAvailable:false,notice:'Application workers continue generation. Another agent invocation is required to perform agent tasks or refresh outcomes.'};
   }
 
   async advance(id: string, content?: ContentInput): Promise<Record<string, any>> {
@@ -137,9 +201,11 @@ export class AgentWorkflow {
     }
     const projectId = job.state.projectId as string | undefined;
     if (!projectId) throw new WorkflowError('reconciliation_required', 'Attach the original Gemini project before advancing.');
-    const generation = await this.pipeline.status(projectId);
+    const observation=await this.generations.read(id,projectId);
+    const generation=observation.evidence?.project;
+    if(!generation)return {...this.summary(id),observation,next:'work-next',agentShouldWait:false};
     if (generation.state !== 'completed' || !generation.media.videoUrl)
-      return {...this.summary(id), generation, next: generation.state === 'failed' ? 'inspect_failure' : 'check_later', pollAfterSeconds: 60};
+      return {...this.summary(id),generation,observation,next:'work-next',agentShouldWait:false,nextCheckAt:observation.nextCheckAt};
     const chosen = content || job.input.content;
     if (!chosen) return {...this.summary(id), generation, next: 'advance_with_content'};
     this.validateContent(chosen);

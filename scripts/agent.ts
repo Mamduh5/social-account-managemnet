@@ -5,6 +5,7 @@ import {JsonClient, ApiError} from './agent/http.js';
 import {PipelineAdapter} from './agent/pipeline.js';
 import {SccAdapter} from './agent/scc.js';
 import {AgentWorkflow, WorkflowError, type WorkflowInput, type ContentInput, type ExactApproval} from './agent/workflow.js';
+import {compactWork} from './agent/work-queue.js';
 
 const version = 'agent-workflow.v1';
 const commands = {
@@ -13,8 +14,8 @@ const commands = {
   import: 'Import a selected completed library project through SCC deduplication; --input projectId/categoryId/title.',
   media: 'Imported media metadata and available quality/provenance for --run.',
   start: 'Durably register --run and attach projectId or submit Gemini generation (--allow-generation).',
-  advance: 'Check once, then import and prepare a draft when complete. Optional --input content.',
-  status: 'Read saved IDs, Gemini progress, blockers and exact SCC draft.',
+  advance: 'Use cached generation evidence, then explicitly import/prepare a completed result. Optional --input content.',
+  status: 'Cached Gemini progress/recovery plus current SCC draft/publication; no generation wait.',
   review: 'Read the exact draft, revision, account and payloadHash for owner review.',
   approve: 'Approve reviewed revision; requires --owner-authorized and --input exact review.',
   schedule: 'Separately queue the approved schedule; requires --owner-authorized and --input exact review.',
@@ -25,13 +26,24 @@ const commands = {
   summary: 'Compact durable handoff for --run; does not poll applications.',
   jobs: 'Compact saved run list; does not poll applications.',
   reconcile: 'Attach original known projectId/draftId after an uncertain response; reads only.',
+  refresh: 'Fetch one bounded generation/recovery snapshot, save it, then continue independent work.',
+  handoff: 'Cached generations, recovery holds, prepared work, available tasks and decisions; zero HTTP.',
+  intent: 'Read exact saved creation/preparation input for --run; zero HTTP.',
+  'recovery-note': 'Record ended/unavailable browser control locally for --run; never interacts with the browser.',
+  'work-add': 'Save independent task/idea/prompt context from --input without invoking any model.',
+  'work-list': 'List durable local tasks with --limit and --offset; zero HTTP.',
+  'work-next': 'Recommend useful available work; --input owner/commandId optionally claims it.',
+  'work-claim': 'Claim --task with --input owner/commandId; lease excludes concurrent agents.',
+  'work-save': 'Save exact claimed task result as prepared/done/blocked/ready; no automatic execution.',
+  'work-show': 'Read --task including its durable context, prompts and result.',
+  'work-history': 'Read compact immutable revisions for --task.',
 };
 
 function parse(argv: string[]) {
   const command = argv[0] || 'help';
   const flags: Record<string,string|boolean> = {};
   const booleans = new Set(['allow-generation','owner-authorized']);
-  const values = new Set(['input','run','account','destination','limit','offset','state','scc','pipeline']);
+  const values = new Set(['input','run','task','account','destination','limit','offset','state','scc','pipeline']);
   for (let i=1; i<argv.length; i++) {
     const key = argv[i].replace(/^--/, '');
     if (!argv[i].startsWith('--') || (!booleans.has(key) && !values.has(key)) || key in flags)
@@ -75,6 +87,7 @@ async function main() {
       if (typeof flags.run !== 'string' || !flags.run) throw new WorkflowError('run_required', 'Supply the stable --run ID.');
       return flags.run;
     };
+    const task=()=>{if(typeof flags.task!=='string'||!flags.task)throw new WorkflowError('task_required','Supply --task with the saved task ID.');return flags.task;};
     const account = typeof flags.account === 'string' ? flags.account : undefined;
     const limit = flags.limit === undefined ? 20 : Number(flags.limit);
     if (!Number.isInteger(limit) || limit<1 || limit>100) throw new WorkflowError('invalid_limit', 'limit must be 1 to 100.');
@@ -106,6 +119,17 @@ async function main() {
       case 'approve': data = await workflow().approve(run(),input as ExactApproval, flags['owner-authorized'] === true); break;
       case 'schedule': data = await workflow().schedule(run(),input as ExactApproval, flags['owner-authorized'] === true); break;
       case 'reconcile': data = await workflow().reconcile(run(),input); break;
+      case 'refresh': data = await workflow().refresh(run()); break;
+      case 'handoff': data = workflow().handoff(limit); break;
+      case 'intent': data = workflow().intent(run()); break;
+      case 'recovery-note': data = workflow().recoveryNote(run(),input); break;
+      case 'work-add': data = {task:compactWork(workflow().work.add(input)),automaticExecution:false}; break;
+      case 'work-list': data = workflow().work.list(limit,offset); break;
+      case 'work-next': data = workflow().work.next(flags.input?input:undefined); break;
+      case 'work-claim': data = workflow().work.claim(task(),input); break;
+      case 'work-save': data = workflow().work.save(input); break;
+      case 'work-show': data = workflow().work.show(task()); break;
+      case 'work-history': data = {taskId:task(),revisions:local().workHistory(task(),limit).map(row=>compactWork(row as Record<string,any>))}; break;
       case 'analytics': data = await scc.analytics(account,typeof flags.destination === 'string' ? flags.destination : undefined,{limit,offset}); break;
       case 'history': data = await scc.history({...input,limit:input.limit ?? limit,offset:input.offset ?? offset}); break;
       case 'remember': data = local().recordKnowledge(input as KnowledgeInput); break;
