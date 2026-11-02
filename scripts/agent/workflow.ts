@@ -185,7 +185,11 @@ export class AgentWorkflow {
       availableIndependentTasks:available.slice(0,limit).map(compactWork),preparedWork:prepared.slice(0,limit).map(compactWork),
       decisionsAndObservations:this.store.listKnowledge({limit:Math.min(limit,5)}),next:available.length?'work-next':'add_useful_independent_work',
       limits:{maxCachedRuns:100,maxPreparedWorkScanned:100,truncatedRuns:all.length===100},
-      autonomousAgentTriggerAvailable:false,notice:'Application workers continue generation. Another agent invocation is required to perform agent tasks or refresh outcomes.'};
+      autonomousAgentTriggerAvailable:this.store.runnerState('config')?.enabled===true&&this.store.runnerState('config')?.paused!==true&&this.store.runnerState('schedule')?.installed===true,
+      autonomousAgentTriggerEvidence:'Saved local configuration and scheduler observation only; runtime availability is not verified by handoff.',
+      runner:{implemented:true,enabled:this.store.runnerState('config')?.enabled??false,paused:this.store.runnerState('config')?.paused??false,
+        scheduleLastObservation:this.store.runnerState('schedule'),statusCommand:'runner-status',notice:'Configuration and saved scheduler observations do not prove a live agent. Inspect runner-status and runner-schedule status.'},
+      notice:'Application workers continue generation. Agent preparation can run through the separately authorized optional runner; refresh outcomes explicitly.'};
   }
 
   async advance(id: string, content?: ContentInput): Promise<Record<string, any>> {

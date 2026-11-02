@@ -24,11 +24,18 @@ export class AgentWorkQueue {
     for(const id of [input.runId,input.waitForRunId])if(id&&!this.store.getJob(id))throw new Error('Work references an unknown run');
     if(JSON.stringify(input.payload??null).length>64000)throw new Error('Work payload exceeds 64 KiB');
     const now=this.clock().toISOString();
-    return this.store.addWork(input.id,input,{...input,payload:input.payload??null,priority:input.priority??50,status:'ready',revision:1,result:null,owner:null,claimToken:null,leaseUntil:null,
-      requirements:input.kind==='opening_image'?['Use an available independent image capability; never reuse a locked Gemini video session.']:[],createdAt:now,updatedAt:now});
+    return this.store.transaction(()=>{
+      const counts=this.store.workStatusCounts(),pending=Object.entries(counts).filter(([status])=>status!=='done').reduce((n,[,count])=>n+count,0);
+      const limit=this.store.runnerState('config')?.maxBacklog??200;
+      if(!this.store.getWork(input.id)&&pending>=limit)throw new Error('Agent work backlog limit reached; complete or review existing tasks');
+      const saved=this.store.addWork(input.id,input,{...input,payload:input.payload??null,priority:input.priority??50,status:'ready',revision:1,result:null,owner:null,claimToken:null,leaseUntil:null,
+        requirements:input.kind==='opening_image'?['Use an available independent image capability; never reuse a locked Gemini video session.']:[],createdAt:now,updatedAt:now});
+      this.store.setRunnerState('wake',now);return saved;
+    });
   }
 
   available(task:Record<string,any>):boolean {
+    if(this.store.runnerSessions({taskId:task.id}).some(s=>['reserved','running','recovery_required'].includes(s.status)))return false;
     if(task.status!=='ready' && !(task.status==='claimed'&&Date.parse(task.leaseUntil)<=this.clock().getTime()))return false;
     if(task.waitForRunId && this.store.generationSnapshot(task.waitForRunId)?.condition!=='completed')return false;
     return true;
@@ -47,6 +54,7 @@ export class AgentWorkQueue {
     this.validateClaim(input);
     return this.store.workCommand(input.commandId,{action:'claim',id,...input},()=>{
       const task=this.store.getWork(id);if(!task)throw new Error('Unknown work ID');
+      if(this.store.runnerSessions({taskId:id}).some(s=>['reserved','running','recovery_required'].includes(s.status)))throw new Error('Work has an active or recovery-required runner claim');
       if(!this.available(task)&&task.status!=='prepared')throw new Error('Work is claimed, blocked, done or waiting for a completed generation');
       return this.claimSnapshot(task,input);
     });

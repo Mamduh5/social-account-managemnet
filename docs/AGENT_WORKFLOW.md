@@ -4,6 +4,8 @@ The shared TypeScript CLI lets Codex, Gemini, shell scripts and other agents use
 
 For asynchronous generation, independent preparation tasks and compact recovery handoff, follow [non-blocking agent work](AGENT_NONBLOCKING_WORK.md). After `start`, continue useful work with `work-next`; inspect results in a later invocation using one `refresh`. Do not wait in an LLM session for Gemini.
 
+For optional unattended preparation, use the [agent runner](AGENT_RUNNER.md). It reuses these tasks and handoffs, remains disabled by default, and requires separate owner authorization and OS schedule configuration before automatic execution.
+
 Use Node and the repository's installed dependencies. Run from the SCC repository:
 
 ```powershell

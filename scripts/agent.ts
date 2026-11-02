@@ -6,6 +6,9 @@ import {PipelineAdapter} from './agent/pipeline.js';
 import {SccAdapter} from './agent/scc.js';
 import {AgentWorkflow, WorkflowError, type WorkflowInput, type ContentInput, type ExactApproval} from './agent/workflow.js';
 import {compactWork} from './agent/work-queue.js';
+import {AgentRunner} from './agent/runner.js';
+import {configureRunner} from './agent/runner-config.js';
+import {manageSchedule} from './agent/runner-schedule.js';
 
 const version = 'agent-workflow.v1';
 const commands = {
@@ -37,6 +40,14 @@ const commands = {
   'work-save': 'Save exact claimed task result as prepared/done/blocked/ready; no automatic execution.',
   'work-show': 'Read --task including its durable context, prompts and result.',
   'work-history': 'Read compact immutable revisions for --task.',
+  'runner-config': 'Read defaults/configuration; --input replaces validated settings. Disabled by default.',
+  'runner-status': 'Compact queue, invocations, budgets and saved schedule status; zero provider HTTP.',
+  'runner-show': 'Read one durable executor receipt and saved result using --run INVOCATION_ID.',
+  'runner-detect': 'Probe installed executor help only; never starts a model session.',
+  'runner-tick': 'One bounded eligibility check and authorized preparation work; no generation polling.',
+  'runner-control': '--input action enable/disable/pause/resume/stop/wake; enable requires owner authorization.',
+  'runner-recover': 'Explicit review and release of a held invocation; requires --owner-authorized.',
+  'runner-schedule': '--input action export/install/remove/status. OS registration requires --owner-authorized.',
 };
 
 function parse(argv: string[]) {
@@ -81,7 +92,9 @@ async function main() {
     const pipelineClient = new JsonClient(String(flags.pipeline || process.env.SCC_AGENT_PIPELINE_URL || 'http://localhost:8080'), {timeoutMs: 15_000});
     const scc = new SccAdapter(sccClient);
     const pipeline = new PipelineAdapter(pipelineClient);
-    const local = () => store ||= new AgentStore(String(flags.state || process.env.SCC_AGENT_STATE || path.resolve(__dirname,'../.data/agent/agent.db')));
+    const statePath=path.resolve(String(flags.state || process.env.SCC_AGENT_STATE || path.resolve(__dirname,'../.data/agent/agent.db')));
+    const local = () => store ||= new AgentStore(statePath);
+    const runner=()=>new AgentRunner(local(),path.join(path.dirname(statePath),'runner'));
     const workflow = () => new AgentWorkflow(local(),pipeline,scc,{scc:sccClient.origin,pipeline:pipelineClient.origin});
     const run = () => {
       if (typeof flags.run !== 'string' || !flags.run) throw new WorkflowError('run_required', 'Supply the stable --run ID.');
@@ -130,6 +143,20 @@ async function main() {
       case 'work-save': data = workflow().work.save(input); break;
       case 'work-show': data = workflow().work.show(task()); break;
       case 'work-history': data = {taskId:task(),revisions:local().workHistory(task(),limit).map(row=>compactWork(row as Record<string,any>))}; break;
+      case 'runner-config': data=flags.input?configureRunner(local(),input,flags['owner-authorized']===true):runner().config(); break;
+      case 'runner-status': data=runner().status(); break;
+      case 'runner-show': data=runner().show(run()); break;
+      case 'runner-detect': data=await runner().detect(); break;
+      case 'runner-control': {
+        if(Object.keys(input).some(k=>k!=='action')||!['enable','disable','pause','resume','stop','wake'].includes(input.action))throw new Error('Supply a supported runner control action');
+        data=runner().control(input.action,flags['owner-authorized']===true);break;
+      }
+      case 'runner-recover': data=runner().reconcile(input,flags['owner-authorized']===true);break;
+      case 'runner-schedule': data=await manageSchedule(local(),path.resolve(__dirname,'..'),statePath,input,flags['owner-authorized']===true);break;
+      case 'runner-tick': {
+        const controller=new AbortController(),abort=()=>controller.abort();process.on('SIGINT',abort);process.on('SIGTERM',abort);
+        try{data=await runner().tick(controller.signal);}finally{process.off('SIGINT',abort);process.off('SIGTERM',abort);}break;
+      }
       case 'analytics': data = await scc.analytics(account,typeof flags.destination === 'string' ? flags.destination : undefined,{limit,offset}); break;
       case 'history': data = await scc.history({...input,limit:input.limit ?? limit,offset:input.offset ?? offset}); break;
       case 'remember': data = local().recordKnowledge(input as KnowledgeInput); break;

@@ -125,6 +125,12 @@ export class AgentStore {
       CREATE TABLE IF NOT EXISTS agent_provider_claims (
         scope TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES jobs(id)
       );
+      CREATE TABLE IF NOT EXISTS agent_runner_state (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS agent_runner_sessions (
+        id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES agent_work(id),
+        status TEXT NOT NULL, started_at TEXT NOT NULL, snapshot_json TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_agent_runner_sessions ON agent_runner_sessions(status,started_at);
     `);
     // Only marked agent sidecars reach this point. Historical requests cannot be reconstructed.
     const columns = this.db.pragma('table_info(operations)') as { name: string }[];
@@ -277,7 +283,9 @@ export class AgentStore {
       if(latest&&Date.parse(latest.checkedAt)>Date.parse(snapshot.checkedAt))return latest;
       const seq=(this.db.prepare('SELECT COALESCE(MAX(sequence),0)+1 n FROM agent_generation_observations WHERE run_id=?').get(id) as {n:number}).n;
       const saved={...snapshot,sequence:seq};
-      this.db.prepare('INSERT INTO agent_generation_observations VALUES (?,?,?)').run(id,seq,canonical(saved));return saved;
+      this.db.prepare('INSERT INTO agent_generation_observations VALUES (?,?,?)').run(id,seq,canonical(saved));
+      if(snapshot.condition==='completed'&&latest?.condition!=='completed')this.setRunnerState('wake',snapshot.checkedAt);
+      return saved;
     });
   }
   generationHistory(id:string,limit=10):Record<string,any>[] {
@@ -295,5 +303,31 @@ export class AgentStore {
   }
   releaseProvider(scope:string,id:string):void {this.db.prepare('DELETE FROM agent_provider_claims WHERE scope=? AND run_id=?').run(scope,id);}
 
+  runnerState<T=any>(key:string):T|null {
+    const row=this.db.prepare('SELECT value_json FROM agent_runner_state WHERE key=?').get(key) as {value_json:string}|undefined;
+    return row?JSON.parse(row.value_json):null;
+  }
+  setRunnerState(key:string,value:unknown):void {
+    this.db.prepare('INSERT INTO agent_runner_state VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json').run(key,canonical(value));
+  }
+  runnerSession(id:string):Record<string,any>|null {
+    const row=this.db.prepare('SELECT snapshot_json FROM agent_runner_sessions WHERE id=?').get(id) as {snapshot_json:string}|undefined;
+    return row?JSON.parse(row.snapshot_json):null;
+  }
+  saveRunnerSession(row:Record<string,any>):void {
+    this.db.prepare('INSERT INTO agent_runner_sessions VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,snapshot_json=excluded.snapshot_json').run(row.id,row.taskId,row.status,row.startedAt,canonical(row));
+  }
+  runnerSessions(options:{since?:string;active?:boolean;taskId?:string;status?:string;limit?:number}={}):Record<string,any>[] {
+    const clauses:string[]=[],args:(string|number)[]=[];
+    if(options.since){clauses.push('started_at>=?');args.push(options.since);}
+    if(options.active)clauses.push("status IN ('reserved','running')");
+    if(options.taskId){clauses.push('task_id=?');args.push(options.taskId);}
+    if(options.status){clauses.push('status=?');args.push(options.status);}
+    args.push(options.limit??1000);
+    return (this.db.prepare('SELECT snapshot_json FROM agent_runner_sessions'+(clauses.length?' WHERE '+clauses.join(' AND '):'')+' ORDER BY started_at DESC,id DESC LIMIT ?').all(...args) as {snapshot_json:string}[]).map(row=>JSON.parse(row.snapshot_json));
+  }
+  workStatusCounts():Record<string,number> {
+    return Object.fromEntries((this.db.prepare('SELECT status,count(*) n FROM agent_work GROUP BY status').all() as {status:string;n:number}[]).map(row=>[row.status,row.n]));
+  }
   close(): void { this.db.close(); }
 }

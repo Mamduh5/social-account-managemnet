@@ -6,6 +6,8 @@ Agents can use the [API-first workflow CLI](docs/AGENT_WORKFLOW.md) for Gemini g
 
 [Non-blocking agent work](docs/AGENT_NONBLOCKING_WORK.md) adds durable independent tasks and cached generation/recovery handoff. Submit once, use `work-next` for useful preparation, and refresh results in a later invocation.
 
+The optional [autonomous agent runner](docs/AGENT_RUNNER.md) executes eligible preparation tasks through CLI adapters with durable claims, budgets and Windows Task Scheduler support. It remains disabled until separately configured and authorized; no production automation is activated by these source changes.
+
 ## V1.12 prepared source and current owner runtime — 27 October 2026
 
 V1.12 extends the existing calendar, publishing queue, Content Assistant and Groups workspace. External creative assistants (including Codex) can prepare Page-specific drafts without an application model request. Import Prepared Plan uses a Page/voice/branding fingerprint, stable campaign ID and the existing bounded calendar validation. Replies remain draft-and-approve with durable submission holds and exact official-API receipt checks. Group handoffs remain manual and unverified. See [V1.12 acceptance, prepared owner drafts and remaining gates](docs/qa/V1_12_SOCIAL_AUTOPILOT.md).
