@@ -2,6 +2,8 @@
 
 Self-hosted multi-account Page and video publishing preparation, video distribution, moving-watermark branding, engagement triage and provenance-aware analytics for Facebook Pages and TikTok accounts.
 
+Agents can use the [API-first workflow CLI](docs/AGENT_WORKFLOW.md) for Gemini generation, source-aware video import, draft preparation, exact approval/scheduling, analytics and durable handoff. Start with `npm --silent run agent -- help`. Implementation validation uses isolated fixtures; no owner release activation is implied.
+
 ## V1.12 prepared source and current owner runtime — 27 October 2026
 
 V1.12 extends the existing calendar, publishing queue, Content Assistant and Groups workspace. External creative assistants (including Codex) can prepare Page-specific drafts without an application model request. Import Prepared Plan uses a Page/voice/branding fingerprint, stable campaign ID and the existing bounded calendar validation. Replies remain draft-and-approve with durable submission holds and exact official-API receipt checks. Group handoffs remain manual and unverified. See [V1.12 acceptance, prepared owner drafts and remaining gates](docs/qa/V1_12_SOCIAL_AUTOPILOT.md).
