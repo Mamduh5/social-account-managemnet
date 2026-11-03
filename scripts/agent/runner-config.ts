@@ -9,6 +9,7 @@ export const executorSchema=z.object({
   kinds:z.array(z.enum(workKinds)).min(1).default(['research_concept','story_plan','scene_prompt','caption','record_lesson','analyze_performance','text_post','image_post','group_post','prepare_video','audience_research']),
   // Required for owner-supplied wrappers; prompts cannot establish process isolation.
   isolationReviewed:z.boolean().default(false),
+  liveResearch:z.boolean().default(false),
 }).strict();
 export const runnerConfigSchema=z.object({
   version:z.literal('agent-runner.v1').default('agent-runner.v1'),

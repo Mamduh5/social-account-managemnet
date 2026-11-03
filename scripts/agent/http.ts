@@ -16,6 +16,7 @@ export function loopbackOrigin(value: string): string {
 
 type Fetch = typeof globalThis.fetch;
 export class JsonClient {
+  requestCount=0;
   public readonly origin: string;
   private readonly fetcher: Fetch;
   private readonly timeoutMs: number;
@@ -43,6 +44,7 @@ export class JsonClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
+      this.requestCount++;
       const result = await this.fetcher(target, { method, headers, body: method === 'POST' ? JSON.stringify(body) : undefined, signal: controller.signal, redirect: 'error' });
       if (!result.ok) {
         // Do not echo provider responses: they can contain tokens or raw account details.

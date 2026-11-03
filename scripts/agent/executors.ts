@@ -1,9 +1,10 @@
 import {spawn} from 'node:child_process';
-import {existsSync,mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {statSync,readFileSync,existsSync,mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {z} from 'zod';
+import {contentOutputSchema,validateContentResult} from './content-contract.js';
 import type {ExecutorConfig} from './runner-config.js';
 
 export const agentResultSchema=z.object({
@@ -13,8 +14,8 @@ export const agentResultSchema=z.object({
   lessons:z.array(z.string().min(1).max(2000)).max(5),
 }).strict();
 export type AgentResult=z.infer<typeof agentResultSchema>;
-export interface ExecutionResult {result:AgentResult;usage:{tokens:number;source:string}|null;diagnostics?:ProcessDiagnostics;}
-export interface ExecutorCapability {id:string;adapter:ExecutorConfig['adapter'];available:boolean;reason:string;command?:string;args?:string[];usageAccounting?:string;}
+export interface ExecutionResult {result:AgentResult;usage:{tokens:number;source:string;inputTokens?:number;outputTokens?:number}|null;diagnostics?:ProcessDiagnostics;researchAudit?:{searches:number;opens:number;urls:string[]};}
+export interface ExecutorCapability {id:string;adapter:ExecutorConfig['adapter'];available:boolean;reason:string;command?:string;args?:string[];usageAccounting?:string;capabilities?:{liveResearch:boolean;structuredOutput:boolean;fileAccess:boolean;unattended:boolean};authentication?:string;}
 export class ExecutionError extends Error {
   constructor(readonly code:string,readonly definitelyNotStarted=false,readonly diagnostics?:ProcessDiagnostics){super(code);}
 }
@@ -118,18 +119,46 @@ export function resolveExecutor(command:string,adapter:string,searchPath=process
   return null;
 }
 
+/** Parse saved CLI events without invoking a provider. Older Codex uses other+URL for page visits. */
+export function parseCodexOutput(stdout:string,structured=false,live=false):Omit<ExecutionResult,'diagnostics'> {
+  const events=stdout.trim().split(/\r?\n/).map(line=>JSON.parse(line));
+  if(events.some(e=>e.type==='turn.failed'||e.type==='error'))throw new Error('failed model event');
+  const final=events.filter(e=>e.type==='item.completed'&&e.item?.type==='agent_message').at(-1);
+  let value=JSON.parse(final?.item?.text??'');
+  const web=events.filter(e=>e.type==='item.completed'&&e.item?.type==='web_search').map(e=>e.item);
+  const pageUrl=(w:any)=>w.action?.url??(['other','open_page','open'].includes(w.action?.type)&&/^https:\/\//.test(w.query??'')?w.query:null);
+  const researchAudit={searches:web.filter(w=>['search','search_query'].includes(w.action?.type)).length,opens:web.filter(w=>pageUrl(w)).length,urls:[...new Set<string>(web.flatMap(w=>pageUrl(w)?[pageUrl(w)]:[]))]};
+  const turns=events.filter(e=>e.type==='turn.completed');
+  const measured=turns.length&&turns.every(e=>Number.isSafeInteger(e.usage?.input_tokens)&&e.usage.input_tokens>=0&&Number.isSafeInteger(e.usage?.output_tokens)&&e.usage.output_tokens>=0);
+  const inputTokens=turns.reduce((n,e)=>n+(e.usage?.input_tokens??0),0),outputTokens=turns.reduce((n,e)=>n+(e.usage?.output_tokens??0),0);
+  const usage=measured?{tokens:inputTokens+outputTokens,inputTokens,outputTokens,source:'codex.turn.completed.input_plus_output'}:null;
+  if(structured){const typed=validateContentResult(value);if(live&&(!researchAudit.searches||!researchAudit.opens))throw new Error('content_validation: research requires an actual search and page visit');value={version:'agent-result.v1',status:'prepared',result:JSON.stringify(typed),lessons:[]};}
+  return {result:agentResultSchema.parse(value),usage,researchAudit};
+}
+
 export class CommandExecutors {
   constructor(readonly probeDirectory:string,readonly processRunner:ProcessRunner=runProcess){}
   async detect(config:ExecutorConfig):Promise<ExecutorCapability>{
     const resolved=resolveExecutor(config.command,config.adapter);
     if(!resolved)return {id:config.id,adapter:config.adapter,available:false,reason:'not_installed'};
     mkdirSync(this.probeDirectory,{recursive:true});
+    const fingerprint=JSON.stringify({config,resolved,mtime:statSync(resolved.args[0]??resolved.command).mtimeMs});
+    const cache=path.join(this.probeDirectory,config.id+'-capability.json');
+    try{const saved=JSON.parse(readFileSync(cache,'utf8'));if(saved.fingerprint===fingerprint&&Date.now()-saved.at<3600000)return saved.capability;}catch{}
     try {
       const args=config.adapter==='codex'?['exec','--help']:config.adapter==='gemini'?['--help']:[...config.args,'--help'];
       const probe=await this.processRunner(resolved.command,[...resolved.args,...args],{cwd:this.probeDirectory,timeoutMs:10000,maxBytes:64000});
       const required=config.adapter==='codex'?['--json','--sandbox','--ephemeral','--ignore-user-config','--output-schema']:config.adapter==='gemini'?['--prompt','--output-format','--extensions']:['agent-result.v1'];
       if(probe.code!==0||required.some(flag=>!probe.stdout.includes(flag)))return {id:config.id,adapter:config.adapter,available:false,reason:'unsupported_noninteractive_contract'};
-      return {id:config.id,adapter:config.adapter,available:true,reason:'help_verified_auth_not_probed',...resolved,usageAccounting:config.adapter==='json'?'none':'final_report_when_available'};
+      let liveResearch=false,authentication='not_probed';
+      if(config.liveResearch&&config.adapter==='codex'){
+        const help=await this.processRunner(resolved.command,[...resolved.args,'--help'],{cwd:this.probeDirectory,timeoutMs:10000,maxBytes:64000});
+        const login=await this.processRunner(resolved.command,[...resolved.args,'login','status'],{cwd:this.probeDirectory,timeoutMs:10000,maxBytes:16000});
+        authentication=login.code===0?'existing_login_verified':'login_unavailable';
+        liveResearch=help.code===0&&help.stdout.includes('--search')&&login.code===0;
+      }
+      const capability:ExecutorCapability={id:config.id,adapter:config.adapter,available:true,reason:'help_verified_auth_not_probed',...resolved,usageAccounting:config.adapter==='json'?'none':'final_report_when_available',capabilities:{liveResearch,structuredOutput:true,fileAccess:false,unattended:true},authentication};
+      writeFileSync(cache,JSON.stringify({at:Date.now(),fingerprint,capability}));return capability;
     }catch{return {id:config.id,adapter:config.adapter,available:false,reason:'capability_probe_failed'};}
   }
   async execute(config:ExecutorConfig,capability:ExecutorCapability,context:string,directory:string,options:Omit<ProcessOptions,'cwd'|'stdin'>):Promise<ExecutionResult>{
@@ -138,10 +167,15 @@ export class CommandExecutors {
     // Work outside the repository: inherited project MCP servers, hooks and dotenv are not context.
     const executionDirectory=mkdtempSync(path.join(tmpdir(),'scc-agent-executor-'));
     const schemaPath=path.join(executionDirectory,'result-schema.json');
-    writeFileSync(schemaPath,JSON.stringify(z.toJSONSchema(agentResultSchema)),{flag:'wx'});
+    let task:any={};try{task=JSON.parse(context).task??{};}catch{}
+    const structured=task.payload?.content?.responseContract==='agent-content-result.v1';
+    const live=structured&&task.payload.content.requiresLiveResearch===true;
+    if(live&&(!config.liveResearch||!capability.capabilities?.liveResearch))throw new ExecutionError('live_research_capability_unavailable',true);
+    writeFileSync(schemaPath,JSON.stringify(structured?contentOutputSchema():z.toJSONSchema(agentResultSchema)),{flag:'wx'});
     let args:string[],env=safeEnvironment();
     if(config.adapter==='codex')args=['exec','--ignore-user-config','--ephemeral','--skip-git-repo-check','--sandbox','read-only','--json',
-      '-c','approval_policy="never"','-c','features.shell_tool=false','-c','features.apps=false','-c','features.hooks=false','-c','features.multi_agent=false','-c','features.skill_search=false','-c','web_search="disabled"',
+      '-c','approval_policy="never"','-c','features.shell_tool=false','-c','features.apps=false','-c','features.hooks=false','-c','features.multi_agent=false','-c','features.skill_search=false','-c',live?'web_search="live"':'web_search="disabled"',
+      ...(structured?['-c','model_instructions_file='+JSON.stringify(path.resolve(__dirname,'content-instructions.txt')),'-c','model_reasoning_effort="low"']:[]),
       '--output-schema',schemaPath,'-'];
     else if(config.adapter==='gemini'){
       const settings=path.join(executionDirectory,'gemini-settings.json');
@@ -155,23 +189,21 @@ export class CommandExecutors {
     try{output=await executeProcess(capability.command,[...(capability.args??[]),...args],{...options,diagnosticsDirectory:path.join(directory,'process'),cwd:executionDirectory,stdin:context,env});}
     finally{rmSync(executionDirectory,{recursive:true,force:true});}
     if(output.code!==0)throw new ExecutionError('executor_exit_nonzero',false,output.diagnostics);
-    let value:unknown,usage:ExecutionResult['usage']=null;
+    let value:unknown,usage:ExecutionResult['usage']=null,researchAudit:ExecutionResult['researchAudit'];
     try {
-      if(config.adapter==='codex'){
-        const events=output.stdout.trim().split(/\r?\n/).map(line=>JSON.parse(line));
-        const final=events.filter(e=>e.type==='item.completed'&&e.item?.type==='agent_message').at(-1);
-        value=JSON.parse(final?.item?.text??'');
-        const turns=events.filter(e=>e.type==='turn.completed');
-        if(turns.length&&turns.every(e=>Number.isSafeInteger(e.usage?.input_tokens)&&e.usage.input_tokens>=0&&Number.isSafeInteger(e.usage?.output_tokens)&&e.usage.output_tokens>=0))
-          usage={tokens:turns.reduce((n,e)=>n+e.usage.input_tokens+e.usage.output_tokens,0),source:'codex.turn.completed.input_plus_output'};
-        if(events.some(e=>e.type==='turn.failed'||e.type==='error'))throw new Error('failed event');
-      }else if(config.adapter==='gemini'){
+      if(config.adapter==='codex')return {...parseCodexOutput(output.stdout,structured,live),...(output.diagnostics?{diagnostics:output.diagnostics}:{})};
+      if(config.adapter==='gemini'){
         const envelope=JSON.parse(output.stdout);if(envelope.error)throw new Error('failed envelope');
         value=JSON.parse(envelope.response);
         const models=Object.values(envelope.stats?.models??{}) as any[];
         if(models.length&&models.every(m=>Number.isSafeInteger(m.tokens?.total)&&m.tokens.total>=0))usage={tokens:models.reduce((n,m)=>n+m.tokens.total,0),source:'gemini.stats.models.tokens.total'};
       }else value=JSON.parse(output.stdout);
-      return {result:agentResultSchema.parse(value),usage,...(output.diagnostics?{diagnostics:output.diagnostics}:{})};
-    }catch{throw new ExecutionError('invalid_result_or_usage',false,output.diagnostics);}
+      if(structured){
+        const typed=validateContentResult(value);
+        if(live&&(!researchAudit?.searches||!researchAudit.opens))throw new Error('Live research needs actual search and page-open events');
+        value={version:'agent-result.v1',status:'prepared',result:JSON.stringify(typed),lessons:[]};
+      }
+      return {result:agentResultSchema.parse(value),usage,...(researchAudit?{researchAudit}:{}),...(output.diagnostics?{diagnostics:output.diagnostics}:{})};
+    }catch(error){throw new ExecutionError(error instanceof Error&&error.message.startsWith('content_validation:')?error.message:'invalid_result_or_usage',false,output.diagnostics);}
   }
 }

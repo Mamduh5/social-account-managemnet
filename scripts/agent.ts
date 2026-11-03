@@ -11,6 +11,8 @@ import {configureRunner} from './agent/runner-config.js';
 import {manageSchedule} from './agent/runner-schedule.js';
 import {AgentContent} from './agent/content.js';
 import {AgentResearch} from './agent/research.js';
+import {prepareResearchTask,researchReceipt} from './agent/content-run.js';
+import {validateContentResult,contentOutputSchema} from './agent/content-contract.js';
 
 const version = 'agent-workflow.v1';
 const commands = {
@@ -42,6 +44,10 @@ const commands = {
   'work-save': 'Save exact claimed task result as prepared/done/blocked/ready; no automatic execution.',
   'work-show': 'Read --task including its durable context, prompts and result.',
   'work-history': 'Read compact immutable revisions for --task.',
+  'content-run-prepare': 'Capability check, compact Page context and one independent research task; --account and --input id/brief/editorialRules.',
+  'content-run-receipt': 'One compact cached draft/research/usage/claim receipt for --task; zero HTTP.',
+  'content-validate': 'Validate agent-content-result.v1 from --input; no writes or models.',
+  'content-schema': 'Executor-neutral JSON schema for researched text content.',
   'content-context': 'Cached compact Page voice, library, analytics and Groups; --account, optional --input {refresh:true}.',
   'content-enqueue': 'Choose up to three suitable formats from --input topic/formats/brief/maxTasks/groupId and --account; deduplicated preparation only.',
   'content-persist': 'Save the exact prepared --task result through SCC draft/Group workflows; never approves, queues or generates.',
@@ -57,6 +63,7 @@ const commands = {
   'runner-detect': 'Probe installed executor help only; never starts a model session.',
   'runner-tick': 'One bounded eligibility check; --schedule ID consumes an armed one-time trigger exactly once.',
   'runner-control': '--input action enable/disable/pause/resume/stop/wake; enable requires owner authorization.',
+  'runner-result-reconcile': 'Validate the exact stopped executor trace and finish its held draft without another model; --run and --owner-authorized.',
   'runner-recover': 'Explicit review and release of a held invocation; requires --owner-authorized.',
   'runner-schedule': '--input action export/install/remove/status, optional schedule mode once/date/time/timeZone. OS registration requires --owner-authorized.',
 };
@@ -108,7 +115,7 @@ async function main() {
     const local = () => store ||= new AgentStore(statePath);
     const contentScc=new SccAdapter(new JsonClient(sccClient.origin,{timeoutMs:10_000}));
     const content=()=>new AgentContent(local(),contentScc);
-    const runner=()=>new AgentRunner(local(),path.join(path.dirname(statePath),'runner'),undefined,undefined,id=>content().persist(id));
+    const runner=()=>new AgentRunner(local(),path.join(path.dirname(statePath),'runner'),undefined,undefined,async id=>{const before=contentScc.client.requestCount;const result=await content().persist(id);return {...result,httpRequests:contentScc.client.requestCount-before};});
     const workflow = () => new AgentWorkflow(local(),pipeline,scc,{scc:sccClient.origin,pipeline:pipelineClient.origin});
     const run = () => {
       if (typeof flags.run !== 'string' || !flags.run) throw new WorkflowError('run_required', 'Supply the stable --run ID.');
@@ -157,6 +164,10 @@ async function main() {
       case 'work-save': data = workflow().work.save(input); break;
       case 'work-show': data = workflow().work.show(task()); break;
       case 'work-history': data = {taskId:task(),revisions:local().workHistory(task(),limit).map(row=>compactWork(row as Record<string,any>))}; break;
+      case 'content-run-prepare': data=await prepareResearchTask(content(),runner(),account!,input);break;
+      case 'content-run-receipt': data=researchReceipt(content(),runner(),local(),task());break;
+      case 'content-validate': validateContentResult(input);data={valid:true,version:'agent-content-result.v1',writes:0};break;
+      case 'content-schema': data=contentOutputSchema();break;
       case 'content-context':
         if(Object.keys(input).some(k=>k!=='refresh')||input.refresh!==undefined&&typeof input.refresh!=='boolean')throw new Error('Supply only optional refresh:true/false');
         data=await content().context(account!,input.refresh===true);break;
@@ -185,6 +196,7 @@ async function main() {
         if(Object.keys(input).some(k=>k!=='action')||!['enable','disable','pause','resume','stop','wake'].includes(input.action))throw new Error('Supply a supported runner control action');
         data=runner().control(input.action,flags['owner-authorized']===true);break;
       }
+      case 'runner-result-reconcile': data=await runner().reconcileSavedResult(run(),flags['owner-authorized']===true);break;
       case 'runner-recover': data=runner().reconcile(input,flags['owner-authorized']===true);break;
       case 'runner-schedule': data=await manageSchedule(local(),path.resolve(__dirname,'..'),statePath,input,flags['owner-authorized']===true);break;
       case 'runner-tick': {

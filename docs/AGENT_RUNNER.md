@@ -146,3 +146,7 @@ For custom executors, set `adapter:"json"`, an executable path, an argument arra
 Implementation and acceptance evidence: [runner report](qa/AGENT_RUNNER_IMPLEMENTATION.md). Existing generation protections: [non-blocking work](AGENT_NONBLOCKING_WORK.md).
 
 Adapter references: [official OpenAI non-interactive command documentation](https://learn.chatgpt.com/docs/developer-commands#codex-exec), [Gemini headless contract](https://geminicli.com/docs/cli/headless/), [Gemini settings precedence and tool controls](https://geminicli.com/docs/reference/configuration/).
+
+## Explicit live-research preparation
+
+The default executors remain tools-disabled. An authorized Codex executor can opt into hosted live research with `liveResearch:true`. Account/login and help preflight, typed content output, compact task instructions, tool-trace accounting and deterministic saving use the existing runner. See [research operations](AGENT_RESEARCH_OPERATIONS.md). Antigravity CLI capability inspection is documented there; no Antigravity adapter or authentication was activated.
