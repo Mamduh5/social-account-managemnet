@@ -44,17 +44,17 @@ const commands = {
   'runner-status': 'Compact queue, invocations, budgets and saved schedule status; zero provider HTTP.',
   'runner-show': 'Read one durable executor receipt and saved result using --run INVOCATION_ID.',
   'runner-detect': 'Probe installed executor help only; never starts a model session.',
-  'runner-tick': 'One bounded eligibility check and authorized preparation work; no generation polling.',
+  'runner-tick': 'One bounded eligibility check; --schedule ID consumes an armed one-time trigger exactly once.',
   'runner-control': '--input action enable/disable/pause/resume/stop/wake; enable requires owner authorization.',
   'runner-recover': 'Explicit review and release of a held invocation; requires --owner-authorized.',
-  'runner-schedule': '--input action export/install/remove/status. OS registration requires --owner-authorized.',
+  'runner-schedule': '--input action export/install/remove/status, optional schedule mode once/date/time/timeZone. OS registration requires --owner-authorized.',
 };
 
 function parse(argv: string[]) {
   const command = argv[0] || 'help';
   const flags: Record<string,string|boolean> = {};
   const booleans = new Set(['allow-generation','owner-authorized']);
-  const values = new Set(['input','run','task','account','destination','limit','offset','state','scc','pipeline']);
+  const values = new Set(['input','run','task','account','destination','limit','offset','state','scc','pipeline','schedule']);
   for (let i=1; i<argv.length; i++) {
     const key = argv[i].replace(/^--/, '');
     if (!argv[i].startsWith('--') || (!booleans.has(key) && !values.has(key)) || key in flags)
@@ -74,6 +74,7 @@ async function main() {
   try {
     const parsed = parse(process.argv.slice(2)); command = parsed.command;
     const flags = parsed.flags;
+    if(flags.schedule&&(command!=='runner-tick'||!/^[a-zA-Z0-9_-]{1,100}$/.test(String(flags.schedule))))throw new WorkflowError('invalid_arguments','Use --schedule with a saved one-time ID on runner-tick only.');
     if (command === 'help') {
       process.stdout.write(JSON.stringify({version,ok:true,commands,usage:'npm --silent run agent -- <command> [--run stable-id] [--input file.json|-] [--scc http://localhost:3001] [--pipeline http://localhost:8080] [--state .data/agent/agent.db]',
         safety:'Draft first. Explicit generation and separate exact owner approval/queue flags are required. A flag records authorization; it does not grant it. No automatic uncertain retries or global worker controls.'})+'\n');
@@ -155,7 +156,18 @@ async function main() {
       case 'runner-schedule': data=await manageSchedule(local(),path.resolve(__dirname,'..'),statePath,input,flags['owner-authorized']===true);break;
       case 'runner-tick': {
         const controller=new AbortController(),abort=()=>controller.abort();process.on('SIGINT',abort);process.on('SIGTERM',abort);
-        try{data=await runner().tick(controller.signal);}finally{process.off('SIGINT',abort);process.off('SIGTERM',abort);}break;
+        const scheduleId=typeof flags.schedule==='string'?flags.schedule:undefined;
+        try{data=await runner().tick(controller.signal,scheduleId);}finally{
+          process.off('SIGINT',abort);process.off('SIGTERM',abort);
+          if(scheduleId){
+            const directory=path.join(path.dirname(statePath),'runner','scheduled');fs.mkdirSync(directory,{recursive:true});
+            // Each attempted dispatch gets its own evidence file; duplicates cannot overwrite the original.
+            const file=path.join(directory,scheduleId+'-'+Date.now()+'-'+process.pid+'.json');
+            fs.writeFileSync(file,JSON.stringify({version,at:new Date().toISOString(),scheduleId,
+              execution:local().runnerState('schedule-once:'+scheduleId),result:data??null,
+              status:runner().status(),handoff:workflow().handoff(limit)}),{encoding:'utf8',flag:'wx'});
+          }
+        }break;
       }
       case 'analytics': data = await scc.analytics(account,typeof flags.destination === 'string' ? flags.destination : undefined,{limit,offset}); break;
       case 'history': data = await scc.history({...input,limit:input.limit ?? limit,offset:input.offset ?? offset}); break;

@@ -13,22 +13,41 @@ export const agentResultSchema=z.object({
   lessons:z.array(z.string().min(1).max(2000)).max(5),
 }).strict();
 export type AgentResult=z.infer<typeof agentResultSchema>;
-export interface ExecutionResult {result:AgentResult;usage:{tokens:number;source:string}|null;}
+export interface ExecutionResult {result:AgentResult;usage:{tokens:number;source:string}|null;diagnostics?:ProcessDiagnostics;}
 export interface ExecutorCapability {id:string;adapter:ExecutorConfig['adapter'];available:boolean;reason:string;command?:string;args?:string[];usageAccounting?:string;}
 export class ExecutionError extends Error {
-  constructor(readonly code:string,readonly definitelyNotStarted=false){super(code);}
+  constructor(readonly code:string,readonly definitelyNotStarted=false,readonly diagnostics?:ProcessDiagnostics){super(code);}
 }
-export interface ProcessOutput {stdout:string;code:number|null;}
-export interface ProcessOptions {cwd:string;stdin?:string;timeoutMs:number;maxBytes:number;signal?:AbortSignal;env?:NodeJS.ProcessEnv;onSpawn?:(pid:number)=>void;}
+export interface ProcessDiagnostics {directory:string;pid:number|null;startedAt:string;finishedAt?:string;exitCode:number|null;signal:string|null;failure:string|null;stdoutBytes:number;stderrBytes:number;}
+export interface ProcessOutput {stdout:string;code:number|null;diagnostics?:ProcessDiagnostics;}
+export interface ProcessOptions {cwd:string;stdin?:string;timeoutMs:number;maxBytes:number;signal?:AbortSignal;env?:NodeJS.ProcessEnv;onSpawn?:(pid:number)=>void;diagnosticsDirectory?:string;}
 export type ProcessRunner=(command:string,args:string[],options:ProcessOptions)=>Promise<ProcessOutput>;
+
+// Logs remain local and bounded. Never persist environment, stdin, or raw credential fields.
+export function redactDiagnostics(text:string):string {
+  return text.replace(/\b(?:sk-[\w-]+|AIza[\w-]+|eyJ[\w-]+\.[\w-]+(?:\.[\w-]+)?)/g,'[REDACTED]')
+    .replace(/(\bBearer\s+)[^\s"',}]+/gi,'$1[REDACTED]')
+    .replace(/((?:access_token|refresh_token|api_key|authorization|password|client_secret)["']?\s*[:=]\s*["']?)[^\s"',}]+/gi,'$1[REDACTED]');
+}
 
 // No shell evaluation. Only the exact child tree created by this invocation is terminated.
 export const runProcess:ProcessRunner=(command,args,options)=>new Promise((resolve,reject)=>{
   if(options.signal?.aborted){reject(new ExecutionError('shutdown_before_launch',true));return;}
+  const diagnostics:ProcessDiagnostics|undefined=options.diagnosticsDirectory?{directory:options.diagnosticsDirectory,pid:null,startedAt:new Date().toISOString(),exitCode:null,signal:null,failure:null,stdoutBytes:0,stderrBytes:0}:undefined;
+  let stdout='',stderr='';
+  const persist=(finished=false)=>{
+    if(!diagnostics)return;
+    if(finished)diagnostics.finishedAt=new Date().toISOString();
+    mkdirSync(diagnostics.directory,{recursive:true});
+    writeFileSync(path.join(diagnostics.directory,'process.json'),JSON.stringify(diagnostics));
+    writeFileSync(path.join(diagnostics.directory,'stdout.log'),redactDiagnostics(stdout));
+    writeFileSync(path.join(diagnostics.directory,'stderr.log'),redactDiagnostics(stderr));
+  };
+  try{persist();}catch{reject(new ExecutionError('diagnostics_write_failed',true));return;}
   let child:ReturnType<typeof spawn>;
   try {child=spawn(command,args,{cwd:options.cwd,env:options.env??safeEnvironment(),shell:false,windowsHide:true,detached:process.platform!=='win32',stdio:['pipe','pipe','pipe']});}
   catch {reject(new ExecutionError('spawn_failed',true));return;}
-  let stdout='',bytes=0,failure:string|null=null,spawned=false,killTimer:NodeJS.Timeout|undefined,terminationTimer:NodeJS.Timeout|undefined;
+  let bytes=0,failure:string|null=null,spawned=false,killTimer:NodeJS.Timeout|undefined,terminationTimer:NodeJS.Timeout|undefined;
   const terminate=()=>{
     if(!child.pid)return;
     if(process.platform==='win32'){
@@ -44,21 +63,23 @@ export const runProcess:ProcessRunner=(command,args,options)=>new Promise((resol
       // Return an explicit unknown if OS termination itself fails; do not hang the scheduler.
       child.kill('SIGKILL');child.stdin?.destroy();child.stdout?.destroy();child.stderr?.destroy();child.unref();
       clearTimeout(timer);if(killTimer)clearTimeout(killTimer);options.signal?.removeEventListener('abort',abort);
-      reject(new ExecutionError('termination_unconfirmed'));
+      if(diagnostics){diagnostics.failure='termination_unconfirmed';try{persist(true);}catch{}}
+      reject(new ExecutionError('termination_unconfirmed',false,diagnostics));
     },2500);
   };
   const abort=()=>stop('interrupted');
   const timer=setTimeout(()=>stop('execution_timeout'),options.timeoutMs);
   options.signal?.addEventListener('abort',abort,{once:true});
-  child.on('spawn',()=>{spawned=true;try{options.onSpawn?.(child.pid!);}catch{stop('receipt_write_failed');}});
+  child.on('spawn',()=>{spawned=true;try{if(diagnostics){diagnostics.pid=child.pid!;persist();}options.onSpawn?.(child.pid!);}catch{stop('receipt_write_failed');}});
   child.stdout!.setEncoding('utf8');
-  child.stdout!.on('data',(chunk:string)=>{bytes+=Buffer.byteLength(chunk);if(bytes>options.maxBytes)stop('output_limit');else stdout+=chunk;});
-  // Stderr is counted but deliberately not persisted: CLI errors may include credentials/context.
-  child.stderr!.on('data',(chunk:Buffer)=>{bytes+=chunk.length;if(bytes>options.maxBytes)stop('output_limit');});
+  child.stdout!.on('data',(chunk:string)=>{const size=Buffer.byteLength(chunk);bytes+=size;if(diagnostics)diagnostics.stdoutBytes+=size;if(bytes>options.maxBytes)stop('output_limit');else stdout+=chunk;});
+  child.stderr!.setEncoding('utf8');
+  child.stderr!.on('data',(chunk:string)=>{const size=Buffer.byteLength(chunk);bytes+=size;if(diagnostics)diagnostics.stderrBytes+=size;if(bytes>options.maxBytes)stop('output_limit');else stderr+=chunk;});
   child.stdin!.on('error',()=>{});child.stdin!.end(options.stdin??'');
-  child.on('error',()=>{if(!spawned)failure='spawn_failed';});
-  child.on('close',code=>{clearTimeout(timer);if(killTimer)clearTimeout(killTimer);if(terminationTimer)clearTimeout(terminationTimer);options.signal?.removeEventListener('abort',abort);
-    if(failure)reject(new ExecutionError(failure,!spawned));else resolve({stdout,code});});
+  child.on('error',error=>{if(!spawned)failure='spawn_failed';if(diagnostics)diagnostics.failure=(error as NodeJS.ErrnoException).code??'process_error';});
+  child.on('close',(code,signal)=>{clearTimeout(timer);if(killTimer)clearTimeout(killTimer);if(terminationTimer)clearTimeout(terminationTimer);options.signal?.removeEventListener('abort',abort);
+    if(diagnostics){diagnostics.exitCode=code;diagnostics.signal=signal;diagnostics.failure=failure??diagnostics.failure;try{persist(true);}catch{failure='diagnostics_write_failed';}}
+    if(failure)reject(new ExecutionError(failure,!spawned,diagnostics));else resolve({stdout,code,...(diagnostics?{diagnostics}:{})});});
 });
 
 export function safeEnvironment():NodeJS.ProcessEnv {
@@ -77,7 +98,7 @@ export const supervisedProcess:ProcessRunner=async(command,args,options)=>{
   });
   if(output.code!==0)throw new ExecutionError('supervisor_exit_uncertain');
   let envelope:any;try{envelope=JSON.parse(output.stdout);}catch{throw new ExecutionError('supervisor_result_uncertain');}
-  if(!envelope.ok)throw new ExecutionError(envelope.code,envelope.definitelyNotStarted===true);
+  if(!envelope.ok)throw new ExecutionError(envelope.code,envelope.definitelyNotStarted===true,envelope.diagnostics);
   return envelope.output;
 };
 
@@ -131,9 +152,9 @@ export class CommandExecutors {
     }else args=config.args;
     const executeProcess=this.processRunner===runProcess?supervisedProcess:this.processRunner;
     let output:ProcessOutput;
-    try{output=await executeProcess(capability.command,[...(capability.args??[]),...args],{...options,cwd:executionDirectory,stdin:context,env});}
+    try{output=await executeProcess(capability.command,[...(capability.args??[]),...args],{...options,diagnosticsDirectory:path.join(directory,'process'),cwd:executionDirectory,stdin:context,env});}
     finally{rmSync(executionDirectory,{recursive:true,force:true});}
-    if(output.code!==0)throw new ExecutionError('executor_exit_nonzero');
+    if(output.code!==0)throw new ExecutionError('executor_exit_nonzero',false,output.diagnostics);
     let value:unknown,usage:ExecutionResult['usage']=null;
     try {
       if(config.adapter==='codex'){
@@ -150,7 +171,7 @@ export class CommandExecutors {
         const models=Object.values(envelope.stats?.models??{}) as any[];
         if(models.length&&models.every(m=>Number.isSafeInteger(m.tokens?.total)&&m.tokens.total>=0))usage={tokens:models.reduce((n,m)=>n+m.tokens.total,0),source:'gemini.stats.models.tokens.total'};
       }else value=JSON.parse(output.stdout);
-      return {result:agentResultSchema.parse(value),usage};
-    }catch{throw new ExecutionError('invalid_result_or_usage');}
+      return {result:agentResultSchema.parse(value),usage,...(output.diagnostics?{diagnostics:output.diagnostics}:{})};
+    }catch{throw new ExecutionError('invalid_result_or_usage',false,output.diagnostics);}
   }
 }

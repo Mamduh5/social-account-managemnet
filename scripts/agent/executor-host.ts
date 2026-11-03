@@ -12,6 +12,6 @@ process.stdin.on('end',async()=>{
   try{
     const output=await runProcess(request.command,request.args,{...request.options,signal:controller.signal});
     process.stdout.write(JSON.stringify({ok:true,output}));
-  }catch(error){process.stdout.write(JSON.stringify({ok:false,code:error instanceof ExecutionError?error.code:'supervisor_failure',definitelyNotStarted:error instanceof ExecutionError&&error.definitelyNotStarted}));}
+  }catch(error){process.stdout.write(JSON.stringify({ok:false,code:error instanceof ExecutionError?error.code:'supervisor_failure',definitelyNotStarted:error instanceof ExecutionError&&error.definitelyNotStarted,diagnostics:error instanceof ExecutionError?error.diagnostics:undefined}));}
   finally{clearInterval(parent);}
 });

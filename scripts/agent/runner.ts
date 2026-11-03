@@ -39,6 +39,8 @@ export class AgentRunner {
     const config=this.config(),sessions=this.store.runnerSessions({limit:20});
     return {version:'agent-runner.v1',enabled:config.enabled,paused:config.paused,authorized:runnerAuthorized(this.store,config),
       scheduler:this.store.runnerState('schedule')??{installed:false,verified:false},
+      scheduledHost:this.store.runnerState('scheduledHost'),
+      oneTimeExecution:this.store.runnerState('schedule')?.mode==='once'?this.store.runnerState('schedule-once:'+this.store.runnerState('schedule').scheduleId):null,
       limits:config,budget:this.budget(config),nextCheckAt:this.store.runnerState('nextCheckAt'),lastCheck:this.store.runnerState('lastCheck'),
       tasks:this.store.workStatusCounts(),active:this.store.runnerSessions({active:true}).map(this.compactSession),
       eligibleTaskCount:this.eligible(config).length,
@@ -108,7 +110,32 @@ export class AgentRunner {
         result:{recoveryRequired:true,invocationId:s.id,error:code,previousResult:current.result},updatedAt:this.clock().toISOString()});
     }
   }
-  async tick(signal?:AbortSignal){
+  async tick(signal?:AbortSignal,scheduleId?:string):Promise<{state:string;launched:number}>{
+    if(!scheduleId)return this.executeTick(signal);
+    const key='schedule-once:'+scheduleId;
+    const deny=this.store.transaction(()=>{
+      const once=this.store.runnerState(key);
+      if(!once)return 'one_time_unknown';
+      if(once.status!=='armed')return 'one_time_already_consumed';
+      const now=this.clock().getTime();
+      if(!Number.isFinite(Date.parse(once.startAt))||!Number.isFinite(Date.parse(once.expiresAt)))return 'one_time_unknown';
+      if(now<Date.parse(once.startAt))return 'one_time_not_due';
+      if(now>=Date.parse(once.expiresAt))return 'one_time_expired';
+      // Consume before probing or launching. A duplicate or crash cannot dispatch more work.
+      this.store.setRunnerState(key,{...once,status:'consumed',consumedAt:this.clock().toISOString()});
+      return null;
+    });
+    if(deny)return {state:deny,launched:0};
+    try{
+      const result=await this.executeTick(signal,1);
+      this.store.setRunnerState(key,{...this.store.runnerState<Record<string,any>>(key),finishedAt:this.clock().toISOString(),result});
+      return result;
+    }catch(error){
+      this.store.setRunnerState(key,{...this.store.runnerState<Record<string,any>>(key),finishedAt:this.clock().toISOString(),error:'scheduled_invocation_failed_requires_review'});
+      throw error;
+    }
+  }
+  private async executeTick(signal?:AbortSignal,taskLimit?:number){
     this.recoverExpired();
     const initial=this.config(),deny=this.canAdmit(initial);
     if(deny)return {state:deny,launched:0};
@@ -117,7 +144,7 @@ export class AgentRunner {
     let launched=0,lastState='idle';
     // Capability probes are non-model calls, performed only after useful work is found.
     const capabilities=new Map<string,ExecutorCapability>();
-    for(let index=0;index<initial.maxTasksPerRun;index++){
+    for(let index=0;index<Math.min(initial.maxTasksPerRun,taskLimit??initial.maxTasksPerRun);index++){
       if(signal?.aborted){lastState='shutdown';break;}
       const config=this.config();
       const candidates=this.eligible(config);
@@ -159,11 +186,12 @@ export class AgentRunner {
           onSpawn:pid=>this.store.transaction(()=>{const saved=this.store.runnerSession(session.id)!;if(saved.status!=='reserved')throw new Error('Invocation changed');this.store.saveRunnerSession({...saved,status:'running',pid});}),
         });
         this.store.transaction(()=>{const saved=this.store.runnerSession(session.id)!;
-          this.store.saveRunnerSession({...saved,result:output.result,usage:output.usage,mayBeRunning:false});});
+          this.store.saveRunnerSession({...saved,result:output.result,usage:output.usage,diagnostics:output.diagnostics,mayBeRunning:false});});
         this.complete(session.id,output);
       }catch(error){
         this.store.transaction(()=>{
           const saved=this.store.runnerSession(session.id)!;
+          if(error instanceof ExecutionError&&error.diagnostics)saved.diagnostics=error.diagnostics;
           if(error instanceof ExecutionError&&error.definitelyNotStarted){
             this.work.save({id:session.taskId,owner:session.claim.owner,commandId:'runner-no-start:'+session.id,claimToken:session.claim.claimToken,revision:session.claim.revision,status:'ready'});
             this.store.saveRunnerSession({...saved,status:'not_started',error:error.code,mayBeRunning:false,usage:{tokens:0,source:'process_not_started'},finishedAt:this.clock().toISOString()});

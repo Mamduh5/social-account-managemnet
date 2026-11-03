@@ -78,7 +78,7 @@ npm --silent run agent -- runner-status
 
 ## Automatic wake-up
 
-Windows Task Scheduler is the sole automatic trigger. One task, identified by repository and state path, invokes `node --import <tsx loader URL> scripts/agent.ts runner-tick --state <absolute sidecar>`. It repeats at the configured interval, ignores overlapping scheduled instances, uses the signed-in current user at least privilege, and catches up after missed triggers. It requires the PC and signed-in user session; it does not install a service, request UAC/firewall changes, or restart SCC/Pipeline. Tasks per tick are sequential; independently invoked ticks share the configurable concurrency cap.
+Windows Task Scheduler is the sole automatic trigger. One task, identified by repository and state path, uses Windows Script Host in batch mode to launch the bounded Node host without a console window. The host invokes the existing `scripts/agent.ts runner-tick --state <absolute sidecar>` command. Recurring tasks repeat at the configured interval, ignore overlapping scheduled instances, use the signed-in current user at least privilege, and catch up after missed triggers. It requires the PC and signed-in user session; it does not install a service, request UAC/firewall changes, or restart SCC/Pipeline. Tasks per tick are sequential; independently invoked ticks share the configurable concurrency cap. Existing registered tasks retain their original action until explicitly replaced.
 
 Export an inert XML preview first using `export.json` containing `{"action":"export","file":".data/agent/runner-task.xml"}`:
 
@@ -93,6 +93,20 @@ npm --silent run agent -- runner-schedule --input install.json --owner-authorize
 ```
 
 Use `{"action":"status"}` with `runner-schedule --input FILE` to query the OS task; use `{"action":"remove"}` with `--owner-authorized` to unregister this runner's task. Changing the interval requires reinstalling the task. `runner-status` and `handoff` show saved scheduler observations with timestamps, which can become stale; neither proves a currently running process. No OS registration or real scheduled invocation was performed during implementation.
+
+For a **one-time** wake-up, include an explicit local date, time and IANA timezone in the existing export/install input:
+
+```json
+{"action":"install","schedule":{"mode":"once","date":"2026-11-02","time":"19:15","timeZone":"Asia/Bangkok"}}
+```
+
+Export the same schedule with `action:"export"` and a new `file` first. One-time schedules reject past times, invalid dates, and ambiguous/nonexistent daylight-saving wall times. The XML uses the exact UTC instant, no repetition, no catch-up and no automatic retry. The trigger expires after a 60-second dispatch window; an already running agent retains its configured execution deadline. The current signed-in user and PC must be available. Omitting `schedule`, or specifying `{"mode":"recurring"}`, retains the existing recurring behavior.
+
+Installation refuses to replace an existing Windows task and records the one-time installation intent before registration. Repeated or uncertain installation attempts require inspection and explicit removal before replacement. The scheduled command includes a unique `--schedule` ID; a shared-sidecar transaction consumes it before any executor probe or launch. Duplicate dispatch cannot claim another task, and each one-time wake is limited to at most one agent invocation while still honoring enabled state, authorization, concurrency, attempt and daily budgets. An early dispatch does not consume it; an expired dispatch launches nothing. No late wake is substituted.
+
+Scheduled invocations independently persist their one-time receipt in the sidecar and write execution/status/handoff evidence under `runner/scheduled/` beside it, including non-launch outcomes. Inspect the task's exact XML using `schtasks /Query /TN TASK_NAME /XML`, then inspect `runner-status`, `runner-show --run INVOCATION_ID`, `work-show --task TASK_ID`, and `handoff` with the same absolute `--state`. A registered trigger is readiness evidence, not proof of a completed agent execution.
+
+`runner-status` also reports `scheduledHost` (launch state, runner PID, exit code and log directory) and `oneTimeExecution` (the durable trigger receipt). Each Windows launch keeps `host.json`, `process.json`, `stdout.log` and `stderr.log` under `runner/launches/`; each model invocation keeps its process receipt and logs under `runner/sessions/INVOCATION_ID/process/`, linked by `runner-show`. Logs are bounded and credential patterns are redacted; environment and stdin are never logged. A failed runner or blocked model result produces a nonzero scheduled-host exit. The existing Codex stdin, read-only sandbox, approval policy, tool restrictions and model deadline are unchanged. Authentication must already work for the task's current-user identity; no login prompt or automatic authentication fallback is introduced. A small `.last-exit.json` beside the generated launcher records bootstrap exit codes if Node cannot start. No PowerShell or interactive terminal is required.
 
 `work-add` records a durable wake marker. `runner-control wake` can also make the next check eligible before its saved due time; neither starts an agent directly or bypasses cooldown/budgets. The next OS tick consumes the marker. Idle ticks do not probe executors, start models, fabricate tasks, or poll Gemini. Generation-dependent tasks require confirmed cached completion. An operator or authorized existing caller must run one `refresh --run ID` to bring external progress into the local cache; the runner never repeatedly refreshes or waits for generation.
 
@@ -114,7 +128,7 @@ Codex reports actual `turn.completed` input+output tokens (cached input is not a
 
 ## Recovery
 
-Every execution runs under a separate bounded supervisor, which stops its child on deadline, parent death or interrupted I/O. Windows child trees are terminated by their exact spawned PID; the runner never stops SCC, Pipeline or unrelated processes. Stderr is counted for output bounds but never saved. A surviving unknown process conservatively retains its concurrency slot until reviewed. Hard shutdown of the OS task may leave an uncertain receipt; subsequent ticks detect the expired durable deadline and hold it.
+Every execution runs under a separate bounded supervisor, which stops its child on deadline, parent death or interrupted I/O. Windows child trees are terminated by their exact spawned PID; the runner never stops SCC, Pipeline or unrelated processes. Both stdout and stderr count toward output bounds and are saved locally with redaction, including partial output on timeout. A surviving unknown process conservatively retains its concurrency slot until reviewed. Hard shutdown of the OS task may leave an uncertain receipt; subsequent ticks detect the expired durable deadline and hold it.
 
 A validated result is persisted before the completion transaction. Restart can finish its exact saved claim and deterministic knowledge IDs without invoking an agent again. Expired/changed claims cannot be overwritten; they require inspection. Crashes, malformed output, timeout, nonzero exit or ambiguous persistence become recovery holds, not replay. A proven failure to spawn releases the task safely, with a zero-token receipt and a consumed attempt. A blocked answer is a failed task with saved useful explanation.
 
