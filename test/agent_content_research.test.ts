@@ -29,3 +29,31 @@ class Held extends CommandExecutors {
 configureRunner(f.store,{enabled:true,cooldownSeconds:0,saveContentDrafts:true,executors:[{id:'codex',adapter:'codex',command:'codex',liveResearch:true,kinds:['text_post']}]},true);
 const runner=new AgentRunner(f.store,path.join(f.dir,'runner'),new Held(f.dir),undefined,id=>f.content.persist(id));await prepareResearchTask(f.content,runner,'page',{id:'held',brief:'Independent research',editorialRules:'Draft only'});await runner.tick();const id=f.store.runnerSessions()[0].id;assert.equal(f.writes(),0);await assert.rejects(()=>runner.reconcileSavedResult(id),/authorization/);const receipt=await runner.reconcileSavedResult(id,true);assert.equal(receipt.invokedModel,false);assert.equal(models,1);assert.equal(f.writes(),1);assert.equal(f.store.getWork('held')!.owner,null);await assert.rejects(()=>runner.reconcileSavedResult(id,true));assert.equal(f.writes(),1);assert.equal(f.store.runnerSession(id)!.usage.tokens,15);
 });
+
+test('json adapter supports live research probe and extracts typed result, token usage, and research audit',async t=>{
+  const dir=mkdtempSync(path.join(os.tmpdir(),'scc-json-research-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
+  const scriptPath=path.join(dir,'wrapper.js');
+  writeFileSync(scriptPath,'console.log("Capabilities: agent-result.v1, structured_output, noninteractive, live-research, auth_verified");');
+  const run:ProcessRunner=async(c,a,o)=>{
+    if(a.includes('--help'))return {code:0,stdout:'Capabilities: agent-result.v1, structured_output, noninteractive, live-research, auth_verified\n'};
+    return {code:0,stdout:JSON.stringify({
+      version:'agent-result.v1',
+      status:'prepared',
+      result:JSON.stringify(good),
+      lessons:['lesson 1'],
+      usage:{tokens:4200,source:'antigravity.usage',inputTokens:3800,outputTokens:400},
+      researchAudit:{searches:1,opens:2,urls:[finding.sources[0].url,finding.sources[1].url]}
+    })};
+  };
+  const executor=new CommandExecutors(dir,run);
+  const cfg=executorSchema.parse({id:'antigravity',adapter:'json',command:scriptPath,liveResearch:true,isolationReviewed:true});
+  const cap=await executor.detect(cfg);
+  assert.equal(cap.available,true);
+  assert.equal(cap.capabilities?.liveResearch,true);
+  assert.equal(cap.authentication,'existing_login_verified');
+  const result=await executor.execute(cfg,cap,JSON.stringify({task:{payload:{content:{responseContract:'agent-content-result.v1',requiresLiveResearch:true}}}}),dir,{timeoutMs:1000,maxBytes:64000});
+  assert.equal(result.usage?.tokens,4200);
+  assert.equal(result.researchAudit?.searches,1);
+  assert.equal(result.researchAudit?.opens,2);
+  assert.equal(JSON.parse(result.result.result).version,'agent-content-result.v1');
+});

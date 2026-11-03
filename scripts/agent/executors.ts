@@ -156,8 +156,11 @@ export class CommandExecutors {
         const login=await this.processRunner(resolved.command,[...resolved.args,'login','status'],{cwd:this.probeDirectory,timeoutMs:10000,maxBytes:16000});
         authentication=login.code===0?'existing_login_verified':'login_unavailable';
         liveResearch=help.code===0&&help.stdout.includes('--search')&&login.code===0;
+      }else if(config.liveResearch&&config.adapter==='json'){
+        liveResearch=probe.code===0&&(probe.stdout.includes('live-research')||probe.stdout.includes('live_research'));
+        authentication=probe.stdout.includes('auth_verified')?'existing_login_verified':'not_probed';
       }
-      const capability:ExecutorCapability={id:config.id,adapter:config.adapter,available:true,reason:'help_verified_auth_not_probed',...resolved,usageAccounting:config.adapter==='json'?'none':'final_report_when_available',capabilities:{liveResearch,structuredOutput:true,fileAccess:false,unattended:true},authentication};
+      const capability:ExecutorCapability={id:config.id,adapter:config.adapter,available:true,reason:'help_verified_auth_not_probed',...resolved,usageAccounting:'final_report_when_available',capabilities:{liveResearch,structuredOutput:true,fileAccess:false,unattended:true},authentication};
       writeFileSync(cache,JSON.stringify({at:Date.now(),fingerprint,capability}));return capability;
     }catch{return {id:config.id,adapter:config.adapter,available:false,reason:'capability_probe_failed'};}
   }
@@ -197,7 +200,15 @@ export class CommandExecutors {
         value=JSON.parse(envelope.response);
         const models=Object.values(envelope.stats?.models??{}) as any[];
         if(models.length&&models.every(m=>Number.isSafeInteger(m.tokens?.total)&&m.tokens.total>=0))usage={tokens:models.reduce((n,m)=>n+m.tokens.total,0),source:'gemini.stats.models.tokens.total'};
-      }else value=JSON.parse(output.stdout);
+      }else {
+        const parsed=JSON.parse(output.stdout);
+        if(parsed&&typeof parsed==='object'){
+          if(parsed.usage&&typeof parsed.usage==='object'&&Number.isSafeInteger(parsed.usage.tokens))usage=parsed.usage;
+          if(parsed.researchAudit&&typeof parsed.researchAudit==='object')researchAudit=parsed.researchAudit;
+          if(structured&&'result' in parsed)value=typeof parsed.result==='string'?JSON.parse(parsed.result):parsed.result;
+          else value=parsed;
+        }else value=parsed;
+      }
       if(structured){
         const typed=validateContentResult(value);
         if(live&&(!researchAudit?.searches||!researchAudit.opens))throw new Error('Live research needs actual search and page-open events');
