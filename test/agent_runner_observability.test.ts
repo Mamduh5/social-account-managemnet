@@ -7,6 +7,7 @@ import {AgentStore} from '../scripts/agent/store.js';
 import {AgentRunner} from '../scripts/agent/runner.js';
 import {configureRunner,defaultRunnerConfig} from '../scripts/agent/runner-config.js';
 import {runProcess,ExecutionError} from '../scripts/agent/executors.js';
+import {pathToFileURL} from 'node:url';
 
 function directory(t:{after:(f:()=>void)=>void}){
   const dir=mkdtempSync(path.join(tmpdir(),'scc-agent-diagnostics-'));
@@ -47,4 +48,17 @@ test('failed supervised invocation keeps useful diagnostics on its receipt and n
   assert.match(readFileSync(path.join(session.diagnostics.directory,'stderr.log'),'utf8'),/FIXTURE_AUTH_REQUIRED/);
   assert.equal(store.getWork('failure-task')!.claimToken,null);assert.equal(store.getWork('failure-task')!.status,'blocked');
   assert.equal((await runner.tick()).launched,0);assert.equal(store.runnerSessions().length,1);
+});
+
+test('scheduled host identifies a blocked model answer instead of reporting executed as its error',async t=>{
+  const dir=mkdtempSync(path.join(tmpdir(),'scc-blocked-host-')),filename=path.join(dir,'agent.db'),store=new AgentStore(filename);
+  t.after(()=>{store.close();rmSync(dir,{recursive:true,force:true});});
+  const fixture=path.join(dir,'blocked.cjs');
+  writeFileSync(fixture,'if(process.argv.includes("--help")){console.log("agent-result.v1")}else{console.log(JSON.stringify({version:"agent-result.v1",status:"blocked",result:"Missing required source evidence",lessons:[]}))}');
+  configureRunner(store,{...defaultRunnerConfig(),enabled:true,cooldownSeconds:0,executors:[{id:'blocked_fixture',adapter:'json',command:process.execPath,args:[fixture],isolationReviewed:true}]},true);
+  new AgentRunner(store,path.join(dir,'runner')).work.add({id:'blocked-plan',kind:'story_plan',title:'Blocked answer fixture'});
+  const result=await runProcess(process.execPath,['--import',pathToFileURL(path.resolve('node_modules/tsx/dist/loader.mjs')).href,path.resolve('scripts/agent/scheduled-host.ts'),path.resolve('.'),filename,'-','15000'],{cwd:path.resolve('.'),timeoutMs:20000,maxBytes:64000});
+  assert.equal(result.code,1);
+  assert.equal(store.runnerState<any>('scheduledHost')!.error,'agent_returned_blocked');
+  assert.equal(store.runnerSessions().length,1);
 });

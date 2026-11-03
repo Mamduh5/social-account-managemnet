@@ -112,7 +112,7 @@ Scheduled invocations independently persist their one-time receipt in the sideca
 
 ## Execution and accounting
 
-Each launch atomically rechecks configuration, attempts, budget and concurrency, claims the existing task by priority, and writes its invocation intent in one SQLite transaction. Missing executors and unsupported/oversized tasks stay queued. Expired manual claims remain for deliberate inspection. Context contains only that task's payload, at most three scoped knowledge excerpts, and a compact cached generation observation. Supply relevant analytics, source excerpts and Page creative rules in the task payload using the existing deterministic CLI reads. Missing evidence should produce `blocked`, not invented analytics or unverified creative claims.
+Each launch atomically rechecks configuration, attempts, budget and concurrency, claims the existing task by priority, and writes its invocation intent in one SQLite transaction. Missing executors and unsupported/oversized tasks stay queued. Expired manual claims remain for deliberate inspection. Context contains only that task's payload, at most three scoped knowledge excerpts, and a compact cached generation observation. Supply relevant analytics, source excerpts and Page creative rules in the task payload using the existing deterministic CLI reads. Account-scoped work requires its Page creative rules; unassigned preparation uses its supplied general brief and requires a separate local account review afterward. Missing required evidence should produce `blocked`, not invented analytics or unverified creative claims.
 
 The executor returns exactly:
 

@@ -29,10 +29,10 @@ async function main(){
     const failure=!envelope?.ok||envelope.data?.state==='failed_or_recovery_required'||
       (scheduleId!=='-'&&!['executed','one_time_already_consumed'].includes(envelope?.data?.state));
     // A blocked model answer is an explicit failure even when the CLI itself finished normally.
-    const failedSession=store.runnerSessions({since:receipt.startedAt,limit:20}).some(s=>['failed','recovery_required','not_started'].includes(s.status));
+    const failedSession=store.runnerSessions({since:receipt.startedAt,limit:20}).find(s=>['failed','recovery_required','not_started'].includes(s.status));
     receipt.result=envelope?.data??null;
     receipt.status=output.code===0&&!failure&&!failedSession?'completed':'failed';
-    if(receipt.status==='failed')receipt.error=envelope?.error?.code??envelope?.data?.state??'runner_exit_or_output_invalid';
+    if(receipt.status==='failed')receipt.error=envelope?.error?.code??failedSession?.error??(failedSession?'agent_returned_blocked':envelope?.data?.state??'runner_exit_or_output_invalid');
     process.exitCode=receipt.status==='completed'?0:(output.code||1);
   }catch(error){
     receipt.status='failed';receipt.error=error instanceof ExecutionError?error.code:'scheduled_host_failure';

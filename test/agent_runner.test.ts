@@ -158,6 +158,20 @@ test('handoff and execution context use local evidence without Gemini polling',a
   assert.equal('claimToken' in f.fake.calls[0].context.task,false);
 });
 
+test('unassigned public preparation uses its brief while account-scoped work retains the Page rules gate',async t=>{
+  const f=setup(t);f.add('public-brief');
+  await f.runner.tick();
+  const publicContext=f.fake.calls[0].context;
+  assert.equal(publicContext.task.scope,'unassigned');
+  assert.match(publicContext.instructions,/no private account details or Page playbook are required/);
+  assert.doesNotMatch(publicContext.instructions,/if account creative rules are missing, return blocked/);
+  f.add('page-brief',{accountId:'fixture-page'});f.advance();await f.runner.tick();
+  const pageContext=f.fake.calls[1].context;
+  assert.equal(pageContext.task.scope,'account');
+  assert.match(pageContext.instructions,/if account creative rules are missing, return blocked/);
+  assert.match(pageContext.instructions,/No tools, commands, network research, browser, generation, social mutation/);
+});
+
 test('Codex adapter verifies actual help, pins read-only flags, and parses measured JSONL usage',async t=>{
   const f=setup(t);const calls:any[]=[];
   const mock:ProcessRunner=async(command,args,options)=>{calls.push({command,args,options});if(args.includes('--help'))return {code:0,stdout:'--json --sandbox --ephemeral --ignore-user-config --output-schema'};
