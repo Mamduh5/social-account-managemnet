@@ -26,7 +26,7 @@ async function main(){
       onSpawn:pid=>{receipt.runnerPid=pid;receipt.status='running';save();}});
     receipt.diagnostics=output.diagnostics;receipt.exitCode=output.code;
     let envelope:any;try{envelope=JSON.parse(output.stdout);}catch{}
-    const failure=!envelope?.ok||envelope.data?.state==='failed_or_recovery_required'||
+    const failure=!envelope?.ok||['failed_or_recovery_required','prepared_content_requires_review'].includes(envelope.data?.state)||
       (scheduleId!=='-'&&!['executed','one_time_already_consumed'].includes(envelope?.data?.state));
     // A blocked model answer is an explicit failure even when the CLI itself finished normally.
     const failedSession=store.runnerSessions({since:receipt.startedAt,limit:20}).find(s=>['failed','recovery_required','not_started'].includes(s.status));

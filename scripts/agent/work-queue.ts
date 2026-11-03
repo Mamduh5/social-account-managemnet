@@ -1,15 +1,15 @@
 import {randomUUID} from 'node:crypto';
 import {AgentStore,stableHash} from './store.js';
 
-export const workKinds=['analyze_performance','research_concept','story_plan','scene_prompt','opening_image','review_video','caption','record_lesson'] as const;
+export const workKinds=['analyze_performance','research_concept','story_plan','scene_prompt','opening_image','review_video','caption','record_lesson','text_post','image_post','group_post','prepare_video','audience_research'] as const;
 export interface WorkInput {id:string;kind:typeof workKinds[number];title:string;priority?:number;accountId?:string;runId?:string;waitForRunId?:string;payload?:unknown;}
 export interface ClaimInput {owner:string;commandId:string;leaseSeconds?:number;}
 export interface SaveWorkInput {id:string;owner:string;commandId:string;claimToken:string;revision:number;status:'ready'|'prepared'|'blocked'|'done';result?:unknown;}
 const short=(value:unknown,max=200)=>typeof value==='string'&&value.trim().length>0&&value.length<=max;
 function keys(input:any,allowed:string[]) {if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!allowed.includes(key)))throw new Error('Unsupported work input fields');}
 export function compactWork(task:Record<string,any>):Record<string,any> {
-  const {payload,result,claimToken,...compact}=task;
-  return {...compact,hasPayload:payload!==null&&payload!==undefined,hasResult:result!==null&&result!==undefined};
+  const {payload,result,claimToken,preparation,...compact}=task;
+  return {...compact,...(preparation?{preparation:{format:preparation.format,origin:preparation.origin,draftId:preparation.draft?.id??null,preparedId:preparation.prepared?.id??null,status:preparation.draft?.status??preparation.prepared?.status,requiresOwnerReview:true}}:{}),hasPayload:payload!==null&&payload!==undefined,hasResult:result!==null&&result!==undefined};
 }
 
 /** Assigns local preparation work to agents. Never invokes a model, browser or provider. */

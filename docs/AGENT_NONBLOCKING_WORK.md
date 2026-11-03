@@ -26,7 +26,7 @@ npm --silent run agent -- work-list
 npm --silent run agent -- work-next
 ```
 
-Kinds: `analyze_performance`, `research_concept`, `story_plan`, `scene_prompt`, `opening_image`, `review_video`, `caption`, `record_lesson`. A task stores context and a result; it does not execute a model or an external action. Prioritize useful needed work. Opening-image tasks require an independently available, authorized image capability; never reuse the locked Gemini video session. Story plans/prompts remain operator-authored preparation until validated by the existing Pipeline contracts.
+Kinds: `analyze_performance`, `research_concept`, `story_plan`, `scene_prompt`, `opening_image`, `review_video`, `caption`, `record_lesson`, `text_post`, `image_post`, `group_post`, `prepare_video`, `audience_research`. A task stores context and a result; it does not execute a model or an external action. Prioritize useful needed work. Opening-image tasks require an independently available, authorized image capability; never reuse the locked Gemini video session. Story plans/prompts remain operator-authored preparation until validated by the existing Pipeline contracts. [Flexible content operations](AGENT_CONTENT.md) select bounded eligible formats, reuse dated research and save exact prepared results through SCC's existing draft/Group workflows. Default runner output remains in the sidecar; automatic draft saving is a separately configured, disabled-by-default capability.
 
 Claim the next task using `claim.json`:
 

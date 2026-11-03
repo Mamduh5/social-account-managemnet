@@ -9,6 +9,8 @@ import {compactWork} from './agent/work-queue.js';
 import {AgentRunner} from './agent/runner.js';
 import {configureRunner} from './agent/runner-config.js';
 import {manageSchedule} from './agent/runner-schedule.js';
+import {AgentContent} from './agent/content.js';
+import {AgentResearch} from './agent/research.js';
 
 const version = 'agent-workflow.v1';
 const commands = {
@@ -40,6 +42,15 @@ const commands = {
   'work-save': 'Save exact claimed task result as prepared/done/blocked/ready; no automatic execution.',
   'work-show': 'Read --task including its durable context, prompts and result.',
   'work-history': 'Read compact immutable revisions for --task.',
+  'content-context': 'Cached compact Page voice, library, analytics and Groups; --account, optional --input {refresh:true}.',
+  'content-enqueue': 'Choose up to three suitable formats from --input topic/formats/brief/maxTasks/groupId and --account; deduplicated preparation only.',
+  'content-persist': 'Save the exact prepared --task result through SCC draft/Group workflows; never approves, queues or generates.',
+  'content-status': 'Read compact saved content-preparation receipt for --task; zero HTTP.',
+  'content-reconcile': 'Read back a known --input {id} after uncertain content save for --task; no repeated write.',
+  groups: 'Read compact stored Group context; optional --account or --input {id}. No membership or provider changes.',
+  'group-package': 'Read existing manual handoff using --input {id}; never opens Facebook.',
+  'research-save': 'Store dated compact findings and source URLs from supported agent tools; --input, optional --account.',
+  'research-status': 'Reuse fresh findings for --input {topic}, optional --account; zero HTTP.',
   'runner-config': 'Read defaults/configuration; --input replaces validated settings. Disabled by default.',
   'runner-status': 'Compact queue, invocations, budgets and saved schedule status; zero provider HTTP.',
   'runner-show': 'Read one durable executor receipt and saved result using --run INVOCATION_ID.',
@@ -95,7 +106,9 @@ async function main() {
     const pipeline = new PipelineAdapter(pipelineClient);
     const statePath=path.resolve(String(flags.state || process.env.SCC_AGENT_STATE || path.resolve(__dirname,'../.data/agent/agent.db')));
     const local = () => store ||= new AgentStore(statePath);
-    const runner=()=>new AgentRunner(local(),path.join(path.dirname(statePath),'runner'));
+    const contentScc=new SccAdapter(new JsonClient(sccClient.origin,{timeoutMs:10_000}));
+    const content=()=>new AgentContent(local(),contentScc);
+    const runner=()=>new AgentRunner(local(),path.join(path.dirname(statePath),'runner'),undefined,undefined,id=>content().persist(id));
     const workflow = () => new AgentWorkflow(local(),pipeline,scc,{scc:sccClient.origin,pipeline:pipelineClient.origin});
     const run = () => {
       if (typeof flags.run !== 'string' || !flags.run) throw new WorkflowError('run_required', 'Supply the stable --run ID.');
@@ -144,6 +157,26 @@ async function main() {
       case 'work-save': data = workflow().work.save(input); break;
       case 'work-show': data = workflow().work.show(task()); break;
       case 'work-history': data = {taskId:task(),revisions:local().workHistory(task(),limit).map(row=>compactWork(row as Record<string,any>))}; break;
+      case 'content-context':
+        if(Object.keys(input).some(k=>k!=='refresh')||input.refresh!==undefined&&typeof input.refresh!=='boolean')throw new Error('Supply only optional refresh:true/false');
+        data=await content().context(account!,input.refresh===true);break;
+      case 'content-enqueue': data=await content().enqueue(account!,input);break;
+      case 'content-persist':
+        if(flags.input)throw new Error('Content persist uses the exact saved task result; no input override');
+        data=await content().persist(task());break;
+      case 'content-status': data=content().status(task());break;
+      case 'content-reconcile':
+        if(Object.keys(input).some(k=>k!=='id')||typeof input.id!=='string'||!input.id)throw new Error('Supply the known original resource id');
+        data=await content().reconcile(task(),input.id);break;
+      case 'groups':
+      case 'group-package':
+        if(Object.keys(input).some(k=>k!=='id')||input.id!==undefined&&typeof input.id!=='string')throw new Error('Supply only an optional id');
+        if(command==='group-package'&&!input.id)throw new Error('Supply the prepared handoff id');
+        data=command==='group-package'?await contentScc.groupPackage(input.id):input.id?{group:await contentScc.group(input.id)}:{groups:await contentScc.groups(account)};break;
+      case 'research-save': data=new AgentResearch(local()).save(input,account);break;
+      case 'research-status':
+        if(Object.keys(input).some(k=>k!=='topic'))throw new Error('Supply only topic');
+        data=new AgentResearch(local()).status(input.topic,account);break;
       case 'runner-config': data=flags.input?configureRunner(local(),input,flags['owner-authorized']===true):runner().config(); break;
       case 'runner-status': data=runner().status(); break;
       case 'runner-show': data=runner().show(run()); break;

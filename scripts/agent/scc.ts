@@ -14,6 +14,7 @@ export interface PrepareReelInput {
 }
 export interface ExactDraftInput {revision: number; accountId: string; payloadHash: string;}
 export interface PrepareContentInput extends PrepareReelInput {categoryId?: string;}
+export interface GeneralPreparation {title:string;contentType:'text'|'image'|'reel';videoId?:string;scheduledAt:null;destinations:Array<{accountId:string;caption:string;hashtags:string;attachments:Array<{mediaId:string;altText:string}>;applyBranding:boolean}>;}
 
 function pick(value: JsonObject | undefined, keys: string[]): JsonObject {
   return Object.fromEntries(keys.filter(key=>value?.[key]!==undefined).map(key=>[key,value![key]]));
@@ -77,10 +78,55 @@ function compactAccount(account:JsonObject): JsonObject {
   return {...pick(account,['id','name','handle','platform','account_type','category_id','category_name','connection_status','identity_verified_at','is_demo']),
     capabilities:pick(account.capabilities,capabilityKeys),brandKit:pick(account.brandKit,kitKeys)};
 }
+function compactVoice(voice:JsonObject):JsonObject {
+  const p=voice.profile??{},take=(key:string,n:number)=>Array.isArray(p[key])?p[key].slice(0,n):[];
+  return {revision:voice.revision,profile:{...pick(p,['editorialPurpose','language','tone','typicalLength','humor','emojiPreference','hashtagPreference','provisional']),
+    editorialSubjects:take('editorialSubjects',8),preferredPhrases:take('preferredPhrases',5),
+    // Preserve every prohibition. Examples/facts are excerpts; never truncate a fact mid-sentence.
+    prohibitedPhrases:take('prohibitedPhrases',30),approvedExamples:take('approvedExamples',1),approvedFacts:take('approvedFacts',4),faqAnswers:take('faqAnswers',2)},
+    excerpt:true,notice:'Use only supplied facts. Additional voice examples/facts were omitted when present; prohibitions are retained.'};
+}
 
 /** HTTP-only adapter. It never imports the owner database, starts workers, or invokes an AI provider. */
 export class SccAdapter {
   constructor(readonly client: JsonClient) {}
+
+  /** Reuse the Content Assistant voice and operator library; no model call. */
+  async preparationContext(accountId:string):Promise<JsonObject> {
+    const data=await this.client.get<JsonObject>('/api/operator/pages/'+encodeURIComponent(accountId)+'/context');
+    if(data.account?.id!==accountId || !data.contextFingerprint || !data.voice || !Array.isArray(data.rules))throw new Error('Incomplete Page preparation context');
+    const media=data.media??{};
+    return {...pick(data,['account','rules','contextFingerprint','notice']),voice:compactVoice(data.voice),media:{
+      images:(media.images??[]).slice(0,5).map((r:JsonObject)=>pick(r,['id','name','width','height','sha256'])),
+      videos:(media.videos??[]).slice(0,5).map((r:JsonObject)=>pick(r,['id','title','width','height','duration','categoryId']))},
+      mediaTruncated:(media.images?.length??0)>5||(media.videos?.length??0)>5};
+  }
+
+  async groups(accountId?:string):Promise<JsonObject[]> {
+    const data=await this.client.get<JsonObject>('/api/groups'+queryString({accountId,archived:false},['accountId','archived']));
+    if(!Array.isArray(data.groups))throw new Error('Invalid Group context');
+    return data.groups.slice(0,20).map(compactGroup);
+  }
+  async group(id:string):Promise<JsonObject> {
+    const data=await this.client.get<JsonObject>('/api/groups/'+encodeURIComponent(id)+'/review');
+    if(data.group?.id!==id)throw new Error('Group identity mismatch');return compactGroup(data.group);
+  }
+  async groupPackage(id:string):Promise<JsonObject> {
+    return this.client.get<JsonObject>('/api/groups/prepared/'+encodeURIComponent(id)+'/package');
+  }
+  async prepareGeneral(body:GeneralPreparation):Promise<JsonObject> {
+    const result=await this.client.post<JsonObject>('/api/publishing/drafts',body);
+    const draft=postDraft(result,'prepare',{payload:body,status:'draft'});
+    if(draft.approvedRevision || draft.queuedPostId || draft.scheduledAt!==null)throw new ApiError(200,'invalid_scc_prepare_response',true);
+    return preparedResult(draft);
+  }
+  async prepareGroup(groupId:string,body:JsonObject):Promise<JsonObject> {
+    const result=await this.client.post<JsonObject>('/api/groups/'+encodeURIComponent(groupId)+'/prepared',body);
+    const p=result.prepared;
+    if(!resourceId(p?.id)||p.group_id!==groupId||p.kind!=='post'||p.content!==body.content||p.status!=='prepared'||p.handoffContext?.group?.revision!==body.revision)
+      throw new ApiError(200,'invalid_group_prepare_response',true);
+    return {prepared:p,publicationVerified:false,automaticPosting:false};
+  }
 
   async context(accountId?: string,options:{limit?:number;offset?:number}={}): Promise<JsonObject> {
     const {limit,offset}=pageOptions(options);
@@ -226,4 +272,8 @@ export class SccAdapter {
     return {post:{...pick(post,['id','video_id','content_type','title','status','scheduled_at','created_at','updated_at']),
       destinations:post.destinations.map((destination:JsonObject)=>({...pick(destination,['id','post_id','account_id','account_name','account_handle','platform','is_demo','content_type','status','progress','error_message','retry_count','max_retries','remote_post_id','remote_post_url','published_at','confirmation_source','verification_status','submission_state','created_at','updated_at']),scheduled_at:post.scheduled_at ?? null}))}};
   }
+}
+
+function compactGroup(group:JsonObject):JsonObject {
+  return {...pick(group,['id','name','url','identity_type','account_id','membership','category','notes','rules','rules_reviewed_at','reviewedAt','revision','eligibility','readiness','archivedAt']),source:'owner_entered',permissionVerified:false,automationSupported:false};
 }

@@ -6,13 +6,14 @@ export const executorSchema=z.object({
   id:z.string().regex(/^[a-z][a-z0-9_-]{0,39}$/),
   adapter:z.enum(['codex','gemini','json']),
   command:z.string().min(1).max(1000),args:z.array(z.string().max(2000)).max(30).default([]),
-  kinds:z.array(z.enum(workKinds)).min(1).default(['research_concept','story_plan','scene_prompt','caption','record_lesson','analyze_performance']),
+  kinds:z.array(z.enum(workKinds)).min(1).default(['research_concept','story_plan','scene_prompt','caption','record_lesson','analyze_performance','text_post','image_post','group_post','prepare_video','audience_research']),
   // Required for owner-supplied wrappers; prompts cannot establish process isolation.
   isolationReviewed:z.boolean().default(false),
 }).strict();
 export const runnerConfigSchema=z.object({
   version:z.literal('agent-runner.v1').default('agent-runner.v1'),
   enabled:z.boolean().default(false),paused:z.boolean().default(false),
+  saveContentDrafts:z.boolean().default(false),
   intervalSeconds:z.number().int().min(60).max(86400).default(300),
   cooldownSeconds:z.number().int().min(0).max(86400).default(60),
   maxConcurrent:z.number().int().min(1).max(4).default(1),

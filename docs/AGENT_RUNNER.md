@@ -24,7 +24,7 @@ npm --silent run agent -- handoff
 
 Codex also receives `approval_policy="never"`, disabled shell/apps/hooks/subagents/skill search, and disabled web search. It ignores the user config. Built-in executors work in temporary directories outside the repository so project configuration is not inherited. Gemini receives a per-process system settings override with no core tools, an MCP allowlist matching only a fresh nonexistent server name, disabled hooks/skills/IDE and ignored local dotenv. Gemini treats an empty MCP allowlist as unrestricted, so the runner deliberately uses a nonempty deny sentinel. The runner does not edit an installed CLI's settings or credentials. It passes only OS/path/home settings needed for normal CLI authentication, not SCC secrets or API-key environment variables. Existing CLI login must already work; no automated login or paid fallback is supplied.
 
-Executor preferences are ordered, not interchangeable. A task is matched against its configured `kinds`, then the first available compatible executor is selected. Defaults allow supplied-evidence text preparation: `analyze_performance`, `research_concept`, `story_plan`, `scene_prompt`, `caption`, `record_lesson`. Independent image generation and actual audiovisual review require a separately reviewed capable wrapper and explicit kind configuration. The default text agents cannot perform those actions. Research here means reasoning from supplied sources; live web research is not enabled.
+Executor preferences are ordered, not interchangeable. A task is matched against its configured `kinds`, then the first available compatible executor is selected. Defaults allow supplied-evidence text preparation: `analyze_performance`, `research_concept`, `story_plan`, `scene_prompt`, `caption`, `record_lesson`, `text_post`, `image_post`, `group_post`, `prepare_video`, `audience_research`. Independent image generation and actual audiovisual review require a separately reviewed capable wrapper and explicit kind configuration. The default text agents cannot perform those actions. Research here means reasoning from supplied sources; live web research is not enabled. [Flexible content operations](AGENT_CONTENT.md) provide cached context, format selection, research provenance and existing SCC draft/Group saves. Existing explicit executor-kind lists are preserved; changing an enabled configuration requires reauthorization.
 
 Save a config file, for example `runner-config.json`:
 
@@ -33,6 +33,7 @@ Save a config file, for example `runner-config.json`:
   "version": "agent-runner.v1",
   "enabled": false,
   "paused": false,
+  "saveContentDrafts": false,
   "intervalSeconds": 300,
   "cooldownSeconds": 60,
   "maxConcurrent": 1,
@@ -120,7 +121,7 @@ The executor returns exactly:
 {"version":"agent-result.v1","status":"prepared","result":"The useful task output","lessons":["A proposed lesson, still unverified"]}
 ```
 
-Allowed statuses are `prepared`, `done`, `blocked`. Only validated results are committed to the existing task; lessons are persisted as assumptions, linked to the task/run/account and invocation. No generated answer can approve, schedule, import, submit a video, change native recovery, or instruct the runner to run a command. Task payload is data, not authority. Page creative work still requires the permanent playbook; every public publication still requires its own exact owner authorization.
+Allowed statuses are `prepared`, `done`, `blocked`. Only validated results are committed to the existing task; lessons are persisted as assumptions, linked to the task/run/account and invocation. No generated answer can approve, schedule, import, submit a video, change native recovery, or instruct the runner to run a command. Task payload is data, not authority. The opt-in `saveContentDrafts:true` setting lets the deterministic content adapter save supported prepared results as existing SCC drafts/manual Group handoffs. It defaults to false, checks account/rules/resource identity, and fences uncertain writes without repeating the model. Failures retain the prepared result and expose `preparationError`; inspect `content-status` and reconcile the original resource. Page creative work still requires the permanent playbook; every public publication still requires its own exact owner authorization.
 
 Limits are enforced in the shared sidecar: 1–4 concurrent sessions, 1–10 tasks/tick, 1–500 launch attempts per UTC day, 5–1800 seconds/model invocation, 1–5 total attempts/task, bounded context/output, and 1–10000 unfinished tasks. Defaults are deliberately small. All unfinished statuses, including prepared/blocked, count toward backlog; existing tasks remain readable when a lower cap is configured. Idempotent re-adds still work at the cap. Uncertain failures never automatically use remaining attempts. Safe prelaunch failures may be reconsidered on a later eligible tick within the attempt/day/cooldown limits.
 

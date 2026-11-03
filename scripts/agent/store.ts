@@ -221,10 +221,11 @@ export class AgentStore {
     return this.readKnowledge(this.db.prepare('SELECT * FROM knowledge WHERE id=?').get(id) as Record<string, string>);
   }
 
-  listKnowledge(options: { accountId?: string; resourceId?: string; limit?: number } = {}): AgentKnowledge[] {
+  listKnowledge(options: { accountId?: string | null; resourceId?: string; limit?: number } = {}): AgentKnowledge[] {
     const clauses: string[] = [];
     const args: (string | number)[] = [];
-    if (options.accountId) { clauses.push('account_id=?'); args.push(options.accountId); }
+    if (options.accountId===null) clauses.push('account_id IS NULL');
+    else if (options.accountId) { clauses.push('account_id=?'); args.push(options.accountId); }
     if (options.resourceId) { clauses.push('resource_id=?'); args.push(options.resourceId); }
     args.push(bound(options.limit));
     return (this.db.prepare('SELECT * FROM knowledge' + (clauses.length ? ' WHERE ' + clauses.join(' AND ') : '') + ' ORDER BY created_at DESC,id LIMIT ?').all(...args) as Record<string, string>[]).map(row => this.readKnowledge(row));
@@ -300,6 +301,9 @@ export class AgentStore {
   }
   providerOwner(scope:string):string|null {
     return (this.db.prepare('SELECT run_id FROM agent_provider_claims WHERE scope=?').get(scope) as {run_id:string}|undefined)?.run_id??null;
+  }
+  providerClaims():Array<{scope:string;runId:string}> {
+    return (this.db.prepare('SELECT scope,run_id FROM agent_provider_claims').all() as {scope:string;run_id:string}[]).map(row=>({scope:row.scope,runId:row.run_id}));
   }
   releaseProvider(scope:string,id:string):void {this.db.prepare('DELETE FROM agent_provider_claims WHERE scope=? AND run_id=?').run(scope,id);}
 
