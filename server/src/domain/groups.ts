@@ -65,6 +65,7 @@ export interface GroupPackageDto {
   nativeUrl: string; publicationStatus: 'unpublished_manual_handoff' | 'owner_receipt_recorded_unverified';
   text: string; driftWarnings: string[]; readiness: GroupReadiness; receiptHistory: GroupReceiptEvent[];
   reminderState: 'active' | 'cancelled' | 'dismissed';
+  nativeActions?: import('./groups-native-actions.js').GroupNativeActionDto[];
 }
 export interface GroupCanonicalIdentity { originalUrl: string; canonicalUrl: string; canonicalKey: string; groupToken: string }
 export interface GroupThreadIdentity extends GroupCanonicalIdentity { postId: string; commentId: string | null; replyCommentId: string | null }

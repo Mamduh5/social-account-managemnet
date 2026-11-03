@@ -1,5 +1,6 @@
 import type { GroupListFilters, GroupMembershipInput, GroupPackageDto, GroupPlanDto, GroupPlanInput, GroupPreparedDto, GroupPrepareInput, GroupReceiptInput, GroupReminderDto, GroupReminderInput } from '../../../server/src/domain/groups';
 import { request as httpRequest } from './http';
+import type { GroupNativeActionDto, GroupNativeActionInput, GroupNativeOutcomeInput } from '../../../server/src/domain/groups-native-actions';
 
 async function request<T = any>(url:string,method='GET',body?:unknown): Promise<T> {
   return httpRequest<T>(`/api/${url}`,{method,headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined});
@@ -23,7 +24,9 @@ export const groupsApi = {
     return request<{ groups: GroupPlanDto[] }>(`groups/${query.size ? `?${query}` : ''}`);
   },
   save: (input: GroupPlanInput, id?: string) => request<{ group: GroupPlanDto }>(`groups/${id ? encodeURIComponent(id) : ''}`, id ? 'PUT' : 'POST', input),
-  review: (id: string) => request<{ group: GroupPlanDto; prepared: GroupPreparedDto[]; publicationVerified: false }>(`groups/${encodeURIComponent(id)}/review`),
+  review: (id: string) => request<{ group: GroupPlanDto; prepared: GroupPreparedDto[]; publicationVerified: false; nativeActions?: GroupNativeActionDto[] }>(`groups/${encodeURIComponent(id)}/review`),
+  nativePrepare: (id: string, input: GroupNativeActionInput) => request<{ nativeAction: GroupNativeActionDto }>(`groups/${encodeURIComponent(id)}/native-actions`, 'POST', input),
+  nativeOutcome: (id: string, input: GroupNativeOutcomeInput) => request<{ nativeAction: GroupNativeActionDto }>(`groups/native-actions/${encodeURIComponent(id)}/outcome`, 'POST', input),
   membership: (id: string, input: GroupMembershipInput) => request<{ group: GroupPlanDto }>(`groups/${encodeURIComponent(id)}/membership`, 'POST', input),
   prepared: (id: string) => request<{ prepared: GroupPreparedDto[] }>(`groups/${encodeURIComponent(id)}/prepared`),
   prepare: (id: string, input: GroupPrepareInput) => request<{ prepared: GroupPreparedDto }>(`groups/${encodeURIComponent(id)}/prepared`, 'POST', input),

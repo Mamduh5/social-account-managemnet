@@ -6,6 +6,7 @@ import type { GroupEligibility, GroupListFilters, GroupMembershipInput, GroupPac
 import { createGroupsRequestGuard, emptyGroupDraft } from './groups-selection';
 import { useFeatureActive } from '../features/FeatureActivity';
 import { useResourceRefresh } from '../api/resource-events';
+import type { GroupNativeActionDto, GroupNativeActionKind, GroupNativeOutcomeInput } from '../../../server/src/domain/groups-native-actions';
 
 export interface GroupForm extends GroupPlanInput {
   accountId: string; membership: GroupPlanDto['membership']; category: string; notes: string; rules: string;
@@ -27,6 +28,7 @@ export function useGroupsWorkspace() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [media, setMedia] = useState<GroupLibraryItem[]>([]);
   const [prepared, setPrepared] = useState<GroupPreparedDto[]>([]);
+  const [nativeActions, setNativeActions] = useState<GroupNativeActionDto[]>([]);
   const [draft, updateDraft] = useState(emptyGroupDraft);
   const [handoff, setHandoff] = useState<GroupPackageDto | null>(null);
   const [reminders, setReminders] = useState<GroupReminderDto[]>([]);
@@ -90,7 +92,7 @@ export function useGroupsWorkspace() {
     if (!mounted.current || !lists.current.current(token)) return;
     setGroups(registry.groups); setHasRegisteredGroups(registered); setReminders(remindersResult.reminders);
   };
-  const clearDependent = () => { packages.current.invalidate(); setPrepared([]); setHandoff(null); updateDraft(emptyGroupDraft()); };
+  const clearDependent = () => { packages.current.invalidate(); setPrepared([]); setNativeActions([]); setHandoff(null); updateDraft(emptyGroupDraft()); };
   const selectGroup = async (group: GroupPlanDto | string): Promise<boolean> => {
     const token = selection.current.begin(); selectionToken.current = token;
     const request = registryRequests.current.begin(), edit = formEdits.current;
@@ -100,7 +102,7 @@ export function useGroupsWorkspace() {
     try {
       const result = await groupsApi.review(groupId);
       if (!mounted.current || !selection.current.current(token) || !registryRequests.current.current(request)) return false;
-      acceptGroup(result.group, baseline, edit); setPrepared(result.prepared); return true;
+      acceptGroup(result.group, baseline, edit); setPrepared(result.prepared); setNativeActions(result.nativeActions || []); return true;
     } catch (e) { if (mounted.current && selection.current.current(token) && registryRequests.current.current(request)) throw e; return false; }
   };
   const newGroup = () => {
@@ -124,7 +126,7 @@ export function useGroupsWorkspace() {
     const { group } = await groupsApi.save(input, selectedGroup?.id);
     const [review] = await Promise.all([groupsApi.review(group.id), refresh()]);
     if (mounted.current && selection.current.current(token) && registryRequests.current.current(request)) {
-      acceptGroup(review.group, baseline, edit); setPrepared(review.prepared);
+      acceptGroup(review.group, baseline, edit); setPrepared(review.prepared); setNativeActions(review.nativeActions || []);
       packages.current.invalidate(); setHandoff(null);
       if (draftEdits.current === draftEdit) updateDraft(emptyGroupDraft());
       setMessage('Group plan saved as owner entered and unverified.');
@@ -171,6 +173,23 @@ export function useGroupsWorkspace() {
       setMessage(`Reminder ${state}. Publication status has not changed.`);
     }
   };
+  const prepareNative = async (kind: GroupNativeActionKind, preparedId?: string, reviewedAction?: GroupNativeActionDto) => {
+    if (!selectedGroup) return;
+    const token = selectionToken.current, groupId = selectedGroup.id;
+    // Stable across lost responses/reloads; a second key cannot bypass the server's identity guard.
+    const requestKey = reviewedAction ? `group-review:${reviewedAction.id}:${selectedGroup.revision}` : `group-ui:${groupId}:${selectedGroup.account_id}:${kind}:${preparedId || 'membership'}`;
+    await groupsApi.nativePrepare(groupId, { kind, preparedId, revision: selectedGroup.revision, requestKey,
+      ...(reviewedAction ? {supersedesActionId:reviewedAction.id,expectedActionRevision:reviewedAction.revision,confirmIdentity:true,confirmRules:true} : {}) });
+    const result = await groupsApi.review(groupId);
+    if (mounted.current && selection.current.current(token)) { setNativeActions(result.nativeActions || []); setMessage('Native handoff reserved locally. No Facebook action executed.'); }
+  };
+  const recordNative = async (id: string, input: GroupNativeOutcomeInput) => {
+    if (!selectedGroup) return;
+    const token = selectionToken.current, groupId = selectedGroup.id;
+    await groupsApi.nativeOutcome(id, input);
+    const result = await groupsApi.review(groupId);
+    if (mounted.current && selection.current.current(token)) { setNativeActions(result.nativeActions || []); setMessage('Native observation appended as unverified. Existing Page publishing and membership records are unchanged.'); }
+  };
   useEffect(() => {
     mounted.current = true;
     selectionToken.current = selection.current.begin();
@@ -199,5 +218,5 @@ export function useGroupsWorkspace() {
   }, true);
   const hasUnsavedChanges = selectedGroup ? JSON.stringify(form) !== JSON.stringify(groupForm(selectedGroup)) : true;
   return { groups, hasRegisteredGroups, selectedGroup, form, setForm, accounts, media, prepared, draft, setDraft, handoff, reminders, now, error, message, setMessage, busy: pending > 0, hasUnsavedChanges,
-    run, refresh, selectGroup, newGroup, openPackage, saveGroup, recordMembership, savePrepared, recordReceipt, updateReminder };
+    nativeActions, prepareNative, recordNative, run, refresh, selectGroup, newGroup, openPackage, saveGroup, recordMembership, savePrepared, recordReceipt, updateReminder };
 }

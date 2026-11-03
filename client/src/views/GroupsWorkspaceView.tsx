@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { GroupEligibility, GroupListFilters, GroupMembershipStatus, GroupPackageDto } from '../../../server/src/domain/groups';
 import { canonicalGroupIdentity } from '../../../server/src/domain/groups';
 import { useGroupsWorkspace } from '../hooks/useGroupsWorkspace';
+import { GroupNativeActions } from '../components/groups/GroupNativeActions';
 
 const inputClass = 'w-full min-w-0 bg-surface border border-border rounded-xl px-3 py-2 text-sm text-slate-100 focus:border-terracotta-500';
 const buttonClass = 'scc-btn-secondary text-sm';
@@ -111,6 +112,7 @@ export function GroupsWorkspaceView() {
           {w.hasUnsavedChanges && <p className="rounded-lg border border-honey-500/30 bg-honey-500/5 p-3 text-xs text-honey-400">Save registry changes before recording membership or preparing a handoff.</p>}
           <ol className="max-h-48 overflow-y-auto space-y-2 text-xs">{group.membershipObservations.map(o => <li key={o.id} className="border border-border rounded-lg p-2"><p>{membershipLabel(o.status)} · {w.accounts.find(a => a.id === o.accountId)?.name || o.accountId}</p><p className="break-words text-slate-400">Observed Group: {o.groupIdentity?.url || o.groupIdentity?.canonicalKey || 'Not captured in this historical observation'}</p><p className="text-slate-400">Observed: {dateLabel(o.observedAt)} · Recorded: {dateLabel(o.createdAt)} · owner entered / unverified</p>{o.notes && <p className="whitespace-pre-wrap">{o.notes}</p>}</li>)}</ol>
         </div>}
+        {group?.identity_type === 'page' && <GroupNativeActions actions={w.nativeActions} busy={w.busy} disabled={w.hasUnsavedChanges} prepareJoin={() => void w.run(() => w.prepareNative('join'))} reviewUnsent={action => void w.run(() => w.prepareNative(action.kind, action.preparedId || undefined, action))} record={(id, input) => void w.run(() => w.recordNative(id, input))} />}
       </section>
 
       <section className="min-w-0 space-y-5">
@@ -130,6 +132,7 @@ export function GroupsWorkspaceView() {
 
         {w.handoff && <div className={cardClass}>
           <h3 className="font-semibold">Manual handoff package</h3><pre className="whitespace-pre-wrap break-words text-xs text-slate-300 max-h-64 overflow-y-auto">{w.handoff.text}</pre>
+          {w.handoff.group.identityType === 'page' && w.handoff.prepared.kind === 'post' && <button className={buttonClass} disabled={w.busy || w.hasUnsavedChanges} onClick={() => void w.run(() => w.prepareNative('post', w.handoff!.prepared.id))}>Prepare one native Page post handoff</button>}
           <p className="text-sm text-honey-400">{w.handoff.sourcePage ? `Source Page: ${w.handoff.sourcePage.name} · ${w.handoff.sourcePage.id}` : 'Source Page not captured'} · {w.handoff.group.identityType === 'page' ? 'Post as the named Page' : 'Post as your personal profile manually'}</p>
           {w.handoff.driftWarnings.length > 0 && <div role="alert" className="text-sm text-honey-400"><p>Review required before any manual action:</p><ul className="list-disc pl-5">{w.handoff.driftWarnings.map(warning => <li key={warning}>{warning}</li>)}</ul></div>}
           <div className="flex flex-wrap gap-2">{w.handoff.media.map(m => <a key={`${m.kind}:${m.id}`} className={buttonClass} href={m.url} target="_blank" rel="noopener noreferrer">Open {m.kind}: {m.title}</a>)}</div>

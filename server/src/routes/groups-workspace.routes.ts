@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { groupsWorkspaceService as service } from '../services/groups-workspace.service.js';
+import { groupsNativeActionsService as native } from '../services/groups-native-actions.service.js';
 import { groupMembershipStatuses, type GroupListFilters, type GroupMembershipStatus } from '../domain/groups.js';
 
 export const groupsRouter=Router();
@@ -22,7 +23,10 @@ groupsRouter.get('/',action(req=>({groups:service.list(filters(req)),automationS
 groupsRouter.get('/reminders',action(()=>({reminders:service.reminders(),automaticPosting:false})));
 groupsRouter.post('/',action(req=>({group:service.save(undefined,req.body)})));
 groupsRouter.put('/:id',action(req=>({group:service.save(id(req),req.body)})));
-groupsRouter.get('/:id/review',action(req=>service.review(id(req))));
+groupsRouter.get('/:id/review',action(req=>({...service.review(id(req)),nativeActions:native.list(id(req))})));
+groupsRouter.get('/:id/native-actions',action(req=>({nativeActions:native.list(id(req)),automationSupported:false})));
+groupsRouter.post('/:id/native-actions',action(req=>({nativeAction:native.prepare(id(req),req.body),remoteActionExecuted:false})));
+groupsRouter.post('/native-actions/:id/outcome',action(req=>({nativeAction:native.record(id(req),req.body),remoteActionExecuted:false})));
 groupsRouter.post('/:id/membership',action(req=>({group:service.observe(id(req),req.body)})));
 groupsRouter.get('/:id/prepared',action(req=>({prepared:service.prepared(id(req))})));
 groupsRouter.post('/:id/prepared',action(req=>({prepared:service.prepare(id(req),req.body)})));

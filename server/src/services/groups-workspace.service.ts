@@ -5,6 +5,8 @@ import { canonicalGroupIdentity, defaultGroupEligibility, groupMembershipStatuse
 import { contentWorkspaceRepo as repo } from '../repositories/content-workspace.repo.js';
 import { accountsRepo } from '../repositories/accounts.repo.js';
 import { groupsHandoffRepo as handoffs } from '../repositories/groups-handoff.repo.js';
+import { groupsNativeActionsRepo as nativeActions } from '../repositories/groups-native-actions.repo.js';
+import { groupNativeActionExport } from '../domain/groups-native-actions.js';
 import { groupsRegistryRepo as registry } from '../repositories/groups-registry.repo.js';
 
 function ready() { if (!registry.ready()) throw new Error('External Groups requires the explicit offline owner-maintenance migration'); }
@@ -196,11 +198,14 @@ export const groupsWorkspaceService = {
     const snapshot=context?.group || {name:g.name,url:g.url,identityType:g.identity_type,accountId:g.account_id,membership:g.membership,rules:g.rules,rulesReviewedAt:g.rules_reviewed_at,notes:g.notes};
     const sourcePage=context?.sourcePage || null,driftWarnings=context?drift(snapshot,g):['Legacy handoff has no captured identity, membership or rules snapshot; review manually.'];
     const planChanged=!!context && driftWarnings.some(w=>!w.startsWith('Legacy handoff')),sourcePageUnavailable=!!sourcePage&&!pageAvailable(sourcePage.id),prepared=preparedContext(p);
-    return {prepared,group:{...snapshot,permissionVerified:false as const},sourcePage,media:context?.media || [],relevance:context?.relevance || '',reminderAt:context?.reminderAt || null,
+    const actions=nativeActions.list(p.group_id).filter(action=>action.kind==='join'||action.preparedId===id);
+    const result = {prepared,group:{...snapshot,permissionVerified:false as const},sourcePage,media:context?.media || [],relevance:context?.relevance || '',reminderAt:context?.reminderAt || null,
       planChanged,driftWarnings,readiness:g.readiness,receiptHistory:prepared.receiptHistory,reminderState:prepared.reminderState,
       sourcePageUnavailable,contextCaptured:!!context,publicationVerified:false as const,
+      nativeActions:actions,
       nativeUrl:p.thread_url || snapshot.url,publicationStatus:p.status==='prepared'?'unpublished_manual_handoff':'owner_receipt_recorded_unverified',
       text:`MANUAL FACEBOOK GROUP HANDOFF — ${p.status==='prepared'?'NOT PUBLISHED':'OWNER RECEIPT RECORDED — UNVERIFIED'}\nGroup: ${snapshot.name}\nURL: ${p.thread_url || snapshot.url}\nIntended identity: ${snapshot.identityType}\nSource Page: ${sourcePage?`${sourcePage.name} (${sourcePage.id})`:'Not captured — review source manually'}\nMembership/admin: ${snapshot.membership} (owner entered, unverified)\nRules last reviewed: ${snapshot.rulesReviewedAt || 'Not reviewed'}\nRules: ${snapshot.rules || 'Not supplied'}\nGroup relevance: ${context?.relevance || 'Not supplied'}\nReminder: ${context?.reminderAt || 'None'}\n${driftWarnings.map(w=>`REVIEW: ${w}\n`).join('')}${sourcePageUnavailable?'SOURCE PAGE UNAVAILABLE — review before any manual action.\n':''}\n${p.content}\n\nOpen/copy/export does not publish. Membership is not permission to post. Select the correct identity and review Group rules before any owner action.`};
+    return {...result,text:(actions.length ? actions.map(groupNativeActionExport).join('\n\n') + '\n\n' : '') + result.text};
   },
   receipt(id: string,input: GroupReceiptInput): GroupPreparedDto {
     ready();return registry.transaction(()=>{

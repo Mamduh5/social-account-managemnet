@@ -7,6 +7,7 @@ import { GroupsWorkspaceView } from '../client/src/views/GroupsWorkspaceView';
 import { build } from 'esbuild';
 import { chromium, type Browser, type Page } from 'playwright';
 import type { GroupPlanDto } from '../server/src/domain/groups.js';
+import type { GroupNativeActionDto } from '../server/src/domain/groups-native-actions.js';
 
 const clientRequire = createRequire(path.resolve(__dirname, '../client/package.json'));
 const { createElement } = clientRequire('react');
@@ -45,6 +46,11 @@ function fixture(id: string, account = 'page-a'): GroupPlanDto {
     permissionVerified: false, source: 'owner_entered', automationSupported: false };
 }
 const groupA = fixture('group-a'), groupB = fixture('group-b', 'page-b');
+function nativeFixture(state: GroupNativeActionDto['state'] = 'prepared'): GroupNativeActionDto {
+  return {id:'native-action-a',groupId:groupA.id,canonicalKey:groupA.canonicalKey!,groupUrl:groupA.url,accountId:'page-a',accountName:'Page A',externalPageId:null,groupRevision:1,
+    kind:'join',preparedId:null,requestKey:'native-fixture',contentFingerprint:null,supersedesActionId:null,supersededById:null,state,revision:state==='prepared'?1:2,createdAt:'2026-11-03T00:00:00Z',reasons:[],handoffText:'Named Page A membership handoff; no remote action executed.',
+    events:state==='prepared'?[]:[{state:'submission_started',observedAt:'2026-11-03T00:00:00Z',recordedAt:'2026-11-03T00:00:00Z',source:'owner_entered',notes:'One legitimate Page request was submitted.',url:groupA.url,verified:false}],automationSupported:false,publicationVerified:false};
+}
 async function component(t: TestContext, groups = [groupA, groupB]): Promise<Page> {
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -428,4 +434,40 @@ test('loading and failed filters never claim that no Groups are registered', asy
   assert.equal(await page.getByRole('alert').innerText(), 'Fixture filter failure');
   assert.equal(await page.getByText('No Groups registered yet', { exact: true }).count(), 0);
   assert.equal(await page.getByLabel('Saved group plan', { exact: true }).locator('option').count(), 3);
+});
+
+test('native submission UI requires identity and evidence and removes the submit option after starting', async t => {
+  const page = await component(t), action = nativeFixture();
+  await page.evaluate(action => {
+    const w = window as any; w.nativeAction = action;
+    w.groupsApi.review = async () => ({group:w.testGroups[0],prepared:[],nativeActions:[w.nativeAction]});
+    w.groupsApi.nativeOutcome = async (_id: string, input: any) => {
+      w.nativeInput = input; w.nativeAction = {...w.nativeAction,state:input.state,revision:2,events:[{...input,recordedAt:input.observedAt,verified:false}]};
+      return {nativeAction:w.nativeAction};
+    };
+  }, action);
+  await select(page); await settled(page);
+  await page.getByText('Page membership · prepared · Page A', {exact:true}).click();
+  await page.getByLabel('Observed native action state').selectOption('submission_started');
+  const record = page.getByRole('button',{name:'Record native action observation',exact:true});
+  assert.equal(await record.isDisabled(),true);
+  await page.getByLabel('Observation evidence and next step').fill('The displayed identity is Page A. I reviewed the rules and will click Join once.');
+  await page.getByLabel('I observed the named Page identity and reviewed the Group rules.').check();
+  await record.click(); await settled(page);
+  assert.equal(await page.evaluate(()=>(window as any).nativeInput.accountId),'page-a');
+  assert.equal(await page.evaluate(()=>(window as any).nativeInput.source),'owner_entered');
+  assert.equal(await page.getByLabel('Observed native action state').locator('option[value="submission_started"]').count(),0);
+  assert.equal(await page.getByLabel('Observed native action state').locator('option[value="request_pending"]').count(),1);
+});
+
+test('late native-handoff preparation cannot replace another selected Group', async t => {
+  const page = await component(t); await select(page); await settled(page);
+  await hold(page,'nativePrepare');
+  await page.getByRole('button',{name:'Prepare one Page membership handoff',exact:true}).click(); await pending(page,'nativePrepare');
+  await select(page,groupB.id);
+  await resolve(page,'nativePrepare',{nativeAction:nativeFixture()}); await settled(page);
+  assert.equal(await page.getByLabel('Group name',{exact:true}).inputValue(),groupB.name);
+  assert.equal(await page.getByText('Page membership · prepared · Page A',{exact:true}).count(),0);
+  const request = await page.evaluate(()=>(window as any).deferred.nativePrepare.length);
+  assert.equal(request,0);
 });
