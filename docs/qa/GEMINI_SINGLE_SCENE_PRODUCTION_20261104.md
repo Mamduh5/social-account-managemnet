@@ -1,5 +1,7 @@
 # Gemini standalone production checkpoint — 4 November 2026
 
+> Historical source-only checkpoint. Later owner-authorized completion, commits, local activation and audio/draft results are recorded in [the unattended handoff](GEMINI_UNATTENDED_HANDOFF_20261104.md).
+
 Implemented and verified as an uncommitted source checkpoint across Pipeline, its UI and the existing SCC agent. No provider generation was submitted. The running production API was not replaced; the new policy is not active in that binary yet.
 
 ## New Gemini production behavior
