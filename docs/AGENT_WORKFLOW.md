@@ -33,7 +33,7 @@ Save `request.json`:
   "generation": {
     "title": "A robot rescues a seedling",
     "idea": "A small garden robot notices a seedling bending in rain and builds a tiny shelter. Clear cause and effect, expressive physical action, native sound.",
-    "sceneCount": 2,
+    "sceneCount": 1,
     "aspectRatio": "9:16"
   },
   "content": {
@@ -157,3 +157,14 @@ npm run build:client
 ```
 
 `npm test` provisions separate databases per suite. Agent integration tests use a fake loopback Gemini/Pipeline contract, real SCC import/draft/queue services, local fixture media, and simulated provider results. They do not load owner credentials, run real generation, publish social content, migrate production data or activate a release. Backend and UI repositories of AI Video Pipeline are inspected for compatibility and remain unchanged. See [implementation report](qa/AGENT_WORKFLOW_IMPLEMENTATION.md) for results and limits.
+
+
+## Gemini standalone production (4 November 2026)
+
+New `gemini_web` agent tasks prepare one complete native ten-second portrait 9:16 scene from text, with native audio and Dense Performance 2x. No image upload or continuation is part of this production path. The review-first UI stores `standalone_10s_v1` and waits for explicit scene authorization. Agent creation, already gated by its explicit allowGeneration authorization, and the explicit automatic UI choice use `standalone_10s_auto_v1`; they still obey the existing scheduler and limits. Queue creation itself is not a provider submission, and a disabled scheduler stays disabled.
+
+Choose an immediate visual hook, one consequential development and a visible payoff. Suitable concepts include living objects, visual comedy, transformations, surprising interactions, miniature action and emotional micro-stories. Do not shorten a multi-scene script into an overloaded scene. Specify subject identity, causal physical action and native sound. Omit spoken-delivery, speaker and dialogue-preservation boilerplate for empty dialogue.
+
+Image-conditioned, multi-scene and other custom Gemini configurations remain available through explicit Pipeline review as experimental. Do not create those through autonomous agent production. Historical configurations and saved request bytes remain intact; never replay or migrate old requests into the new policy. No Flow defaults, image roles, prompts, generation or scheduling are changed.
+
+Keep stable task IDs and saved submission intents. An uncertain result permits observation and exact-turn recovery only, never a duplicate request. Owner-controlled security verification may be required; do not automate refresh loops or CAPTCHA interaction. Technical acceptance is separate from visual and listening acceptance. A qualified clip may be imported as an immutable SCC master, rendered with the target Page moving watermark and saved as an unapproved, unscheduled draft. Publication and receipts retain their separate exact-revision approval and queue gates.

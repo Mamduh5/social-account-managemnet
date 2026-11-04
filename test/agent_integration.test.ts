@@ -64,7 +64,7 @@ function makeWorkflow(name:string) {
   const scc=new SccAdapter(new JsonClient(sccURL,{fetch:guardedFetch}));
   return {filename,store,pipeline,scc,workflow:new AgentWorkflow(store,pipeline,scc,{pipeline:pipelineURL,scc:sccURL})};
 }
-function generation(title:string) {return {title,idea:'Fixture only: a tiny robot learns to hold an umbrella.',sceneCount:2,aspectRatio:'9:16'};}
+function generation(title:string) {return {title,idea:'Fixture only: a tiny robot learns to hold an umbrella.',sceneCount:1,aspectRatio:'9:16'};}
 function content(overrides:Partial<ContentInput>={}):ContentInput {
   return {accountId:pageId,caption:'Agent-authored fixture caption; no visual claim.',hashtags:'#fixture #robot',scheduledAt:'2099-01-02T10:00:00+07:00',categoryId,applyBranding:true,...overrides};
 }
@@ -102,7 +102,7 @@ before(async()=>{
     recovery_status:{submission_unresolved:false},quota_timing:{remaining_blockers:[]}}));
   pipelineApp.post('/gemini-autopilot/queue',(req,res)=>{
     assert.equal(req.body.generation_settings.mode,'dense_performance');assert.equal(req.body.generation_settings.performance_tempo,2);
-    assert.equal(req.body.scene_count,2);assert.equal(req.body.aspect_ratio,'9:16');
+    assert.equal(req.body.scene_count,1);assert.equal(req.body.aspect_ratio,'9:16');
     createCount++;lastCreatedId='gemini-agent-fixture-'+createCount;
     const project={id:lastCreatedId,title:req.body.title,topic:req.body.idea,status:'pending',display_status:'Queued',provider:'gemini_web',workflow:'gemini_autopilot',autopilot:{provider:'gemini_web',review_status:'not_reviewed'},scene_count:req.body.scene_count,accepted_count:0,scene_seconds:10,aspect_ratio:req.body.aspect_ratio,generation_settings:req.body.generation_settings,created_at:now(),updated_at:now(),tags:[],paused:false,storage:{state:'local',label:'Local'},next_action:{type:'autopilot',background:true}};
     projects.set(lastCreatedId,project);

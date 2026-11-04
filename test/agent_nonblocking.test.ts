@@ -10,7 +10,7 @@ import {PipelineAdapter} from '../scripts/agent/pipeline.js';
 import {AgentWorkflow} from '../scripts/agent/workflow.js';
 
 const targets={pipeline:'http://127.0.0.1:18080',scc:'http://127.0.0.1:13001'};
-const input={title:'Fixture story',generation:{title:'Fixture story',idea:'A toy shelters a plant.',sceneCount:2,aspectRatio:'9:16'}};
+const input={title:'Fixture story',generation:{title:'Fixture story',idea:'A toy shelters a plant.',sceneCount:1,aspectRatio:'9:16'}};
 function setup(t:{after:(fn:()=>void)=>void}) {
   const directory=mkdtempSync(path.join(tmpdir(),'scc-agent-work-test-runs-')),filename=path.join(directory,'agent.db');
   let now=new Date('2026-11-02T00:00:00Z');
@@ -19,7 +19,7 @@ function setup(t:{after:(fn:()=>void)=>void}) {
   const calls:Array<{method:string;path:string}>=[];
   const controls={created:false,dropCreate:false,offline:false,blocked:false,imports:0,drafts:0};
   const project:any={id:'fixture-project',title:input.title,topic:input.generation.idea,status:'running',current_step:'planning',provider:'gemini_web',autopilot:{provider:'gemini_web',review_status:'not_reviewed'},
-    created_at:now.toISOString(),updated_at:now.toISOString(),scene_count:2,accepted_count:0,scene_seconds:10,aspect_ratio:'9:16',generation_settings:{version:'generation_settings.v1',mode:'dense_performance',performance_tempo:2},
+    created_at:now.toISOString(),updated_at:now.toISOString(),scene_count:1,accepted_count:0,scene_seconds:10,aspect_ratio:'9:16',generation_settings:{version:'generation_settings.v1',mode:'dense_performance',performance_tempo:2},
     scenes:[{order:1,status:'awaiting_external_generation'},{order:2,status:'awaiting_external_generation'}],next_action:{background:true}};
   const run:any={id:'fixture-original-run',scene_order:1,status:'generating',account_id:'gemini_web-main',at:now.toISOString(),submission_intent:true,submission_acknowledged:true,evidence:{provider_context_url:'https://gemini.google.com/app/fixture-original-turn'}};
   const item:any={job_id:project.id,title:project.title,status:'generating',paused:false,recovery_attempts:0,runs:[run]};

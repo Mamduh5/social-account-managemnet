@@ -98,7 +98,10 @@ export class AgentWorkflow {
       throw new WorkflowError('invalid_input', 'Supply a title and exactly one of projectId or generation.');
     if (input.generation && allowGeneration !== true)
       throw new WorkflowError('generation_authorization_required', 'Starting Gemini requires explicit allowGeneration=true.');
-    if (input.generation) geminiQueueRequest(input.generation);
+    if (input.generation) {
+      const request=geminiQueueRequest(input.generation);
+      if(!this.store.getJob(id) && (request.scene_count!==1 || request.aspect_ratio!=='9:16')) throw new WorkflowError('experimental_gemini_scope','New Gemini agent tasks require one standalone ten-second portrait scene; experimental work requires explicit Pipeline review.');
+    }
     if (input.content) this.validateContent(input.content);
     this.store.createJob(id, {...input, targets: this.targets});
     this.job(id);

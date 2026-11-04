@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { ApiError, JsonClient } from '../scripts/agent/http.js';
 import { PipelineAdapter, geminiQueueRequest } from '../scripts/agent/pipeline.js';
 
-const input = { title: 'Rain robot', idea: 'A small robot repairs a leaking roof.', sceneCount: 2, aspectRatio: '9:16' };
+const input = { title: 'Rain robot', idea: 'A small robot repairs a leaking roof.', sceneCount: 1, aspectRatio: '9:16' };
 const project = {
   id: 'gemini-fixture', title: input.title, topic: input.idea, status: 'running', provider: 'gemini_web',
-  autopilot: { provider: 'gemini_web', review_status: 'not_reviewed' }, scene_count: 2, accepted_count: 1,
+  autopilot: { provider: 'gemini_web', review_status: 'not_reviewed' }, scene_count: 1, accepted_count: 1,
   scene_seconds: 10, aspect_ratio: '9:16', generation_settings: geminiQueueRequest(input).generation_settings,
   next_action: { type: 'autopilot', background: true },
 };
@@ -27,7 +27,7 @@ test('Gemini create submits one existing queue operation with native Dense snaps
   assert.equal(calls[0].url.pathname, '/gemini-autopilot/queue');
   assert.equal(calls[0].init?.method, 'POST');
   assert.deepEqual(JSON.parse(String(calls[0].init?.body)), {
-    title: input.title, idea: input.idea, scene_count: 2, aspect_ratio: '9:16',
+    title: input.title, idea: input.idea, scene_count: 1, aspect_ratio: '9:16', gemini_workflow: 'standalone_10s_auto_v1',
     generation_settings: { version: 'generation_settings.v1', mode: 'dense_performance', performance_tempo: 2 },
   });
   assert.equal(new Headers(calls[0].init?.headers).has('idempotency-key'), false, 'text creation must not imply upstream deduplication');
@@ -35,13 +35,13 @@ test('Gemini create submits one existing queue operation with native Dense snaps
 
 test('Gemini prompt uses the same creation boundary and invalid/provider fields fail before HTTP', async () => {
   assert.deepEqual(geminiQueueRequest({ title: ' A title ', prompt: ' Story ' }), {
-    title: 'A title', idea: 'Story', scene_count: 2, aspect_ratio: '9:16',
+    title: 'A title', idea: 'Story', scene_count: 1, aspect_ratio: '9:16',
     generation_settings: { version: 'generation_settings.v1', mode: 'dense_performance', performance_tempo: 2 },
   });
   const { adapter, calls } = fixture(() => { throw new Error('HTTP should not run'); });
   for (const invalid of [
     { ...input, prompt: 'ambiguous' }, { ...input, idea: '' }, { ...input, idea: 'ก'.repeat(4001) },
-    { ...input, sceneCount: 0 }, { ...input, sceneCount: 1.5 }, { ...input, sceneCount: 21 },
+    { ...input, sceneCount: 0 }, { ...input, sceneCount: 1.5 }, { ...input, sceneCount: 11 },
     { ...input, aspectRatio: '1:1' }, { ...input, provider: 'flow_web' },
     { ...input, gemini_workflow: 'review_first_v1' }, { ...input, title: '' },
   ]) await assert.rejects(adapter.create(invalid));
@@ -61,7 +61,7 @@ test('status projects bounded progress, blockers and unavailable media without r
   const { adapter, calls } = fixture(() => ({ ...project, diagnostic: { code: 'planner_timeout', message: 'Planning timed out.' }, blockers: [{ code: 'quota_wait', message: 'Waiting for the provider.', next_retry_at: '2026-11-03T01:00:00Z' }, { code: 'quota_wait' }], next_automatic_at: '2026-11-03T01:00:00Z', raw_secret: 'do not expose', scene_clip_object_keys: ['private-file'] }));
   const result = await adapter.status('gemini-fixture');
   assert.equal(result.state, 'running');
-  assert.deepEqual(result.progress, { accepted: 1, total: 2 });
+  assert.deepEqual(result.progress, { accepted: 1, total: 1 });
   assert.deepEqual(result.blockers.map(item => item.code), ['quota_wait', 'planner_timeout']);
   assert.equal(result.media.videoUrl, null);
   assert.equal(result.media.durationSeconds, null);

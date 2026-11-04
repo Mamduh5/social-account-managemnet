@@ -9,6 +9,7 @@ export interface PipelineCreateInput {
 }
 
 export interface GeminiQueueRequest {
+  gemini_workflow?: 'standalone_10s_auto_v1';
   title: string;
   idea: string;
   scene_count: number;
@@ -34,6 +35,7 @@ interface ProjectResponse {
   accepted_count?: number;
   scene_seconds?: number;
   aspect_ratio?: string;
+  gemini_workflow?: string;
   generation_settings?: { version?: string; mode?: string; performance_tempo?: number };
   generation_resolution?: string;
   acceptance_type?: string;
@@ -89,7 +91,7 @@ export function geminiQueueRequest(input: PipelineCreateInput): GeminiQueueReque
   if ((input.idea === undefined) === (input.prompt === undefined)) throw new Error('Provide exactly one idea or prompt.');
   const idea = input.idea ?? input.prompt;
   if (typeof idea !== 'string' || !idea.trim() || Buffer.byteLength(idea, 'utf8') > 12000) throw new Error('An idea or prompt of at most 12000 UTF-8 bytes is required.');
-  const scenes = input.sceneCount ?? 2;
+  const scenes = input.sceneCount ?? 1;
   if (!Number.isInteger(scenes) || scenes < 1 || scenes > 20) throw new Error('sceneCount must be 1-20; the saved provider maximum may be lower.');
   const aspect = input.aspectRatio ?? '9:16';
   if (aspect !== '9:16' && aspect !== '16:9') throw new Error('aspectRatio must be 9:16 or 16:9.');
@@ -104,6 +106,8 @@ export class PipelineAdapter {
 
   async create(input: PipelineCreateInput): Promise<{ projectId: string }> {
     const request = geminiQueueRequest(input);
+    if(request.scene_count!==1 || request.aspect_ratio!=='9:16') throw new Error('New Gemini agent tasks require one complete portrait ten-second text-only scene. Experimental projects require explicit Pipeline review.');
+    request.gemini_workflow='standalone_10s_auto_v1';
     // Text-only queue creation has no upstream idempotency contract. The caller
     // must durably save its intent before entering here and never blindly repeat.
     const result = await this.client.post<{ job_id?: string }>('/gemini-autopilot/queue', request);
@@ -166,7 +170,8 @@ export class PipelineAdapter {
   async reconcile(projectId: string, expectedInput?: PipelineCreateInput): Promise<PipelineStatus> {
     const project = await this.project(projectId);
     if (expectedInput) {
-      const expected = geminiQueueRequest(expectedInput);
+      // Legacy omitted scene counts meant two. The new saved workflow binds one.
+      const expected = geminiQueueRequest({...expectedInput,sceneCount:expectedInput.sceneCount??(project.gemini_workflow?.startsWith('standalone_10s_')?1:2)});
       const settings = project.generation_settings;
       // Pipeline normalizes/truncates display titles. The full saved idea plus
       // immutable generation snapshot bind recovery without display-name matching.

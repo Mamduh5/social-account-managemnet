@@ -9,7 +9,7 @@ import { ApiError } from '../scripts/agent/http.js';
 import { AgentWorkflow, WorkflowError, type WorkflowInput } from '../scripts/agent/workflow.js';
 
 const targets = { pipeline: 'http://127.0.0.1:18080', scc: 'http://127.0.0.1:13001' };
-const generation = { title: 'Roof repair', idea: 'A robot repairs the roof.', sceneCount: 2, aspectRatio: '9:16' };
+const generation = { title: 'Roof repair', idea: 'A robot repairs the roof.', sceneCount: 1, aspectRatio: '9:16' };
 const content = { accountId: 'page-fixture', caption: 'A useful repair.', hashtags: '#robot', applyBranding: true };
 const input: WorkflowInput = { title: generation.title, generation, content };
 const exact = { revision: 1, accountId: content.accountId, payloadHash: 'a'.repeat(64) };
