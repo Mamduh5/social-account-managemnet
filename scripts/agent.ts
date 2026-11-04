@@ -12,11 +12,19 @@ import {manageSchedule} from './agent/runner-schedule.js';
 import {AgentContent} from './agent/content.js';
 import {AgentResearch} from './agent/research.js';
 import {GeminiProduction} from './agent/production.js';
+import {PagePublicationPolicies} from './agent/page-publication-policy.js';
 import {prepareResearchTask,researchReceipt} from './agent/content-run.js';
 import {validateContentResult,contentOutputSchema} from './agent/content-contract.js';
 
 const version = 'agent-workflow.v1';
 const commands = {
+  'production-policy':'Read or authorize a standing production policy with --input and --owner-authorized; publication is excluded.',
+  'production-policy-revoke':'Revoke standing production immediately; original results remain recoverable.',
+  'page-publication-policy':'Read standing Page grants or authorize --input with separate --owner-authorized. Production approval is insufficient.',
+  'page-publication-policy-revoke':'Revoke the exact --run Page grant.',
+  'page-publication-tick':'One independent existing-queue publication step; disabled without a Page grant.',
+  'page-publication-reconcile':'Read back the original queue receipt for --run production item; never uploads again.',
+  'production-variant-review':'Record actual final visual QA and decoded-audio identity using --input and --owner-authorized.',
   'production-status':'Read durable production scope/backlog, independent of Facebook analytics.',
   'production-config':'Read or replace disabled bounded-production configuration using --input.',
   'production-enqueue':'Save a validated gemini-concept.v1 from --input; no provider submission.',
@@ -129,8 +137,10 @@ async function main() {
     const contentScc=new SccAdapter(new JsonClient(sccClient.origin,{timeoutMs:10_000}));
     const content=()=>new AgentContent(local(),contentScc);
     const production=()=>new GeminiProduction(local(),new PipelineAdapter(new JsonClient(pipelineClient.origin,{timeoutMs:90_000})),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath));
+    const publication=()=>new PagePublicationPolicies(local(),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin});
     const runner=()=>new AgentRunner(local(),path.join(path.dirname(statePath),'runner'),undefined,undefined,async id=>{const before=contentScc.client.requestCount;const result=await content().persist(id);return {...result,httpRequests:contentScc.client.requestCount-before};},async()=>{
-      const result=await production().tick();
+      let result:Record<string,any>;try{result=await production().tick();}catch{result={state:'production_reconciliation_required',actions:0};}
+      try{local().setRunnerState('publication.lastTick',{...await publication().tick(),at:new Date().toISOString()});}catch{local().setRunnerState('publication.lastTick',{state:'publication_review_required',at:new Date().toISOString()});}
       try{await new GeminiProduction(local(),pipeline,contentScc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath)).observe();}
       catch{local().setRunnerState('production.observationError',{code:'saved_observation_unavailable',at:new Date().toISOString()});}
       return result;
@@ -148,6 +158,13 @@ async function main() {
     if (!Number.isSafeInteger(offset) || offset < 0) throw new WorkflowError('invalid_offset', 'offset must be a nonnegative whole number.');
     let data: unknown;
     switch(command) {
+      case 'production-policy':data=flags.input?await production().authorizePolicy(input,flags['owner-authorized']===true):production().policyStatus();break;
+      case 'production-policy-revoke':data=production().revokePolicy();break;
+      case 'page-publication-policy':data=flags.input?await publication().authorize(input,flags['owner-authorized']===true):publication().status();break;
+      case 'page-publication-policy-revoke':data=publication().revoke(run());break;
+      case 'page-publication-tick':data=await publication().tick();break;
+      case 'page-publication-reconcile':data=await publication().reconcile(run());break;
+      case 'production-variant-review':data=await production().reviewVariant(input,flags['owner-authorized']===true);break;
       case 'production-status':data=production().status();break;
       case 'production-config':data=flags.input?production().configure(input):production().config();break;
       case 'production-enqueue':data=production().enqueue(input);break;

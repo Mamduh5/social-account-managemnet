@@ -64,7 +64,9 @@ export async function manageSchedule(store:AgentStore,repository:string,state:st
   const once=input.schedule?.mode==='once'?resolveOneTimeSchedule(input.schedule,clock()):undefined;
   if(once)once.id=randomUUID();
   const config=getRunnerConfig(store),name=scheduleIdentity(repository,state);
-  const timeoutMs=Math.min(21600000,((once?1:config.maxTasksPerRun)*config.maxDurationSeconds+config.executors.length*10+30)*1000);
+  const productionPolicy=store.runnerState<string>('production.policy');
+  const standing=productionPolicy&&store.getJob(productionPolicy)?.state.enabled;
+  const timeoutMs=Math.min(21600000,((once?1:config.maxTasksPerRun)*config.maxDurationSeconds+config.executors.length*10+30+(standing?1800:0))*1000);
   if(input.action==='export'){
     if(typeof input.file!=='string'||!input.file.trim())throw new Error('Schedule export requires a new output file');
     const file=path.resolve(input.file);mkdirSync(path.dirname(file),{recursive:true});
