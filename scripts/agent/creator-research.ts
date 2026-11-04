@@ -22,7 +22,9 @@ export const creatorResearchInstructions='Read-only public creator research for 
 export class CreatorResearch {
   constructor(readonly store:AgentStore,readonly clock:()=>Date=()=>new Date()){}
   save(raw:unknown,accountId:string,provenance='agent_reported'){
-    const r=creatorResearchSchema.parse(raw),now=this.clock().getTime(),observed=Date.parse(r.observedAt),until=Date.parse(r.validUntil);
+    // Harmless prose-list normalization reuses a finished original; never rerun a model for formatting.
+    const input=raw as Record<string,unknown>;const normalized=Array.isArray(input?.limitations)&&input.limitations.length<=5&&input.limitations.every(s=>typeof s==='string');
+    const r=creatorResearchSchema.parse(normalized?{...input,limitations:(input.limitations as string[]).join('\n')}:raw),now=this.clock().getTime(),observed=Date.parse(r.observedAt),until=Date.parse(r.validUntil);
     if(observed>now+60000||until<=observed||until-observed>7*86400000||(r.access!=='observed'&&until-observed>86400000))throw new Error('Invalid creator research observation/freshness');
     for(const e of r.examples){
       if(e.platform==='facebook'&&!/(^|\.)facebook\.com$/.test(new URL(e.url).hostname))throw new Error('Facebook evidence must link to Facebook');
@@ -35,7 +37,7 @@ export class CreatorResearch {
     if(r.access==='observed'&&(!r.examples.some(e=>e.performance==='successful')||!r.examples.some(e=>e.performance==='ordinary')))throw new Error('Complete research needs successful and ordinary Facebook comparators');
     // Model-supplied sources remain reports, never independently verified tool visits.
     const id='creator-finding:'+stableHash({accountId,r,provenance});
-    return this.store.recordKnowledge({id,kind:'observation',accountId,resourceId:'gemini-creator-research.v1',text:r.limitations,source:r.examples.map(e=>e.url).join(' ')||'agent_creator_research:bounded_access_report',evidence:{...r,provenance,independentlyVerified:false}});
+    return this.store.recordKnowledge({id,kind:'observation',accountId,resourceId:'gemini-creator-research.v1',text:r.limitations,source:r.examples.map(e=>e.url).join(' ')||'agent_creator_research:bounded_access_report',evidence:{...r,provenance,independentlyVerified:false,...(normalized?{normalization:'limitations_list_to_prose'}:{})}});
   }
   status(accountId:string){
     const findings:Record<string,any>[]=this.store.listKnowledge({accountId,resourceId:'gemini-creator-research.v1',limit:8}).map(k=>({id:k.id,...k.evidence as Record<string,any>,stale:Date.parse((k.evidence as any)?.validUntil)<=this.clock().getTime()}));
