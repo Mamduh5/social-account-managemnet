@@ -14,6 +14,7 @@ test('PCM evidence distinguishes silence, nonfinite samples and full scale witho
 test('caption candidate follows planned language, retains no-hashtag option and never invents the rendered plot',()=>{
   assert.equal(candidateCopy({}).language,'en');assert.match(candidateCopy({}).basis,/hypothesis/);assert.match(candidateCopy({languageStrategy:{captionLanguages:['ja']}}).caption!,/AI/);assert.equal(candidateCopy({languageStrategy:{captionLanguages:['de']}}).caption,null);assert.equal(candidateCopy({}).hashtags,'');assert.doesNotMatch(candidateCopy({}).caption!,/rescue|umbrella|key|viral/);
 });
+test('Traditional Chinese caption choices preserve the requested script and audience region',()=>{for(const language of ['zh-Hant','zh-Hant-HK','zh-TW']){const copy=candidateCopy({languageStrategy:{captionLanguages:[language]}});assert.equal(copy.language,language);assert.match(copy.caption!,/虛構/);assert.doesNotMatch(copy.caption!,/虚构/);}});
 test('synthetic local media passes actual FFprobe/full-decode/PCM checks and reuses exact cached evidence',async t=>{
   const probe=spawnSync('ffmpeg',['-version'],{encoding:'utf8',windowsHide:true});if(probe.status!==0){t.skip('Local FFmpeg fixture tool unavailable');return;}
   const dir=mkdtempSync(path.join(tmpdir(),'gemini-media-qa-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));const source=path.join(dir,'synthetic-fixture.mp4');
