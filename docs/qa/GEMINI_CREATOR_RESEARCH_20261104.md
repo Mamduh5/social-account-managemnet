@@ -1,5 +1,7 @@
 # Gemini creator learning and standing production — 4 November 2026
 
+> Later focused refinement: Gemini now supports multilingual and dialogue-free concept policy with explicit audience/language metadata. See [the multilingual checkpoint](GEMINI_MULTILINGUAL_POLICY_20261104.md). The evidence below retains the earlier production checkpoint.
+
 The enduring Gemini production grant remains enabled until revoked. Creator learning now uses the existing AgentRunner, independently of own-Page engagement and provider waits. Publication authority remains separate: no standing Page publication grant exists, and the sponge Reel is still an unpublished draft.
 
 ## Implementation and source
