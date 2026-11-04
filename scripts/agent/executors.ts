@@ -4,6 +4,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {z} from 'zod';
+import {createRequire} from 'node:module';
 import {contentOutputSchema,validateContentResult} from './content-contract.js';
 import type {ExecutorConfig} from './runner-config.js';
 
@@ -93,7 +94,7 @@ export function safeEnvironment():NodeJS.ProcessEnv {
 export const supervisedProcess:ProcessRunner=async(command,args,options)=>{
   const {onSpawn,signal,...serialized}=options;
   // Host has its own duration timer and watches the original parent; no model-facing supervisor service.
-  const output=await runProcess(process.execPath,['--import',pathToFileURL(path.resolve(__dirname,'../../node_modules/tsx/dist/loader.mjs')).href,path.join(__dirname,'executor-host.ts')],{
+  const output=await runProcess(process.execPath,['--import',pathToFileURL(createRequire(path.join(__dirname,'executors.ts')).resolve('tsx')).href,path.join(__dirname,'executor-host.ts')],{
     cwd:options.cwd,stdin:JSON.stringify({command,args,parentPid:process.pid,options:serialized}),timeoutMs:options.timeoutMs+5000,
     maxBytes:options.maxBytes*6,signal,onSpawn,
   });
@@ -172,7 +173,8 @@ export class CommandExecutors {
     const schemaPath=path.join(executionDirectory,'result-schema.json');
     let task:any={};try{task=JSON.parse(context).task??{};}catch{}
     const structured=task.payload?.content?.responseContract==='agent-content-result.v1';
-    const live=structured&&task.payload.content.requiresLiveResearch===true;
+    const creator=task.payload?.creatorResearch?.version==='gemini-creator-research.v1';
+    const live=(structured&&task.payload.content.requiresLiveResearch===true)||creator;
     if(live&&(!config.liveResearch||!capability.capabilities?.liveResearch))throw new ExecutionError('live_research_capability_unavailable',true);
     writeFileSync(schemaPath,JSON.stringify(structured?contentOutputSchema():z.toJSONSchema(agentResultSchema)),{flag:'wx'});
     let args:string[],env=safeEnvironment();
@@ -206,6 +208,7 @@ export class CommandExecutors {
           if(parsed.usage&&typeof parsed.usage==='object'&&Number.isSafeInteger(parsed.usage.tokens))usage=parsed.usage;
           if(parsed.researchAudit&&typeof parsed.researchAudit==='object')researchAudit=parsed.researchAudit;
           if(structured&&'result' in parsed)value=typeof parsed.result==='string'?JSON.parse(parsed.result):parsed.result;
+          else if(creator||task.payload?.production?.version==='gemini-concept.v1'){const {usage:_usage,researchAudit:_audit,...result}=parsed;value=result;}
           else value=parsed;
         }else value=parsed;
       }

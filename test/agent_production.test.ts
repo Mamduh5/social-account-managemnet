@@ -11,6 +11,7 @@ import {JsonClient,ApiError} from '../scripts/agent/http.js';
 import {AgentRunner} from '../scripts/agent/runner.js';
 import {configureRunner,defaultRunnerConfig} from '../scripts/agent/runner-config.js';
 import {agentResultSchema} from '../scripts/agent/executors.js';
+import {CreatorResearch} from '../scripts/agent/creator-research.js';
 
 const sha='a'.repeat(64),targets={pipeline:'http://localhost:8080',scc:'http://localhost:3001'};
 const concept=(n=1)=>({version:'gemini-concept.v1',fictional:true,accountId:'page',title:'Leaf '+n,idea:'A leaf helps a miniature excavator '+n,hook:'Rain splashes its face',development:'The leaf bends over it',payoff:'It settles under the leaf umbrella',category:'living_objects'});
@@ -176,6 +177,21 @@ test('bounded-request HTTP receipt and per-account accounting remain distinct fr
 });
 
 const standing=(extra:any={})=>({version:'gemini-production-policy.v1',id:'standing',geminiAccountId:'gemini_web-main',pageAccountId:'page',pageGraphId:'123',expiresAt:'2026-12-04T00:00:00Z',targetPerWindow:3,planningWindowHours:5,maxPer24Hours:12,maxTotalSubmissions:300,...extra});
+
+test('standing creation consults external cache before concepts without waiting for local analytics',async t=>{
+  const f=setup(t);await f.c.authorizePolicy(standing(),true);assert.equal((await f.c.tick()).state,'needs_creator_research');
+  const research=f.store.listWork().find(t=>t.kind==='research_concept')!;assert.equal(research.priority,80);assert.equal(f.counts().submitted,0);
+  const claim=f.c.work.claim(research.id,{owner:'fixture',commandId:'research-claim'}).task;
+  f.c.work.save({id:claim.id,owner:'fixture',commandId:'research-save',claimToken:claim.claimToken,revision:claim.revision,status:'prepared',result:JSON.stringify({version:'gemini-creator-research.v1',observedAt:'2026-11-04T00:00:00Z',validUntil:'2026-11-05T00:00:00Z',access:'blocked',limitations:'Facebook access unavailable; no metrics invented.',examples:[],principles:[]})});
+  const next=await f.c.tick();assert.equal(next.state,'needs_concept');const task=f.store.getWork(next.taskId)!;assert.equal(task.payload.creatorLearning.external.length,1);assert.equal(task.payload.creatorLearning.external[0].access,'blocked');assert.equal(f.counts().submitted,0);
+  const prepared=f.c.work.claim(task.id,{owner:'fixture',commandId:'concept-claim'}).task;
+  f.c.work.save({id:task.id,owner:'fixture',commandId:'concept-save',claimToken:prepared.claimToken,revision:prepared.revision,status:'prepared',result:JSON.stringify({...concept(),researchUse:{findingIds:['invented'],principleIds:[],originality:'Original subject and action'}})});
+  assert.throws(()=>f.c.enqueuePrepared(task.id),/unsupplied/);assert.equal(f.counts().submitted,0);
+});
+
+test('external research preparation continues during standing account-cap waits',async t=>{
+  const f=setup(t);await f.c.authorizePolicy(standing(),true);f.native.accountUsage={'gemini_web-main':{submissions:4,window_started_at:'2026-11-04T00:00:00Z'}};assert.equal((await f.c.tick()).state,'account_application_cap');assert.equal(f.store.listWork().filter(t=>t.kind==='research_concept').length,1);assert.equal(f.counts().submitted,0);
+});
 test('standing policy runs six sequential clips across two estimated windows and restart without another owner authorization',async t=>{
   const f=setup(t);for(let n=1;n<=6;n++)f.enqueue(n);f.native.windowStartedAt='2026-11-04T00:00:00Z';await f.c.authorizePolicy(standing(),true);
   for(let n=1;n<=6;n++){

@@ -11,6 +11,7 @@ import {configureRunner} from './agent/runner-config.js';
 import {manageSchedule} from './agent/runner-schedule.js';
 import {AgentContent} from './agent/content.js';
 import {AgentResearch} from './agent/research.js';
+import {CreatorResearch} from './agent/creator-research.js';
 import {GeminiProduction} from './agent/production.js';
 import {PagePublicationPolicies} from './agent/page-publication-policy.js';
 import {prepareResearchTask,researchReceipt} from './agent/content-run.js';
@@ -77,6 +78,8 @@ const commands = {
   groups: 'Read compact stored Group context; optional --account or --input {id}. No membership or provider changes.',
   'group-package': 'Read existing manual handoff using --input {id}; never opens Facebook.',
   'research-save': 'Store dated compact findings and source URLs from supported agent tools; --input, optional --account.',
+  'creator-research-save':'Save bounded dated public creator evidence for a Gemini Page; --account, --input.',
+  'creator-research-status':'Read reusable Gemini creator findings and access limits; --account.',
   'research-status': 'Reuse fresh findings for --input {topic}, optional --account; zero HTTP.',
   'runner-config': 'Read defaults/configuration; --input replaces validated settings. Disabled by default.',
   'runner-status': 'Compact queue, invocations, budgets and saved schedule status; zero provider HTTP.',
@@ -233,6 +236,8 @@ async function main() {
         if(command==='group-package'&&!input.id)throw new Error('Supply the prepared handoff id');
         data=command==='group-package'?await contentScc.groupPackage(input.id):input.id?{group:await contentScc.group(input.id)}:{groups:await contentScc.groups(account)};break;
       case 'research-save': data=new AgentResearch(local()).save(input,account);break;
+      case 'creator-research-save':if(!account)throw new Error('Supply --account');data=new CreatorResearch(local()).save(input,account);break;
+      case 'creator-research-status':if(!account)throw new Error('Supply --account');data=new CreatorResearch(local()).status(account);break;
       case 'research-status':
         if(Object.keys(input).some(k=>k!=='topic'))throw new Error('Supply only topic');
         data=new AgentResearch(local()).status(input.topic,account);break;

@@ -30,6 +30,23 @@ try {
 
 const task = context.task || {};
 const payload = task.payload || {};
+const geminiRoute = require('./antigravity-gemini.cjs');
+const geminiRequest = geminiRoute.request(context);
+if (geminiRequest) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-gemini-'));
+  try {
+    const file = path.join(tmp, 'schema.json');
+    fs.writeFileSync(file, JSON.stringify(geminiRequest.schema));
+    const response = spawnSync('C:\\Users\\mamdu\\AppData\\Local\\agy\\bin\\agy.exe',
+      ['--input-format','text','--output-format','json','--json-schema',file,'--disable-slash-commands','--mode','plan','--sandbox'],
+      {input:geminiRequest.prompt,encoding:'utf8',maxBuffer:10*1024*1024,timeout:180000,windowsHide:true});
+    if(response.error||response.status!==0)throw new Error('Gemini preparation execution failed; inspect original receipt');
+    console.log(JSON.stringify(geminiRoute.result(JSON.parse(response.stdout))));
+  } catch(error) {
+    console.error(error.message);process.exitCode=1;
+  } finally { fs.rmSync(tmp,{recursive:true,force:true}); }
+  return;
+}
 const content = payload.content || {};
 const page = content.page || {};
 const voice = page.voice || {};

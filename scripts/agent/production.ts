@@ -6,6 +6,7 @@ import {ApiError} from './http.js';
 import {PipelineAdapter} from './pipeline.js';
 import {SccAdapter} from './scc.js';
 import {AgentWorkQueue} from './work-queue.js';
+import {CreatorResearch} from './creator-research.js';
 
 const account=z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 export const productionConfigSchema=z.object({
@@ -26,6 +27,7 @@ export const productionConceptSchema=z.object({
   accountId:account,title:z.string().trim().min(1).max(180),idea:z.string().trim().min(1).max(6000),
   hook:z.string().trim().min(1).max(800),development:z.string().trim().min(1).max(1200),payoff:z.string().trim().min(1).max(800),
   category:z.enum(['living_objects','visual_comedy','transformation','surprising_interaction','miniature_action','emotional_micro_story']),
+  researchUse:z.object({findingIds:z.array(z.string()).max(3),principleIds:z.array(z.string()).max(6),originality:z.string().min(1).max(800)}).strict().optional(),
 }).strict();
 export const standingProductionSchema=z.object({version:z.literal('gemini-production-policy.v1'),id:z.string().regex(/^[A-Za-z0-9_-]{1,50}$/),geminiAccountId:account,pageAccountId:account,pageGraphId:z.string().regex(/^\d+$/),expiresAt:z.string().datetime().nullable(),targetPerWindow:z.number().int().min(3).max(5).default(3),planningWindowHours:z.number().min(1).max(168).default(5),maxPer24Hours:z.number().int().min(1).max(100).default(12),maxTotalSubmissions:z.number().int().min(1).max(100000).nullable().default(null)}).strict();
 const scopeSchema=z.object({id:z.string().regex(/^[A-Za-z0-9_-]{1,70}$/),geminiAccountId:account,pageAccountId:account,maxSubmissions:z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),expiresAt:z.string().datetime(),policyId:z.string().optional()}).strict();
@@ -165,7 +167,10 @@ export class GeminiProduction {
       this.save(id,{phase:'queued',queuedAt:this.clock().toISOString()});this.store.setRunnerState('production.items',[...ids,id]);return this.item(id);
     });
   }
-  enqueuePrepared(taskId:string){const t=this.store.getWork(taskId);if(!t||t.kind!=='prepare_video'||t.status!=='prepared'||t.payload?.production?.version!=='gemini-concept.v1')throw new Error('Use an exact prepared Gemini production concept task');let value=t.result;if(typeof value==='string'){try{value=JSON.parse(value);}catch{throw new Error('Prepared concept must contain valid serialized gemini-concept.v1 JSON');}}const concept=productionConceptSchema.parse(value);if(concept.accountId!==t.accountId)throw new Error('Prepared concept Page identity changed');return this.enqueue(concept,{taskId:t.id,revision:t.revision});}
+  enqueuePrepared(taskId:string){const t=this.store.getWork(taskId);if(!t||t.kind!=='prepare_video'||t.status!=='prepared'||t.payload?.production?.version!=='gemini-concept.v1')throw new Error('Use an exact prepared Gemini production concept task');let value=t.result;if(typeof value==='string'){try{value=JSON.parse(value);}catch{throw new Error('Prepared concept must contain valid serialized gemini-concept.v1 JSON');}}const concept=productionConceptSchema.parse(value);if(concept.accountId!==t.accountId)throw new Error('Prepared concept Page identity changed');
+    const supplied=[...(t.payload?.creatorLearning?.external??[]),...(t.payload?.creatorLearning?.historicalHypotheses??[])];
+    if(concept.researchUse&&(concept.researchUse.findingIds.some(id=>!supplied.some(f=>f.id===id))||concept.researchUse.principleIds.some(id=>!supplied.some(f=>f.principles?.some((p:Any)=>p.id===id)))))throw new Error('Concept cites unsupplied creator evidence');
+    return this.enqueue(concept,{taskId:t.id,revision:t.revision});}
   start(input:unknown,ownerAuthorized=false,fromPolicy=false){if(ownerAuthorized!==true)throw new Error('An explicit bounded live-production scope is required');const scope=scopeSchema.parse(input),now=this.clock().getTime();
     if(scope.policyId&&!fromPolicy)throw new Error('Use standing policy authorization');
     if((!scope.policyId&&(scope.maxSubmissions>5||Date.parse(scope.expiresAt)>now+7*86400000))||Date.parse(scope.expiresAt)<=now)throw new Error('Bounded scope requires at most five submissions and expiry in seven days');
@@ -200,11 +205,13 @@ export class GeminiProduction {
     try{const result=await action();this.store.finishOperation(id,step,'succeeded',result);return result;}
     catch(e){this.store.finishOperation(id,step,e instanceof ApiError&&!e.uncertain?'rejected':'uncertain',{code:e instanceof ApiError?e.code:'operation_unconfirmed'});throw e;}}
   private async conceptTask(scope:Scope,cycle:AgentJob){
-    const id='gemini-concept-'+scope.id+'-'+Number(cycle.state.createdProjects);
+    if(scope.policyId&&new CreatorResearch(this.store,this.clock).status(scope.pageAccountId).researchNeeded&&this.store.workCandidates().some(t=>t.accountId===scope.pageAccountId&&t.payload?.creatorResearch?.version==='gemini-creator-research.v1'))return {state:'needs_creator_research',actions:0};
+    const id='gemini-concept-'+scope.id+'-'+Number(cycle.state.createdProjects)+'-creators-v1';
     if(!this.store.getWork(id)){const context=await this.scc.pageContext(scope.pageAccountId);this.work.add({id,kind:'prepare_video',title:'Prepare one complete ten-second Gemini entertainment concept',priority:70,accountId:scope.pageAccountId,
       payload:{production:{version:'gemini-concept.v1',...(scope.policyId?{policyId:scope.policyId}:{})},pageContext:context,
         avoidRepeating:this.items().slice(-8).map(j=>({title:(j.input as Any).concept.title,idea:String((j.input as Any).concept.idea).slice(0,400)})),
         research:this.store.listKnowledge({accountId:scope.pageAccountId,limit:5}).filter(k=>(k.evidence as Any)?.sources&&Date.parse((k.evidence as Any).validUntil)>this.clock().getTime()).map(k=>({summary:k.text,evidence:k.evidence,notice:'Supplied dated sources, not independently verified; no trend claim'})),
+        creatorLearning:new CreatorResearch(this.store,this.clock).context(scope.pageAccountId),
         brief:'Original fictional visual entertainment. Immediate hook, one consequential development, visible payoff. One ten-second portrait text-only clip with native sound. No multi-scene continuation or irrelevant dialogue. Serialize one gemini-concept.v1 object as the result string. Do not repeat prior concepts across Pages merely for volume. Missing trend research does not prevent an original fictional concept; do not invent popularity or factual claims.'}});}
     return {state:'needs_concept',taskId:id};
   }
@@ -237,6 +244,9 @@ export class GeminiProduction {
   }
   private async step(cycle:AgentJob,c:Config):Promise<Any>{
     const scope=(cycle.input as Any).scope as Scope;
+    // Preparation is independent of provider waits and local Page analytics.
+    const researchPolicy=this.policyFor(scope);
+    if(scope.policyId&&researchPolicy?.state.enabled&&!researchPolicy.state.revokedAt&&Date.parse(scope.expiresAt)>this.clock().getTime())new CreatorResearch(this.store,this.clock).maintain(scope.pageAccountId,scope.policyId);
     const policyHold=this.policyAdmission(scope);
     if(policyHold){const active=cycle.state.activeItem?this.item(String(cycle.state.activeItem)):null;
       if(!active||!['generating','recovering'].includes(String(active.state.phase)))return {...policyHold,actions:0};
