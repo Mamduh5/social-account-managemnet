@@ -1,5 +1,7 @@
 # Quota-aware Gemini production and bounded pilot — 4 November 2026
 
+> **Later owner update:** Sponge audio accepted, a watermarked unpublished draft prepared, and enduring revocable production authorization implemented. See [the standing-production handoff](GEMINI_STANDING_PRODUCTION_20261104.md). The bounded-pilot gates below preserve the earlier checkpoint.
+
 The Gemini-only controller is implemented and committed locally. The explicitly authorized live pilot produced one usable technical result, then stopped at the existing pinned-account application cap. A second bounded request was rejected before provider submission; no third request was sent. The new master is awaiting audio/creative acceptance. Recurring production/publication remains disabled. This is a bounded foreground pilot, not a claim of complete unattended or live multi-generation acceptance.
 
 ## Source checkpoints and behavior
