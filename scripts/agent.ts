@@ -27,6 +27,11 @@ const commands = {
   'page-publication-reconcile':'Read back the original queue receipt for --run production item; never uploads again.',
   'production-variant-review':'Record actual final visual QA and decoded-audio identity using --input and --owner-authorized.',
   'production-status':'Read durable production scope/backlog, independent of Facebook analytics.',
+  'production-inspect':'Read current native/account admission into the existing production status; no browser probe or submission.',
+  'production-backlog-tick':'One independent technical QA/branding/unapproved-candidate step using existing SCC services; never accepts or publishes.',
+  'production-backlog-recheck':'Recheck only the exact --run item pure technical-read failure; cannot reset or repeat render, draft or generation operations.',
+  'production-backlog-reconcile':'Read back an exact original candidate --input draftId or variantId for --run item. Never renders/uploads again.',
+  'production-candidate-review':'Record qualified sampled visual/signal review and pending-listening caption proposal from --input; never creative acceptance.',
   'production-config':'Read or replace disabled bounded-production configuration using --input.',
   'production-enqueue':'Save a validated gemini-concept.v1 from --input; no provider submission.',
   'production-start':'Authorize one bounded cycle from --input id/geminiAccountId/pageAccountId/maxSubmissions/expiresAt and --owner-authorized.',
@@ -35,6 +40,7 @@ const commands = {
   'production-tick':'One bounded production step; no timer or recurring schedule.',
   'production-resume':'Fresh supported readiness after manual intervention; requires --owner-authorized.',
   'production-reconcile':'Read back an exact original project for --run item and --input projectId after a lost creation response.',
+  'production-import-reconcile':'Read the exact existing --input videoId for --run item after a lost import response. Verify source/hash; never imports again.',
   'production-review':'Record actual owner audiovisual QA and prepare an unapproved draft; --input and --owner-authorized.',
   'production-observe':'Read exact publication receipts and saved checkpoint metrics; optional --input postId/accountId. Never publishes or refreshes providers.',
   'production-publication-plan':'Read the next ready exact draft and independent Page cadence admission. No approval or queue action.',
@@ -143,6 +149,7 @@ async function main() {
     const publication=()=>new PagePublicationPolicies(local(),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin});
     const runner=()=>new AgentRunner(local(),path.join(path.dirname(statePath),'runner'),undefined,undefined,async id=>{const before=contentScc.client.requestCount;const result=await content().persist(id);return {...result,httpRequests:contentScc.client.requestCount-before};},async()=>{
       let result:Record<string,any>;try{result=await production().tick();}catch{result={state:'production_reconciliation_required',actions:0};}
+      try{await production().processBacklog();}catch{local().setRunnerState('production.backlogLastTick',{state:'backlog_review_required',observedAt:new Date().toISOString()});}
       try{local().setRunnerState('publication.lastTick',{...await publication().tick(),at:new Date().toISOString()});}catch{local().setRunnerState('publication.lastTick',{state:'publication_review_required',at:new Date().toISOString()});}
       try{await new GeminiProduction(local(),pipeline,contentScc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath)).observe();}
       catch{local().setRunnerState('production.observationError',{code:'saved_observation_unavailable',at:new Date().toISOString()});}
@@ -162,6 +169,12 @@ async function main() {
     let data: unknown;
     switch(command) {
       case 'production-policy':data=flags.input?await production().authorizePolicy(input,flags['owner-authorized']===true):production().policyStatus();break;
+      case 'production-inspect':data=await production().inspectStatus();break;
+      case 'production-import-reconcile':if(Object.keys(input).some(k=>k!=='videoId')||typeof input.videoId!=='string')throw new Error('Supply exact original videoId');data=await production().reconcileImport(run(),input.videoId);break;
+      case 'production-backlog-tick':data=await production().processBacklog();break;
+      case 'production-backlog-recheck':data=await production().recheckBacklog(run());break;
+      case 'production-backlog-reconcile':data=await production().reconcileBacklog(run(),input);break;
+      case 'production-candidate-review':data=production().candidateReview(input);break;
       case 'production-policy-revoke':data=production().revokePolicy();break;
       case 'page-publication-policy':data=flags.input?await publication().authorize(input,flags['owner-authorized']===true):publication().status();break;
       case 'page-publication-policy-revoke':data=publication().revoke(run());break;

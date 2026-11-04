@@ -1,5 +1,6 @@
 import {statfsSync} from 'node:fs';
-import {randomUUID} from 'node:crypto';
+import path from 'node:path';
+import {randomUUID,createHash} from 'node:crypto';
 import {z} from 'zod';
 import {AgentStore,stableHash,type AgentJob} from './store.js';
 import {ApiError} from './http.js';
@@ -8,6 +9,7 @@ import {SccAdapter} from './scc.js';
 import {AgentWorkQueue} from './work-queue.js';
 import {CreatorResearch} from './creator-research.js';
 import {geminiLanguageSchema,geminiLanguagePolicyVersion,validateLanguageEvidence,geminiConceptIdea} from './gemini-language.js';
+import {GeminiMediaQa,candidateCopy} from './gemini-media-qa.js';
 
 const account=z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 export const productionConfigSchema=z.object({
@@ -52,7 +54,7 @@ export class GeminiProduction {
   readonly work:AgentWorkQueue;
   constructor(readonly store:AgentStore,readonly pipeline:PipelineAdapter,readonly scc:SccAdapter,
     readonly targets:{pipeline:string;scc:string},readonly directory:string,
-    readonly clock:()=>Date=()=>new Date(),readonly freeBytes:()=>number=()=>{const s=statfsSync(directory);return s.bavail*s.bsize;}){this.work=new AgentWorkQueue(store,clock);}
+    readonly clock:()=>Date=()=>new Date(),readonly freeBytes:()=>number=()=>{const s=statfsSync(directory);return s.bavail*s.bsize;},readonly mediaQa:Pick<GeminiMediaQa,'inspect'>=new GeminiMediaQa(path.join(directory,'production-qa'))){this.work=new AgentWorkQueue(store,clock);}
   config():Config{return productionConfigSchema.parse(this.store.runnerState('production.config')??{});}
   policy(){const id=this.store.runnerState<string>('production.policy');return id?this.store.getJob(id):null;}
   policyStatus(){const p=this.policy();return p?{id:p.id,policy:(p.input as Any).policy,targets:(p.input as Any).targets,authorizationExpiresAt:(p.input as Any).policy.expiresAt,state:p.state,budget:this.policyBudget(p)}:{enabled:false};}
@@ -92,10 +94,13 @@ export class GeminiProduction {
   private item(id:string):AgentJob{const j=this.store.getJob(id);if(!j||!(j.input as Any).production||stableHash((j.input as Any).targets)!==stableHash(this.targets))throw new Error('Unknown production item or changed API targets');return j;}
   private save(id:string,value:Any){return this.store.patchState(id,value);}
   private inventory(){const c=this.config();const items=this.items().filter(j=>j.state.phase!=='published'&&(j.state.phase!=='failed'||!!j.state.media));
-    const bytes=items.reduce((n,j)=>n+Number((j.state.media as Any)?.bytes??(['queued','planning','generating','recovering'].includes(String(j.state.phase))?c.reservationBytes:0)),0);
+    const bytes=items.reduce((n,j)=>n+Number((j.state.media as Any)?.bytes??(['queued','planning','generating','recovering'].includes(String(j.state.phase))?c.reservationBytes:0))+Number((j.state.technicalQa as Any)?.artifactBytes??0)+Number(j.state.candidateVariantBytes??0),0);
     return {items:items.length,bytes,full:items.length>=c.maxBacklogItems||bytes+c.reservationBytes>c.maxBacklogBytes};}
   status(){const active=this.store.runnerState<string>('production.active');const cycle=active?this.store.getJob(active):null;
+    const scope=(cycle?.input as Any)?.scope as Scope|undefined,hold=scope?this.policyAdmission(scope):null,lastSuccess=this.items().filter(j=>j.state.videoId&&(j.state.media as Any)?.technical).sort((a,b)=>Date.parse(String(b.state.lastCheckedAt))-Date.parse(String(a.state.lastCheckedAt)))[0];
     return {version:'gemini-production.v1',config:this.config(),standing:this.policyStatus(),inventory:this.inventory(),cycle:cycle?{id:cycle.id,scope:cycle.input,state:cycle.state}:null,
+      operation:{state:!this.config().enabled?'disabled':hold?.state??String(cycle?.state.phase??'activation_required'),nextRecheckAt:hold?.nextCheckAt??this.policy()?.state.nextCheckAt??null,lastSuccessfulImport:lastSuccess?{itemId:lastSuccess.id,videoId:lastSuccess.state.videoId,original:lastSuccess.state.original,completionObservedAt:lastSuccess.state.lastCheckedAt}:null,lastError:cycle?.state.lastError??null,requiredHumanAction:hold&&/human|security/.test(hold.state)?'Open the dedicated Gemini account session and complete any displayed security/sign-in check, then use production-resume. Do not resubmit the turn.':hold&&/reconciliation|failure/.test(hold.state)?'Inspect the exact original operation; use supported recovery or original-receipt reconciliation only.':null},
+      nativeObservation:this.store.runnerState('production.nativeObservation')??null,backlogProcessing:this.store.runnerState('production.backlogLastTick')??null,
       backlog:this.items().map(j=>({id:j.id,title:(j.input as Any).concept.title,accountId:(j.input as Any).concept.accountId,...((j.input as Any).concept.languageStrategy?{languageStrategy:(j.input as Any).concept.languageStrategy}:{}),...j.state})),
       providerAllowance:null,refreshObservationHours:this.config().refreshObservationHours,planningAssumption:'Five-hour observations and 3–5 possible videos are not guaranteed allowances. Native admission remains authoritative. Observation timing never resets a counter.',
       publication:{automatic:false,standingPagePolicyRequired:true,cadence:this.config().publication},analyticsRequiredForProduction:false};}
@@ -222,6 +227,7 @@ export class GeminiProduction {
     return {state:'needs_concept',taskId:id};
   }
   private async eligibleNative(accountId:string,ownProjectId?:string){const n=await this.pipeline.productionStatus();
+    this.cacheNative(n);
     if(!n.available||!n.workerEnabled)return {n,block:'provider_unavailable'};
     if(n.nativeEnabled)return {n,block:'native_scheduler_running'};
     if(n.unresolved||n.activeRunId||n.observationLocked||n.boundedRequests.some((r:Any)=>r.in_progress&&r.jobId!==ownProjectId))return {n,block:'original_submission_protected'};
@@ -242,6 +248,8 @@ export class GeminiProduction {
     }
     return {n,block:null};
   }
+  private cacheNative(n:Any){this.store.setRunnerState('production.nativeObservation',{observedAt:this.clock().toISOString(),accountUsage:n.accountUsage,globalApplication:{used:n.used,cap:n.cap,windowStartedAt:n.windowStartedAt,windowHours:n.applicationWindowHours},providerAllowance:null,activeRunId:n.activeRunId,submissionUnresolved:n.unresolved,accountWaitNext:n.accountWaitNext,availability:n.availability,providerBlock:n.providerBlock,boundedRequests:n.boundedRequests.map((r:Any)=>({jobId:r.jobId,requestId:r.request_id,state:r.state,inProgress:r.in_progress,available:r.available,runId:r.run_id})),notice:'Supported API observation, not a fresh browser capability check. Application counters are not provider quota.'});}
+  async inspectStatus(){this.cacheNative(await this.pipeline.productionStatus());return this.status();}
   async tick(){const c=this.config();if(!c.enabled)return {state:'disabled',actions:0};const cycle=this.cycle();if(!cycle)return {state:'activation_required',actions:0};
     const lease=randomUUID(),now=this.clock().getTime();const acquired=this.store.transaction(()=>{const old=this.store.runnerState<Any>('production.lease');if(old&&Date.parse(old.until)>now)return false;this.store.setRunnerState('production.lease',{token:lease,until:new Date(now+900000).toISOString()});return true;});
     if(!acquired)return {state:'busy',actions:0};
@@ -409,6 +417,16 @@ export class GeminiProduction {
     if(op.status!=='succeeded')this.store.finishOperation(itemId,'production_create','succeeded',result);
     this.save(itemId,{projectId,creationReconciledAt:this.clock().toISOString()});return {itemId,projectId,reconciled:true};
   }
+  async reconcileImport(itemId:string,videoId:string){const token=randomUUID(),now=this.clock().getTime(),locked=this.store.transaction(()=>{const old=this.store.runnerState<Any>('production.lease');if(old&&Date.parse(old.until)>now)return false;this.store.setRunnerState('production.lease',{token,until:new Date(now+900000).toISOString()});return true;});if(!locked)throw new Error('Production observation is busy');
+    try{const item=this.item(itemId),op=this.store.getOperation(item.id,'production_import'),artifact=this.store.getOperation(item.id,'production_artifact');if(!op||!['pending','uncertain','succeeded'].includes(op.status)||artifact?.status!=='succeeded')throw new Error('No original verified import to reconcile');
+      if(op.status==='succeeded'&&(op.response as Any).videoId!==videoId)throw new Error('Original import ID is immutable');
+      const facts=artifact.response as Any,media=await this.scc.media(videoId),origin=await this.scc.pipelineOrigin(),fingerprint=createHash('sha256').update(origin.replace(/\/+$/,'')).digest('hex');
+      if(origin!==this.targets.pipeline||media.id!==videoId||media.source_type!=='pipeline_import'||media.pipeline_job_id!==item.state.projectId||media.provenance.source!=='ai_video_pipeline'||media.provenance.upstreamJobId!==item.state.projectId||media.provenance.pipelineSourceFingerprint!==fingerprint||media.provenance.sha256!==facts.sha256||media.file_size!==facts.bytes)throw new Error('SCC media differs from the original verified Pipeline import');
+      const result={success:true,videoId,alreadyExisted:true,reconciled:true};if(op.status!=='succeeded')this.store.finishOperation(item.id,'production_import','succeeded',result);
+      this.store.recordKnowledge({id:'import-reconciled:'+item.id,kind:'observation',accountId:(item.input as Any).concept.accountId,resourceId:item.id,source:'exact_scc_media_read_back',text:'Verified the original immutable import without repeating a POST.',evidence:{videoId,projectId:item.state.projectId,sha256:facts.sha256,bytes:facts.bytes,sourceFingerprint:fingerprint}});
+      return {...result,itemId:item.id,next:'production-resume verifies the completed original and fresh readiness; no generation is submitted by reconciliation'};
+    }finally{if(this.store.runnerState<Any>('production.lease')?.token===token)this.store.setRunnerState('production.lease',null);}
+  }
   async resume(ownerAuthorized=false){if(!ownerAuthorized)throw new Error('Manual security completion or failed-scope review requires owner authorization');
     const token=randomUUID(),now=this.clock().getTime(),acquired=this.store.transaction(()=>{const old=this.store.runnerState<Any>('production.lease');if(old&&Date.parse(old.until)>now)return false;this.store.setRunnerState('production.lease',{token,until:new Date(now+900000).toISOString()});return true;});
     if(!acquired)throw new Error('Original production observation is busy');
@@ -427,14 +445,101 @@ export class GeminiProduction {
     if(!a||a.stale||a.conflicting_evidence||a.previous_submission_uncertain||/human|login|security|captcha/.test(String(a.blocker_code))||fresh.unresolved)throw new Error('Fresh supported availability did not pass');
     if(a.blocker_code!=='video_available'&&!/quota|weekly|limit|capacity|disabled/.test(String(a.blocker_code)))throw new Error('Fresh supported availability remains unknown');
     this.save(cycle.id,{phase:'active'});const policy=this.policyFor(scope);if(policy){this.save(policy.id,{humanHold:null,nextCheckAt:null});if(a.blocker_code!=='video_available')this.capacityWait(scope,fresh,a.blocker_code);}return this.status();}
-  async review(input:unknown,ownerAuthorized=false){if(!ownerAuthorized)throw new Error('Actual owner audiovisual review is required');const r=reviewSchema.parse(input),j=this.item(r.itemId),media=j.state.media as Any;
-    if(!['awaiting_qa','branding','ready'].includes(String(j.state.phase))||media?.sha256!==r.sha256 || (j.state.qa&&stableHash(j.state.qa)!==stableHash(r)))throw new Error('Review must bind the unchanged original master and original QA decision');
+  /** Independent existing-trigger step: technical evidence and unapproved candidates, never creative acceptance. */
+  private async recordTechnical(item:AgentJob,media:Any){const s=item.state as Any,concept=(item.input as Any).concept;
+    if(media.provenance.sha256!==s.media.sha256||media.file_size!==s.media.bytes)throw new Error('backlog_master_integrity_changed');
+    const report=await this.mediaQa.inspect(this.targets.scc,media,this.config().reservationBytes);
+    if(report.sha256!==s.media.sha256||report.videoId!==s.videoId)throw new Error('backlog_report_identity_changed');
+    this.store.recordKnowledge({id:'technical-qa:'+item.id,kind:'observation',accountId:concept.accountId,resourceId:item.id,source:'ffprobe_full_decode_pcm_measurements',text:'Automated technical evidence; listening and creative acceptance remain pending.',evidence:report});
+    this.save(item.id,{technicalQa:report,backlogHold:null,phase:report.technicalPass?(s.phase==='ready'?'ready':'needs_review'):'qa_failed',publicationHold:report.technicalPass?(s.phase==='ready'?'separate_publication_authority_required':'creative_and_listening_review_required'):'technical_qa_failed'});
+    return {state:'backlog_qa_recorded',itemId:item.id,technicalPass:report.technicalPass,actions:1};
+  }
+  async recheckBacklog(itemId:string){
+    const token=randomUUID(),now=this.clock().getTime(),locked=this.store.transaction(()=>{const old=this.store.runnerState<Any>('production.lease');if(old&&Date.parse(old.until)>now)return false;this.store.setRunnerState('production.lease',{token,until:new Date(now+900000).toISOString()});return true;});if(!locked)throw new Error('Production observation is busy');
+    try{const item=this.item(itemId),s=item.state as Any;
+      if(!s.backlogHold||s.technicalQa||s.candidateVariantId||this.store.getOperation(item.id,'production_candidate_brand')||this.store.getOperation(item.id,'production_candidate_draft'))throw new Error('Only an original pure technical-read failure can be rechecked here; reconcile existing render/draft receipts separately');
+      return await this.recordTechnical(item,await this.scc.media(s.videoId));
+    }finally{if(this.store.runnerState<Any>('production.lease')?.token===token)this.store.setRunnerState('production.lease',null);}
+  }
+  async processBacklog(){
+    if(!this.config().enabled)return {state:'backlog_disabled',actions:0};
+    const token=randomUUID(),now=this.clock().getTime(),acquired=this.store.transaction(()=>{const old=this.store.runnerState<Any>('production.lease');if(old&&Date.parse(old.until)>now)return false;this.store.setRunnerState('production.lease',{token,until:new Date(now+900000).toISOString()});return true;});
+    if(!acquired)return {state:'backlog_busy',actions:0};
+    let result:Any={state:'no_backlog_work',actions:0};
+    try{
+      const accountId=(this.policy()?.input as Any)?.policy?.pageAccountId??((this.cycle()?.input as Any)?.scope?.pageAccountId);
+      const item=this.items().find(j=>(j.input as Any).concept.accountId===accountId&&(['awaiting_qa','needs_review'].includes(String(j.state.phase))||(j.state.phase==='ready'&&!j.state.technicalQa))&&!j.state.backlogHold&&!j.state.candidateDraftId);
+      if(!item)return result;
+      const s=item.state as Any,concept=(item.input as Any).concept;
+      if(this.freeBytes()<this.config().minimumFreeBytes+this.config().reservationBytes)return result={state:'backlog_storage_hold',actions:0};
+      if(this.inventory().bytes>this.config().maxBacklogBytes)return result={state:'backlog_byte_limit',actions:0};
+      try{
+        const media=await this.scc.media(s.videoId);if(media.provenance.sha256!==s.media.sha256||media.file_size!==s.media.bytes)throw new Error('backlog_master_integrity_changed');
+        if(!s.technicalQa){
+          return result=await this.recordTechnical(item,media);
+        }
+        if(!s.technicalQa.technicalPass)return result={state:'backlog_technical_hold',actions:0};
+        if(!s.candidateVariantId){
+          const variant=await this.once(item.id,'production_candidate_brand',{videoId:s.videoId,accountId:concept.accountId,sha256:s.media.sha256},()=>this.scc.brandProduction(s.videoId,concept.accountId,intent=>this.store.setRunnerState('production.candidateBrandIntent:'+item.id,intent)));
+          const updated=await this.scc.media(s.videoId),stored=updated.variants.find((v:Any)=>v.id===variant.variantId);
+          if(!variant.sha256||stored?.sha256!==variant.sha256||updated.provenance.sha256!==s.media.sha256)throw new Error('candidate_variant_integrity_changed');
+          this.save(item.id,{candidateVariantId:variant.variantId,candidateVariantSha256:variant.sha256,candidateVariantBytes:stored.file_size??0,publicationHold:'creative_and_listening_review_required'});
+          return result={state:'backlog_variant_ready',itemId:item.id,variantId:variant.variantId,creativeAccepted:false,actions:1};
+        }
+        const variant=media.variants.find((v:Any)=>v.id===s.candidateVariantId);if(variant?.sha256!==s.candidateVariantSha256)throw new Error('candidate_variant_integrity_changed');
+        const copy=s.candidateReview?.caption?{caption:s.candidateReview.caption,hashtags:s.candidateReview.hashtags,language:s.candidateReview.captionLanguage,basis:'sampled_visual_review_pending_listening'}:candidateCopy(concept);
+        if(!copy.caption){this.save(item.id,{backlogHold:'caption_language_review_required',publicationHold:'creative_and_listening_review_required',copyProposal:copy});return result={state:'caption_language_review_required',itemId:item.id,actions:0};}
+        const prepared=await this.once(item.id,'production_candidate_draft',{videoId:s.videoId,variantId:s.candidateVariantId,caption:copy.caption,hashtags:copy.hashtags,accountId:concept.accountId},()=>this.scc.prepare({title:concept.title,videoId:s.videoId,accountId:concept.accountId,caption:copy.caption!,hashtags:copy.hashtags,selectedVariantId:s.candidateVariantId,applyBranding:false,scheduledAt:null}));
+        this.save(item.id,{candidateDraftId:prepared.draft.id,candidateDraftHash:prepared.payloadHash??null,copyProposal:copy,phase:'needs_review',publicationHold:'creative_and_listening_review_required'});
+        return result={state:'review_candidate_ready',itemId:item.id,draftId:prepared.draft.id,approved:false,queued:false,actions:1};
+      }catch(e){const reason=e instanceof Error?e.message:'backlog_operation_uncertain';this.save(item.id,{backlogHold:reason,publicationHold:'original_candidate_operation_review_required'});return result={state:'backlog_item_held',itemId:item.id,error:reason,actions:0};}
+    }finally{this.store.setRunnerState('production.backlogLastTick',{...result,observedAt:this.clock().toISOString()});if(this.store.runnerState<Any>('production.lease')?.token===token)this.store.setRunnerState('production.lease',null);}
+  }
+  candidateReview(raw:unknown){const r=z.object({itemId:z.string(),sha256:z.string().regex(/^[a-f0-9]{64}$/),contactSheetSha256:z.string().regex(/^[a-f0-9]{64}$/),samples:z.number().int().min(1).max(20),visual:z.enum(['sampled_pass','needs_review','fail']),audio:z.enum(['needs_review','fail']),notes:z.string().min(1).max(2000),caption:z.string().min(1).max(6000),hashtags:z.string().max(1000),captionLanguage:z.string().min(2).max(35),source:z.literal('agent_frame_samples_and_signal_analysis')}).strict().parse(raw);
+    const token=randomUUID(),now=this.clock().getTime(),locked=this.store.transaction(()=>{const old=this.store.runnerState<Any>('production.lease');if(old&&Date.parse(old.until)>now)return false;this.store.setRunnerState('production.lease',{token,until:new Date(now+900000).toISOString()});return true;});if(!locked)throw new Error('Production/candidate observation is busy');
+    try{
+    const item=this.item(r.itemId),s=item.state as Any;if(!['awaiting_qa','needs_review'].includes(s.phase)||s.media?.sha256!==r.sha256||s.technicalQa?.contactSheet?.sha256!==r.contactSheetSha256||s.candidateDraftId)throw new Error('Review must bind the exact pending master/contact sheet before its draft is saved');
+    this.store.recordKnowledge({id:'candidate-review:'+item.id,kind:'observation',accountId:(item.input as Any).concept.accountId,resourceId:item.id,source:r.source,text:r.notes,evidence:r});
+    this.save(item.id,{candidateReview:r,backlogHold:s.backlogHold==='caption_language_review_required'?null:s.backlogHold??null,phase:r.visual==='fail'||r.audio==='fail'?'qa_failed':'needs_review',publicationHold:r.visual==='fail'||r.audio==='fail'?'candidate_quality_failed':'creative_and_listening_review_required'});
+    return {itemId:item.id,creativeAccepted:false,publicationAuthorized:false};
+    }finally{if(this.store.runnerState<Any>('production.lease')?.token===token)this.store.setRunnerState('production.lease',null);}
+  }
+  async reconcileBacklog(itemId:string,raw:unknown){const token=randomUUID(),now=this.clock().getTime(),locked=this.store.transaction(()=>{const old=this.store.runnerState<Any>('production.lease');if(old&&Date.parse(old.until)>now)return false;this.store.setRunnerState('production.lease',{token,until:new Date(now+900000).toISOString()});return true;});if(!locked)throw new Error('Production/candidate observation is busy');
+    try{return await this.reconcileBacklogOriginal(itemId,raw);}finally{if(this.store.runnerState<Any>('production.lease')?.token===token)this.store.setRunnerState('production.lease',null);}
+  }
+  private async reconcileBacklogOriginal(itemId:string,raw:unknown){const r=z.object({draftId:z.string().optional(),variantId:z.string().optional()}).strict().parse(raw);if(Number(!!r.draftId)+Number(!!r.variantId)!==1)throw new Error('Supply one exact original candidate draft or variant ID');
+    const item=this.item(itemId),s=item.state as Any,concept=(item.input as Any).concept,step=r.draftId?'production_candidate_draft':'production_candidate_brand',op=this.store.getOperation(item.id,step);
+    if(!op||!['pending','uncertain','succeeded'].includes(op.status))throw new Error('No original candidate operation to reconcile');
+    if(!['needs_review','awaiting_qa'].includes(String(s.phase)))throw new Error('Candidate is no longer pending review');
+    const known=(op.response as Any)?.draft?.id??(op.response as Any)?.variantId;if(op.status==='succeeded'&&known&&known!==(r.draftId??r.variantId))throw new Error('The original candidate resource ID is immutable');
+    const media=await this.scc.media(s.videoId);if(media.provenance.sha256!==s.media.sha256)throw new Error('Original candidate master changed');
+    let result:Any;
+    if(r.draftId){const q=op.request as Any;if(q.videoId!==s.videoId||q.accountId!==concept.accountId||q.variantId!==s.candidateVariantId)throw new Error('Original candidate request changed');
+      result=await this.scc.reconcileDraft(r.draftId,{title:concept.title,videoId:q.videoId,accountId:q.accountId,caption:q.caption,hashtags:q.hashtags,selectedVariantId:q.variantId,applyBranding:false,scheduledAt:null});
+      if(op.status!=='succeeded')this.store.finishOperation(item.id,step,'succeeded',result);this.save(item.id,{candidateDraftId:r.draftId,candidateDraftHash:result.payloadHash,backlogHold:null,phase:'needs_review',publicationHold:'creative_and_listening_review_required'});
+    }else{const intent=this.store.runnerState<Any>('production.candidateBrandIntent:'+item.id);if(!intent)throw new Error('Exact original branding intent unavailable; retain the hold');
+      result=await this.scc.reconcileProductionBrand(r.variantId!,intent);if(op.status!=='succeeded')this.store.finishOperation(item.id,step,'succeeded',result);this.save(item.id,{candidateVariantId:result.variantId,candidateVariantSha256:result.sha256,backlogHold:null,publicationHold:'creative_and_listening_review_required'});
+    }
+    return {...result,itemId:item.id,approved:false,queued:false};
+  }
+  async review(input:unknown,ownerAuthorized=false){if(!ownerAuthorized)throw new Error('Actual owner audiovisual review is required');const token=randomUUID(),now=this.clock().getTime(),locked=this.store.transaction(()=>{const old=this.store.runnerState<Any>('production.lease');if(old&&Date.parse(old.until)>now)return false;this.store.setRunnerState('production.lease',{token,until:new Date(now+900000).toISOString()});return true;});if(!locked)throw new Error('Production/candidate observation is busy');
+    try{return await this.reviewOriginal(input);}finally{if(this.store.runnerState<Any>('production.lease')?.token===token)this.store.setRunnerState('production.lease',null);}
+  }
+  private async reviewOriginal(input:unknown){const r=reviewSchema.parse(input),j=this.item(r.itemId),media=j.state.media as Any;
+    if(!['awaiting_qa','needs_review','branding','ready'].includes(String(j.state.phase))||media?.sha256!==r.sha256 || (j.state.qa&&stableHash(j.state.qa)!==stableHash(r)))throw new Error('Review must bind the unchanged original master and original QA decision');
     if(j.state.phase==='ready')return {state:'ready',draft:await this.scc.getDraft(String(j.state.draftId)),approved:false,queued:false};
+    for(const step of ['production_candidate_brand','production_candidate_draft']){const op=this.store.getOperation(j.id,step);if(op&&(['pending','uncertain'].includes(op.status)||(step==='production_candidate_draft'&&!j.state.candidateDraftId)))throw new Error('Reconcile the original candidate operation before accepting it; no duplicate render/draft is permitted');}
     const accepted=r.decision==='accepted'&&r.visual==='pass'&&r.audio==='pass'&&media.technical;
     this.store.recordKnowledge({id:'production-qa:'+j.id,kind:'observation',accountId:(j.input as Any).concept.accountId,resourceId:j.id,source:'owner_audiovisual_review',text:r.notes,evidence:{...r,...((j.input as Any).concept.languageStrategy?{languageStrategy:(j.input as Any).concept.languageStrategy}:{})}});
     this.save(j.id,{qa:r,phase:accepted?'branding':'qa_failed'});if(!accepted)return {state:'qa_failed',itemId:j.id};
     const concept=(j.input as Any).concept;
-    const rendered=await this.once(j.id,'production_brand',{videoId:j.state.videoId,accountId:concept.accountId},()=>this.scc.brandProduction(String(j.state.videoId),concept.accountId));
+    if(j.state.candidateDraftId){
+      const current=await this.scc.media(String(j.state.videoId)),variant=current.variants.find((v:Any)=>v.id===j.state.candidateVariantId),prepared=await this.scc.review(String(j.state.candidateDraftId)),draft=prepared.draft,d=draft.destinations?.[0];
+      if(current.provenance.sha256!==media.sha256||variant?.sha256!==j.state.candidateVariantSha256||draft.videoId!==j.state.videoId||draft.destinations?.length!==1||d.accountId!==concept.accountId||d.selectedVariantId!==j.state.candidateVariantId||d.caption!==r.caption||d.hashtags!==r.hashtags||draft.scheduledAt!==null||draft.queuedPostId||draft.approvedRevision)throw new Error('Review the original candidate draft/media and exact caption before adopting it; no duplicate draft was created');
+      this.save(j.id,{phase:'ready',draftId:draft.id,variantId:j.state.candidateVariantId,variantSha256:j.state.candidateVariantSha256,draftHash:prepared.payloadHash,publicationHold:'final_variant_review_and_separate_publication_authority_required'});return {state:'ready',draft,approved:false,queued:false};
+    }
+    let rendered:Any;if(j.state.candidateVariantId){const current=await this.scc.media(String(j.state.videoId)),v=current.variants.find((v:Any)=>v.id===j.state.candidateVariantId);if(current.provenance.sha256!==media.sha256||v?.sha256!==j.state.candidateVariantSha256)throw new Error('Original candidate render changed');rendered={variantId:v.id,sha256:v.sha256};}
+    else rendered=await this.once(j.id,'production_brand',{videoId:j.state.videoId,accountId:concept.accountId},()=>this.scc.brandProduction(String(j.state.videoId),concept.accountId));
     const prepared=await this.once(j.id,'production_draft',{videoId:j.state.videoId,variantId:rendered.variantId,caption:r.caption,hashtags:r.hashtags,accountId:concept.accountId},()=>this.scc.prepare({title:concept.title,videoId:String(j.state.videoId),accountId:concept.accountId,caption:r.caption,hashtags:r.hashtags,selectedVariantId:rendered.variantId,applyBranding:false,scheduledAt:null}));
     this.save(j.id,{phase:'ready',draftId:prepared.draft.id,variantId:rendered.variantId,variantSha256:rendered.sha256??null,draftHash:prepared.payloadHash??null});return {state:'ready',draft:prepared.draft,approved:false,queued:false};
   }

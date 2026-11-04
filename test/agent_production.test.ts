@@ -27,13 +27,14 @@ function setup(t:any,config:any={}){
   let publication:any={post:{destinations:[{id:'dest',account_id:'page',status:'published',confirmation_source:'api',verification_status:'confirmed',remote_post_id:'remote',remote_post_url:'https://facebook.com/reel/remote',published_at:'2026-11-03T00:00:00Z'}]}};
   let draft:any={id:'draft',revision:1,status:'draft',queuedPostId:null};let history:any={items:[],hasMore:false};
   const scc={pageContext:async()=>({account:{id:'page',name:'Page',graphId:'123'},rules:[]}),pipelineOrigin:async()=>targets.pipeline,importVideo:async()=>{imports++;return {videoId:'video'};},media:async()=>media,brandProduction:async()=>{branded++;return {variantId:'variant'};},prepare:async()=>{drafts++;return {draft};},getDraft:async()=>draft,review:async()=>({draft}),history:async()=>history,publication:async()=>publication,analytics:async()=>({history:[{view_count:null,like_count:0,observed_at:'2026-11-03T00:15:00Z',source:'meta_graph_api'}],missingStatisticsAreZero:false})} as unknown as SccAdapter;
-  const build=()=>new GeminiProduction(store,pipeline,scc,targets,dir,()=>new Date(now),()=>free);let controller=build();controller.configure(config);
+  let qaBehavior=async()=>({version:'gemini-technical-qa.v1',videoId:'video',sha256:sha,technicalPass:true,artifactBytes:1024,contactSheet:{sha256:'c'.repeat(64),path:'fixture-contact.jpg'},audio:{listeningAccepted:false,warnings:[]}});
+  const build=()=>new GeminiProduction(store,pipeline,scc,targets,dir,()=>new Date(now),()=>free,{inspect:async()=>qaBehavior()});let controller=build();controller.configure(config);
   const start=(n=3)=>controller.start({id:'scope',geminiAccountId:'gemini_web-main',pageAccountId:'page',maxSubmissions:n,expiresAt:'2026-11-04T06:00:00Z'},true);
   const counts=()=>({created,submitted,recovered,checks,imports,branded,drafts,reconcileHolds});
   t.after(()=>{store.close();rmSync(dir,{recursive:true,force:true});});
   return {get c(){return controller;},get store(){return store;},pipeline,scc,start,counts,media,native,
     enqueue:(n=1)=>controller.enqueue(concept(n)),read:(r:any)=>{read=r;},advance:(ms=301000)=>{now=new Date(now.getTime()+ms);},free:(n:number)=>{free=n;},
-    submit:(fn:()=>Promise<any>)=>{submitBehavior=fn;},create:(fn:()=>Promise<any>)=>{createBehavior=fn;},check:(fn:()=>Promise<any>)=>{checkBehavior=fn;},recover:(fn:()=>Promise<any>)=>{recoverBehavior=fn;},draft:(d:any)=>{draft=d;},publication:(p:any)=>{publication=p;},history:(h:any)=>{history=h;},
+    submit:(fn:()=>Promise<any>)=>{submitBehavior=fn;},create:(fn:()=>Promise<any>)=>{createBehavior=fn;},check:(fn:()=>Promise<any>)=>{checkBehavior=fn;},recover:(fn:()=>Promise<any>)=>{recoverBehavior=fn;},draft:(d:any)=>{draft=d;},publication:(p:any)=>{publication=p;},history:(h:any)=>{history=h;},qa:(fn:()=>Promise<any>)=>{qaBehavior=fn;},
     restart:()=>{store.close();store=new AgentStore(file);controller=build();return controller;},dir};
 }
 test('disabled defaults require explicit bounded account/Page/expiry scope; no allowance inferred',async t=>{
@@ -202,6 +203,65 @@ test('bounded-request HTTP receipt and per-account accounting remain distinct fr
 });
 
 const standing=(extra:any={})=>({version:'gemini-production-policy.v1',id:'standing',geminiAccountId:'gemini_web-main',pageAccountId:'page',pageGraphId:'123',expiresAt:'2026-12-04T00:00:00Z',targetPerWindow:3,planningWindowHours:5,maxPer24Hours:12,maxTotalSubmissions:300,...extra});
+
+function enableCandidateFixture(f:ReturnType<typeof setup>){
+  Object.assign(f.media,{id:'video',variants:[{id:'variant',sha256:'b'.repeat(64),file_size:1024}]});
+  const brand=f.scc.brandProduction.bind(f.scc);f.scc.brandProduction=async(...a)=>({...await brand(...a),sha256:'b'.repeat(64)});
+}
+test('completed backlog progresses through technical evidence, watermark and held candidate during a production security hold',async t=>{
+  const f=setup(t);enableCandidateFixture(f);const item=f.enqueue();await f.c.authorizePolicy(standing(),true);await f.c.tick();await f.c.tick();f.read(evidence('completed'));await f.c.tick();
+  f.store.patchState((f.c.policyStatus() as any).id,{humanHold:'human_action_required'});assert.equal((await f.c.tick()).state,'human_action_required');assert.equal((await f.c.processBacklog()).state,'backlog_qa_recorded');assert.equal((await f.c.processBacklog()).state,'backlog_variant_ready');assert.equal((await f.c.processBacklog()).state,'review_candidate_ready');
+  const s=f.store.getJob(item.id)!.state;assert.equal(s.phase,'needs_review');assert.equal(s.candidateDraftId,'draft');assert.equal(s.qa,undefined);assert.equal(s.publicationHold,'creative_and_listening_review_required');assert.equal(f.counts().branded,1);assert.equal(f.counts().drafts,1);f.restart();assert.equal((await f.c.processBacklog()).state,'no_backlog_work');assert.equal(f.counts().drafts,1);assert.equal((f.c.policyStatus() as any).state.humanHold,'human_action_required');
+});
+test('uncertain candidate render holds only its original item and never repeats its POST',async t=>{
+  const f=setup(t);enableCandidateFixture(f);for(let i=1;i<=2;i++)f.enqueue(i);f.start();for(let i=1;i<=2;i++){f.read(evidence());await f.c.tick();await f.c.tick();f.read(evidence('completed'));await f.c.tick();}
+  let calls=0;const brand=f.scc.brandProduction.bind(f.scc);f.scc.brandProduction=async(...a)=>{calls++;if(calls===1)throw new ApiError(null,'render_response_lost',true);return brand(...a);};
+  await f.c.processBacklog();assert.equal((await f.c.processBacklog()).state,'backlog_item_held');f.restart();assert.equal((await f.c.processBacklog()).state,'backlog_qa_recorded');assert.equal((await f.c.processBacklog()).state,'backlog_variant_ready');assert.equal((await f.c.processBacklog()).state,'review_candidate_ready');assert.equal(calls,2);assert.equal(f.counts().submitted,2);
+  const held=f.c.status().backlog.find((x:any)=>x.backlogHold)!;await assert.rejects(()=>f.c.review({itemId:held.id,sha256:sha,decision:'accepted',visual:'pass',audio:'pass',source:'owner',notes:'Isolated acceptance cannot bypass an uncertain render',caption:'Copy',hashtags:''},true),/original candidate/);assert.equal(calls,2);
+});
+test('lost candidate draft response is reconciled by exact existing SCC draft read-back without a second write',async t=>{
+  const f=setup(t);enableCandidateFixture(f);const item=f.enqueue();f.start();await f.c.tick();await f.c.tick();f.read(evidence('completed'));await f.c.tick();await f.c.processBacklog();await f.c.processBacklog();let writes=0,reads=0;
+  f.scc.prepare=async()=>{writes++;throw new ApiError(null,'draft_response_lost',true);};assert.equal((await f.c.processBacklog()).state,'backlog_item_held');f.restart();await assert.rejects(()=>f.c.recheckBacklog(item.id),/technical-read/);
+  f.scc.reconcileDraft=async(id,expected)=>{reads++;assert.equal(id,'original-draft');assert.equal(expected.accountId,'page');assert.equal(expected.videoId,'video');assert.equal(expected.selectedVariantId,'variant');return {draft:{id,revision:1,status:'draft',approvedRevision:null,queuedPostId:null},payloadHash:'d'.repeat(64)};};
+  await f.c.reconcileBacklog(item.id,{draftId:'original-draft'});assert.equal(writes,1);assert.equal(reads,1);assert.equal(f.store.getOperation(item.id,'production_candidate_draft')!.status,'succeeded');assert.equal(f.store.getJob(item.id)!.state.candidateDraftId,'original-draft');assert.equal(f.store.getJob(item.id)!.state.phase,'needs_review');assert.equal((await f.c.processBacklog()).state,'no_backlog_work');assert.equal(writes,1);
+});
+test('duplicate backlog invocations preserve one technical/brand/draft identity; owner acceptance adopts the existing candidate',async t=>{
+  const f=setup(t);enableCandidateFixture(f);const item=f.enqueue();f.start();await f.c.tick();await f.c.tick();f.read(evidence('completed'));await f.c.tick();
+  const results=await Promise.all([f.c.processBacklog(),f.c.processBacklog()]);assert.ok(results.some(x=>x.state==='backlog_busy'));await f.c.processBacklog();await f.c.processBacklog();
+  f.draft({id:'draft',revision:1,status:'draft',videoId:'video',scheduledAt:null,approvedRevision:null,queuedPostId:null,destinations:[{accountId:'page',selectedVariantId:'variant',caption:'Reviewed copy',hashtags:''}]});
+  await f.c.review({itemId:item.id,sha256:sha,decision:'accepted',visual:'pass',audio:'pass',source:'owner',notes:'Isolated actual-owner acceptance fixture',caption:'Reviewed copy',hashtags:''},true);assert.equal(f.store.getJob(item.id)!.state.phase,'ready');assert.equal(f.counts().branded,1);assert.equal(f.counts().drafts,1);assert.equal(f.store.getJob(item.id)!.state.draftId,'draft');
+});
+test('six sequential completions over two quota windows survive acknowledgment restart and prepare six unpublished candidates',async t=>{
+  const f=setup(t);enableCandidateFixture(f);for(let i=1;i<=6;i++)f.enqueue(i);f.native.windowStartedAt='2026-11-04T00:00:00Z';await f.c.authorizePolicy(standing(),true);
+  for(let i=1;i<=6;i++){
+    if(i===4){assert.equal((await f.c.tick()).state,'policy_budget_wait');await f.c.processBacklog();f.advance(5*3600000);f.restart();}
+    f.read(evidence());assert.equal((await f.c.tick()).state,'planning');assert.equal((await f.c.tick()).state,'bounded_request_queued');const active=evidence();active.run={submissionIntent:true,acknowledged:true,status:'generating'};active.session.active=true;f.read(active);f.restart();await f.c.tick();const prior=f.counts().submitted;await Promise.all([f.c.tick(),f.c.tick()]);assert.equal(f.counts().submitted,prior);
+    f.read(evidence('completed'));assert.equal((await f.c.tick()).state,'awaiting_qa');await f.c.processBacklog();
+  }
+  for(let i=0;i<20;i++)await f.c.processBacklog();assert.equal(f.counts().submitted,6);assert.equal(f.counts().imports,6);assert.equal(f.counts().drafts,6);assert.equal(f.c.status().backlog.filter((x:any)=>x.phase==='needs_review'&&x.candidateDraftId).length,6);assert.equal((f.c.policyStatus() as any).budget.total,6);assert.ok(f.c.status().backlog.every((x:any)=>!x.qa));
+});
+test('technical/visual failure and low storage do not fabricate candidate acceptance or block unrelated clips',async t=>{
+  const f=setup(t);enableCandidateFixture(f);const item=f.enqueue();f.start();await f.c.tick();await f.c.tick();f.read(evidence('completed'));await f.c.tick();f.free(0);assert.equal((await f.c.processBacklog()).state,'backlog_storage_hold');f.free(10*1024**3);await f.c.processBacklog();
+  assert.throws(()=>f.c.candidateReview({itemId:item.id,sha256:sha,contactSheetSha256:'c'.repeat(64),samples:20,visual:'sampled_pass',audio:'pass',notes:'Not allowed to invent listening pass',caption:'Copy',hashtags:'',captionLanguage:'en',source:'agent_frame_samples_and_signal_analysis'}));
+  f.c.candidateReview({itemId:item.id,sha256:sha,contactSheetSha256:'c'.repeat(64),samples:20,visual:'fail',audio:'needs_review',notes:'Sampled visual story is incoherent in this isolated fixture',caption:'Copy',hashtags:'',captionLanguage:'en',source:'agent_frame_samples_and_signal_analysis'});assert.equal(f.store.getJob(item.id)!.state.phase,'qa_failed');assert.equal((await f.c.processBacklog()).state,'no_backlog_work');assert.equal(f.counts().drafts,0);
+});
+test('status separates configured policy waiting, observed native accounting and provider quota uncertainty',async t=>{
+  const f=setup(t);await f.c.authorizePolicy(standing(),true);f.native.accountUsage={'gemini_web-main':{submissions:4,window_started_at:'2026-11-04T00:00:00Z'}};await f.c.tick();const s=await f.c.inspectStatus();assert.equal(s.operation.state,'waiting_capacity');assert.equal(s.nativeObservation.accountUsage['gemini_web-main'].submissions,4);assert.equal(s.nativeObservation.providerAllowance,null);assert.equal(s.analyticsRequiredForProduction,false);assert.equal(f.counts().submitted,0);
+});
+test('a lost immutable import is read back by exact source/hash and never repeats its POST',async t=>{
+  const f=setup(t);const item=f.enqueue();f.start();await f.c.tick();await f.c.tick();f.read(evidence('completed'));let posts=0;f.scc.importVideo=async()=>{posts++;throw new ApiError(null,'import_response_lost',true);};assert.equal((await f.c.tick()).state,'reconciliation_required');
+  const {createHash}=await import('node:crypto');Object.assign(f.media,{id:'video',source_type:'pipeline_import',pipeline_job_id:'project-1'});Object.assign(f.media.provenance,{source:'ai_video_pipeline',upstreamJobId:'project-1',pipelineSourceFingerprint:createHash('sha256').update(targets.pipeline).digest('hex')});
+  await assert.rejects(()=>f.c.reconcileImport(item.id,'foreign-video'),/differs/);await f.c.reconcileImport(item.id,'video');f.restart();await f.c.resume(true);assert.equal(posts,1);assert.equal(f.store.getJob(item.id)!.state.phase,'awaiting_qa');assert.equal(f.store.getJob(item.id)!.state.videoId,'video');assert.equal(f.counts().submitted,1);
+});
+test('the existing runner advances held backlog despite exhausted model budget and duplicate triggers',async t=>{
+  const f=setup(t);enableCandidateFixture(f);f.enqueue();await f.c.authorizePolicy(standing(),true);await f.c.tick();await f.c.tick();f.read(evidence('completed'));await f.c.tick();f.store.patchState((f.c.policyStatus() as any).id,{humanHold:'human_action_required'});
+  configureRunner(f.store,{...defaultRunnerConfig(),enabled:true,maxInvocationsPerDay:1},true);f.c.work.add({id:'fixture',kind:'story_plan',title:'Prior isolated model-budget fixture',priority:0});f.store.saveRunnerSession({id:'used-model-budget',taskId:'fixture',adapter:'json',status:'completed',startedAt:'2026-11-04T00:00:00Z',deadlineAt:'2026-11-04T00:01:00Z',finishedAt:'2026-11-04T00:00:01Z',reservedTokens:1,usage:{tokens:1,source:'fixture'}});
+  let models=0;const noModels={detect:async()=>{models++;throw new Error('Model budget exhausted');},execute:async()=>{models++;throw new Error('Unexpected model');}} as any;
+  const runner=new AgentRunner(f.store,path.join(f.dir,'runner'),noModels,()=>new Date('2026-11-04T00:00:00Z'),undefined,async()=>{const result=await f.c.tick();await f.c.processBacklog();return result;});await Promise.all([runner.tick(),runner.tick()]);await runner.tick();await runner.tick();assert.equal(models,0);assert.equal(f.counts().branded,1);assert.equal(f.counts().drafts,1);assert.equal(f.counts().submitted,1);
+});
+test('provider unavailable waits at a supported boundary and resumes normal admission under the same grant',async t=>{
+  const f=setup(t);f.enqueue();await f.c.authorizePolicy(standing(),true);f.native.available=false;assert.equal((await f.c.tick()).state,'provider_unavailable');assert.equal((await f.c.tick()).state,'waiting_capacity');assert.equal(f.counts().submitted,0);f.advance(5*3600000);f.restart();f.native.available=true;assert.equal((await f.c.tick()).state,'capacity_observed');assert.equal((await f.c.tick()).state,'planning');assert.equal((await f.c.tick()).state,'bounded_request_queued');assert.equal(f.counts().submitted,1);
+});
 
 test('standing creation consults external cache before concepts without waiting for local analytics',async t=>{
   const f=setup(t);await f.c.authorizePolicy(standing(),true);assert.equal((await f.c.tick()).state,'needs_creator_research');

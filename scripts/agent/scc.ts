@@ -100,15 +100,23 @@ export class SccAdapter {
   }
 
   /** Explicit portrait render for a reviewed Gemini production item; account defaults are untouched. */
-  async brandProduction(videoId:string,accountId:string):Promise<JsonObject> {
+  async brandProduction(videoId:string,accountId:string,onIntent?:(intent:JsonObject)=>void):Promise<JsonObject> {
     const context=await this.pageContext(accountId),media=await this.media(videoId);
     if(media.width*16!==media.height*9 || Math.abs(media.duration-10)>0.15 || !media.provenance.sha256)throw new Error('Expected verified ten-second portrait master');
     const brandKit={mode:'moving',watermarkType:'moving_text',text:context.account.name,movementPreset:'corner_jump',intervalSeconds:3,fontSize:36,opacity:0.6,fontColor:'white',safeArea:{top:180,bottom:420,left:90,right:180}};
+    onIntent?.({videoId,accountId,graphId:context.account.graphId,sourceSha256:media.provenance.sha256,brandKit,presetName:'Gemini standalone portrait'});
     const result=await this.client.post<JsonObject>('/api/branding/render-preview',{videoId,brandKit,presetName:'Gemini standalone portrait'});
     if(!resourceId(result.variantId) || !/^[a-f0-9]{64}$/.test(result.sha256??''))throw new ApiError(200,'invalid_branding_response',true);
     const updated=await this.media(videoId),variant=updated.variants.find((v:JsonObject)=>v.id===result.variantId);
     if(updated.provenance.sha256!==media.provenance.sha256 || !variant || variant.sha256!==result.sha256 || variant.width*16!==variant.height*9 || Math.abs(variant.duration-10)>0.15)throw new ApiError(200,'unverified_branding_variant',true);
     return {variantId:variant.id,sha256:variant.sha256,contextFingerprint:context.contextFingerprint,brandKit};
+  }
+  async reconcileProductionBrand(variantId:string,intent:JsonObject):Promise<JsonObject>{
+    const context=await this.pageContext(intent.accountId),media=await this.media(intent.videoId),raw=await this.client.get<JsonObject>('/api/publishing/videos/'+encodeURIComponent(intent.videoId));
+    const v=raw.video?.branded_variants?.find((v:JsonObject)=>v.id===variantId);let kit:JsonObject;try{kit=typeof v?.brand_kit_json==='string'?JSON.parse(v.brand_kit_json):v?.brand_kit_json;}catch{throw new Error('Original render metadata unavailable');}
+    const contains=(a:any,b:any):boolean=>b&&typeof b==='object'?Object.entries(b).every(([k,x])=>contains(a?.[k],x)):a===b;
+    if(context.account.graphId!==intent.graphId||media.provenance.sha256!==intent.sourceSha256||v?.video_id!==intent.videoId||v?.preset_name!==intent.presetName||!contains(kit,intent.brandKit)||!/^[a-f0-9]{64}$/.test(v?.sha256??'')||v.width*16!==v.height*9||Math.abs(v.duration-10)>0.15)throw new Error('Variant differs from the saved original master, Page or branding intent');
+    return {variantId:v.id,sha256:v.sha256,reconciled:true};
   }
 
   /** Reuse the Content Assistant voice and operator library; no model call. */
