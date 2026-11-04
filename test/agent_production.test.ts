@@ -10,6 +10,7 @@ import {SccAdapter} from '../scripts/agent/scc.js';
 import {JsonClient,ApiError} from '../scripts/agent/http.js';
 import {AgentRunner} from '../scripts/agent/runner.js';
 import {configureRunner,defaultRunnerConfig} from '../scripts/agent/runner-config.js';
+import {agentResultSchema} from '../scripts/agent/executors.js';
 
 const sha='a'.repeat(64),targets={pipeline:'http://localhost:8080',scc:'http://localhost:3001'};
 const concept=(n=1)=>({version:'gemini-concept.v1',fictional:true,accountId:'page',title:'Leaf '+n,idea:'A leaf helps a miniature excavator '+n,hook:'Rain splashes its face',development:'The leaf bends over it',payoff:'It settles under the leaf umbrella',category:'living_objects'});
@@ -226,4 +227,11 @@ test('automatic original-result import reconciles only a proven completed hold; 
 });
 test('manual security recovery shares the production lease and cannot overlap an existing observation',async t=>{
   const f=setup(t);await f.c.authorizePolicy(standing(),true);f.store.setRunnerState('production.lease',{token:'existing',until:'2026-11-04T01:00:00Z'});await assert.rejects(()=>f.c.resume(true),/busy/);assert.equal(f.counts().recovered,0);assert.equal(f.counts().submitted,0);assert.equal(f.store.runnerState<any>('production.lease')?.token,'existing');
+});
+test('real executor string result is parsed into a durable concept without changing the shared result contract',t=>{
+  const f=setup(t);f.c.work.add({id:'prepared-concept',kind:'prepare_video',title:'Prepare complete scene',accountId:'page',payload:{production:{version:'gemini-concept.v1'}}});
+  const claim=f.c.work.claim('prepared-concept',{owner:'fixture',commandId:'claim-concept',leaseSeconds:30}).task;
+  const result=agentResultSchema.parse({version:'agent-result.v1',status:'prepared',result:JSON.stringify(concept()),lessons:[]});
+  f.c.work.save({id:claim.id,owner:'fixture',commandId:'save-concept',claimToken:claim.claimToken,revision:claim.revision,status:'prepared',result:result.result});
+  const item=f.c.enqueuePrepared('prepared-concept');assert.equal(item.state.phase,'queued');assert.equal((item.input as any).concept.hook,concept().hook);assert.equal(typeof result.result,'string');assert.equal(f.counts().created,0);
 });
