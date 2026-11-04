@@ -1,6 +1,7 @@
 import {z} from 'zod';
 import {AgentStore,stableHash} from './store.js';
 import {AgentWorkQueue} from './work-queue.js';
+import {geminiLanguageInstructions,languageTagSchema} from './gemini-language.js';
 
 const date=z.string().datetime({offset:true});
 const url=z.string().url().max(2048).refine(v=>{const u=new URL(v);return u.protocol==='https:'&&!u.username&&!u.password&&!u.hash&&!/^(localhost|[\d.:]+)$/.test(u.hostname)&&!u.hostname.endsWith('.local');},'Public HTTPS sources only');
@@ -13,6 +14,7 @@ export const creatorResearchSchema=z.object({
     inspection:z.enum(['visual','page_body','search_snippet','inaccessible']),
     performance:z.enum(['successful','ordinary','unclassified']),comparison:z.string().min(1).max(800),
     metrics:z.array(metric).max(4),characteristics:z.string().min(1).max(1000),limitations:z.string().min(1).max(800),
+    languageObservation:z.object({spokenLanguage:z.union([z.literal('none'),languageTagSchema]).nullable(),textLanguages:z.array(languageTagSchema).max(3),audience:z.string().max(300).nullable(),limitations:z.string().min(1).max(500)}).strict().optional(),
   }).strict()).max(6),
   principles:z.array(z.object({id:z.string().regex(/^[a-z0-9_-]{1,60}$/),text:z.string().min(1).max(600),exampleIds:z.array(z.string()).max(6),confidence:z.enum(['hypothesis','descriptive'])}).strict()).max(6),
 }).strict();
@@ -53,10 +55,10 @@ export class CreatorResearch {
     // One attempt per rolling day, including blocked/invalid/uncertain originals. No model retry loop.
     if(tasks.some(t=>Date.parse(t.createdAt)>this.clock().getTime()-86400000||['ready','claimed'].includes(t.status)))return status;
     new AgentWorkQueue(this.store,this.clock).add({id:'gemini-creator-'+stableHash({accountId,day:this.clock().toISOString().slice(0,10)}).slice(0,32),accountId,kind:'research_concept',title:'Compare public short-entertainment creators, including ordinary examples',priority:80,
-      payload:{creatorResearch:{version:'gemini-creator-research.v1',policyId,maxSearches:2,maxOpens:4},brief:creatorResearchInstructions}});
+      payload:{creatorResearch:{version:'gemini-creator-research.v1',policyId,maxSearches:2,maxOpens:4},brief:creatorResearchInstructions+' '+geminiLanguageInstructions+' Optional per-example languageObservation {spokenLanguage:string|null,textLanguages:[language-tags],audience:string|null,limitations:string}. Use null for unheard speech/unknown audience; caption language or Page name does not establish spoken language, geography or reach.'}});
     return {...status,queued:true};
   }
-  context(accountId:string){const status=this.status(accountId);return {external:status.findings.filter(f=>!f.stale).slice(0,1).map(f=>({id:f.id,observedAt:f.observedAt,validUntil:f.validUntil,access:f.access,provenance:f.provenance,independentlyVerified:false,limitations:f.limitations.slice(0,500),principles:f.principles.slice(0,4).map((p:any)=>({...p,text:p.text.slice(0,400)})),examples:f.examples.slice(0,4).map((e:any)=>({id:e.id,url:e.url.length<=512?e.url:null,inspection:e.inspection,performance:e.performance,comparison:e.comparison.slice(0,200),limitations:e.limitations.slice(0,160),notice:'Literal metrics and complete source URLs retained in durable finding; no reach or current-performance inference'}))})),
+  context(accountId:string){const status=this.status(accountId);return {external:status.findings.filter(f=>!f.stale).slice(0,1).map(f=>({id:f.id,observedAt:f.observedAt,validUntil:f.validUntil,access:f.access,provenance:f.provenance,independentlyVerified:false,limitations:f.limitations.slice(0,500),principles:f.principles.slice(0,4).map((p:any)=>({...p,text:p.text.slice(0,400)})),examples:f.examples.slice(0,4).map((e:any)=>({id:e.id,url:e.url.length<=512?e.url:null,inspection:e.inspection,performance:e.performance,...(e.languageObservation?{languageObservation:{...e.languageObservation,audience:e.languageObservation.audience?.slice(0,120)??null,limitations:e.languageObservation.limitations.slice(0,150)}}:{}),comparison:e.comparison.slice(0,200),limitations:e.limitations.slice(0,160),notice:'Literal metrics and complete source URLs retained in durable finding; no reach or current-performance inference'}))})),
     historicalHypotheses:status.findings.filter(f=>f.stale).slice(0,1).map(f=>({id:f.id,principles:f.principles,notice:'Stale hypotheses only; performance snapshots are not current'})),
     localFeedback:this.store.listKnowledge({accountId,limit:20}).filter(k=>k.resourceId!=='gemini-creator-research.v1').slice(0,3).map(k=>({text:k.text.slice(0,600),kind:k.kind,notice:'Local feedback, not a prerequisite or proof of general demand'})),
     notice:'Use reusable principles for original concepts; reported sources are not independently verified. No copying or prediction of popularity. Missing or limited evidence permits explicitly hypothetical concepts, not invented metrics.'};}

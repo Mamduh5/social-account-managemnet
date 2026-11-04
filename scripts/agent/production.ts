@@ -7,6 +7,7 @@ import {PipelineAdapter} from './pipeline.js';
 import {SccAdapter} from './scc.js';
 import {AgentWorkQueue} from './work-queue.js';
 import {CreatorResearch} from './creator-research.js';
+import {geminiLanguageSchema,geminiLanguagePolicyVersion,validateLanguageEvidence,geminiConceptIdea} from './gemini-language.js';
 
 const account=z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 export const productionConfigSchema=z.object({
@@ -28,6 +29,7 @@ export const productionConceptSchema=z.object({
   hook:z.string().trim().min(1).max(800),development:z.string().trim().min(1).max(1200),payoff:z.string().trim().min(1).max(800),
   category:z.enum(['living_objects','visual_comedy','transformation','surprising_interaction','miniature_action','emotional_micro_story']),
   researchUse:z.object({findingIds:z.array(z.string()).max(3),principleIds:z.array(z.string()).max(6),originality:z.string().min(1).max(800)}).strict().optional(),
+  languageStrategy:geminiLanguageSchema.optional(),
 }).strict();
 export const standingProductionSchema=z.object({version:z.literal('gemini-production-policy.v1'),id:z.string().regex(/^[A-Za-z0-9_-]{1,50}$/),geminiAccountId:account,pageAccountId:account,pageGraphId:z.string().regex(/^\d+$/),expiresAt:z.string().datetime().nullable(),targetPerWindow:z.number().int().min(3).max(5).default(3),planningWindowHours:z.number().min(1).max(168).default(5),maxPer24Hours:z.number().int().min(1).max(100).default(12),maxTotalSubmissions:z.number().int().min(1).max(100000).nullable().default(null)}).strict();
 const scopeSchema=z.object({id:z.string().regex(/^[A-Za-z0-9_-]{1,70}$/),geminiAccountId:account,pageAccountId:account,maxSubmissions:z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),expiresAt:z.string().datetime(),policyId:z.string().optional()}).strict();
@@ -94,7 +96,7 @@ export class GeminiProduction {
     return {items:items.length,bytes,full:items.length>=c.maxBacklogItems||bytes+c.reservationBytes>c.maxBacklogBytes};}
   status(){const active=this.store.runnerState<string>('production.active');const cycle=active?this.store.getJob(active):null;
     return {version:'gemini-production.v1',config:this.config(),standing:this.policyStatus(),inventory:this.inventory(),cycle:cycle?{id:cycle.id,scope:cycle.input,state:cycle.state}:null,
-      backlog:this.items().map(j=>({id:j.id,title:(j.input as Any).concept.title,accountId:(j.input as Any).concept.accountId,...j.state})),
+      backlog:this.items().map(j=>({id:j.id,title:(j.input as Any).concept.title,accountId:(j.input as Any).concept.accountId,...((j.input as Any).concept.languageStrategy?{languageStrategy:(j.input as Any).concept.languageStrategy}:{}),...j.state})),
       providerAllowance:null,refreshObservationHours:this.config().refreshObservationHours,planningAssumption:'Five-hour observations and 3–5 possible videos are not guaranteed allowances. Native admission remains authoritative. Observation timing never resets a counter.',
       publication:{automatic:false,standingPagePolicyRequired:true,cadence:this.config().publication},analyticsRequiredForProduction:false};}
   async publicationPlan(){
@@ -161,6 +163,7 @@ export class GeminiProduction {
     const concept=productionConceptSchema.parse(input),id=prefix+'item:'+stableHash({concept,source:source??null}).slice(0,32);
     return this.store.transaction(()=>{
       if(this.store.getJob(id))return this.item(id);
+      if(concept.languageStrategy)validateLanguageEvidence(concept.languageStrategy,new CreatorResearch(this.store,this.clock).status(concept.accountId).findings,this.clock().getTime());
       if(this.inventory().full)throw new Error('Production backlog capacity reached');
       const ids=this.ids();if(ids.length>=1000)throw new Error('Production history index needs explicit maintenance; no history was deleted');
       this.store.createJob(id,{production:true,title:concept.title,concept,source:source??null,targets:this.targets});
@@ -168,7 +171,10 @@ export class GeminiProduction {
     });
   }
   enqueuePrepared(taskId:string){const t=this.store.getWork(taskId);if(!t||t.kind!=='prepare_video'||!['prepared','done'].includes(t.status)||t.payload?.production?.version!=='gemini-concept.v1')throw new Error('Use an exact prepared Gemini production concept task');let value=t.result;if(typeof value==='string'){try{value=JSON.parse(value);}catch{throw new Error('Prepared concept must contain valid serialized gemini-concept.v1 JSON');}}const concept=productionConceptSchema.parse(value);if(concept.accountId!==t.accountId)throw new Error('Prepared concept Page identity changed');
+    const original=this.items().find(j=>(j.input as Any).source?.taskId===t.id&&(j.input as Any).source?.revision===t.revision&&stableHash((j.input as Any).concept)===stableHash(concept));if(original)return this.item(original.id);
     const supplied=[...(t.payload?.creatorLearning?.external??[]),...(t.payload?.creatorLearning?.historicalHypotheses??[])];
+    if(t.payload.production.languagePolicy===geminiLanguagePolicyVersion&&!concept.languageStrategy)throw new Error('New multilingual Gemini preparation requires language and audience metadata');
+    if(concept.languageStrategy)validateLanguageEvidence(concept.languageStrategy,supplied,this.clock().getTime());
     if(concept.researchUse&&(concept.researchUse.findingIds.some(id=>!supplied.some(f=>f.id===id))||concept.researchUse.principleIds.some(id=>!supplied.some(f=>f.principles?.some((p:Any)=>p.id===id)))))throw new Error('Concept cites unsupplied creator evidence');
     return this.enqueue(concept,{taskId:t.id,revision:t.revision});}
   start(input:unknown,ownerAuthorized=false,fromPolicy=false){if(ownerAuthorized!==true)throw new Error('An explicit bounded live-production scope is required');const scope=scopeSchema.parse(input),now=this.clock().getTime();
@@ -208,7 +214,7 @@ export class GeminiProduction {
     if(scope.policyId&&new CreatorResearch(this.store,this.clock).status(scope.pageAccountId).researchNeeded&&this.store.workCandidates().some(t=>t.accountId===scope.pageAccountId&&t.payload?.creatorResearch?.version==='gemini-creator-research.v1'))return {state:'needs_creator_research',actions:0};
     const id='gemini-concept-'+scope.id+'-'+Number(cycle.state.createdProjects)+'-creators-v1';
     if(!this.store.getWork(id)){const context=await this.scc.pageContext(scope.pageAccountId);this.work.add({id,kind:'prepare_video',title:'Prepare one complete ten-second Gemini entertainment concept',priority:70,accountId:scope.pageAccountId,
-      payload:{production:{version:'gemini-concept.v1',...(scope.policyId?{policyId:scope.policyId}:{})},pageContext:context,
+      payload:{production:{version:'gemini-concept.v1',languagePolicy:geminiLanguagePolicyVersion,...(scope.policyId?{policyId:scope.policyId}:{})},pageContext:context,
         avoidRepeating:this.items().slice(-8).map(j=>({title:(j.input as Any).concept.title,idea:String((j.input as Any).concept.idea).slice(0,400)})),
         research:this.store.listKnowledge({accountId:scope.pageAccountId,limit:5}).filter(k=>(k.evidence as Any)?.sources&&Date.parse((k.evidence as Any).validUntil)>this.clock().getTime()).map(k=>({summary:k.text,evidence:k.evidence,notice:'Supplied dated sources, not independently verified; no trend claim'})),
         creatorLearning:new CreatorResearch(this.store,this.clock).context(scope.pageAccountId),
@@ -278,7 +284,7 @@ export class GeminiProduction {
       if(cycle.state.phase!=='active')return {state:String(cycle.state.phase),actions:0};
       if(Date.parse(scope.expiresAt)<=this.clock().getTime())return {state:'scope_expired',actions:0};
       if(!this.store.reserveProvider(providerScope,item.id))return {state:'provider_claim_held',actions:0};
-      const idea=[concept.idea,'Hook: '+concept.hook,'Development: '+concept.development,'Payoff: '+concept.payoff,'One complete ten-second portrait scene. Native audio.'].join('\n');
+      const idea=geminiConceptIdea(concept);
       const input={title:concept.title,idea,sceneCount:1,aspectRatio:'9:16'};
       const result=await this.once(item.id,'production_create',{input,accountId:scope.geminiAccountId},()=>this.pipeline.prepareProduction(input,scope.geminiAccountId),()=>this.authorized(cycle.id,item.id,scope));
       this.save(item.id,{projectId:result.projectId});return {state:'planning',itemId:item.id,projectId:result.projectId,actions:1};
@@ -425,7 +431,7 @@ export class GeminiProduction {
     if(!['awaiting_qa','branding','ready'].includes(String(j.state.phase))||media?.sha256!==r.sha256 || (j.state.qa&&stableHash(j.state.qa)!==stableHash(r)))throw new Error('Review must bind the unchanged original master and original QA decision');
     if(j.state.phase==='ready')return {state:'ready',draft:await this.scc.getDraft(String(j.state.draftId)),approved:false,queued:false};
     const accepted=r.decision==='accepted'&&r.visual==='pass'&&r.audio==='pass'&&media.technical;
-    this.store.recordKnowledge({id:'production-qa:'+j.id,kind:'observation',accountId:(j.input as Any).concept.accountId,resourceId:j.id,source:'owner_audiovisual_review',text:r.notes,evidence:r});
+    this.store.recordKnowledge({id:'production-qa:'+j.id,kind:'observation',accountId:(j.input as Any).concept.accountId,resourceId:j.id,source:'owner_audiovisual_review',text:r.notes,evidence:{...r,...((j.input as Any).concept.languageStrategy?{languageStrategy:(j.input as Any).concept.languageStrategy}:{})}});
     this.save(j.id,{qa:r,phase:accepted?'branding':'qa_failed'});if(!accepted)return {state:'qa_failed',itemId:j.id};
     const concept=(j.input as Any).concept;
     const rendered=await this.once(j.id,'production_brand',{videoId:j.state.videoId,accountId:concept.accountId},()=>this.scc.brandProduction(String(j.state.videoId),concept.accountId));

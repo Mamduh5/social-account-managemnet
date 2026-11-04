@@ -12,6 +12,7 @@ import {AgentRunner} from '../scripts/agent/runner.js';
 import {configureRunner,defaultRunnerConfig} from '../scripts/agent/runner-config.js';
 import {agentResultSchema} from '../scripts/agent/executors.js';
 import {CreatorResearch} from '../scripts/agent/creator-research.js';
+import {geminiLanguagePolicyVersion} from '../scripts/agent/gemini-language.js';
 
 const sha='a'.repeat(64),targets={pipeline:'http://localhost:8080',scc:'http://localhost:3001'};
 const concept=(n=1)=>({version:'gemini-concept.v1',fictional:true,accountId:'page',title:'Leaf '+n,idea:'A leaf helps a miniature excavator '+n,hook:'Rain splashes its face',development:'The leaf bends over it',payoff:'It settles under the leaf umbrella',category:'living_objects'});
@@ -37,6 +38,30 @@ function setup(t:any,config:any={}){
 }
 test('disabled defaults require explicit bounded account/Page/expiry scope; no allowance inferred',async t=>{
   const f=setup(t);assert.deepEqual(await f.c.tick(),{state:'disabled',actions:0});assert.throws(()=>f.c.start({}),/scope/);assert.throws(()=>f.c.configure({enabled:true}),/explicitly/);assert.equal(f.c.status().providerAllowance,null);assert.equal(f.counts().submitted,0);f.start();assert.throws(()=>f.start(),/existing/);
+});
+
+const internationalLanguage={spokenLanguage:'none',dialogue:'',intendedAudience:'International visual-comedy viewers',rationale:'Visual action is self-contained; multilingual audience choice is a hypothesis.',evidenceBasis:'hypothesis',findingIds:[],captionLanguages:['en'],hashtagLanguages:[]};
+test('new Gemini preparation requires durable language/audience metadata without rewriting historical tasks',async t=>{
+  const f=setup(t);f.start();const next=await f.c.tick();const task=f.store.getWork(next.taskId)!;assert.equal(task.payload.production.languagePolicy,geminiLanguagePolicyVersion);
+  const claim=f.c.work.claim(task.id,{owner:'fixture',commandId:'multi-claim'}).task;
+  f.c.work.save({id:task.id,owner:'fixture',commandId:'multi-save',claimToken:claim.claimToken,revision:claim.revision,status:'prepared',result:JSON.stringify(concept())});assert.throws(()=>f.c.enqueuePrepared(task.id),/language and audience/);
+  const item=f.c.enqueue({...concept(),languageStrategy:internationalLanguage});const before=f.store.getJob(item.id)!.input;f.restart();assert.deepEqual(f.store.getJob(item.id)!.input,before);assert.deepEqual(f.c.status().backlog.find(x=>x.id===item.id)!.languageStrategy,internationalLanguage);assert.equal(f.counts().submitted,0);
+});
+test('Gemini language and exact speech reach Pipeline planning while caption language stays separate',async t=>{
+  const f=setup(t);let request:any;const prepare=f.pipeline.prepareProduction.bind(f.pipeline);f.pipeline.prepareProduction=async(input,account)=>{request=input;return prepare(input,account);};
+  const strategy={...internationalLanguage,spokenLanguage:'ja',dialogue:'ありがとう',captionLanguages:['en','ja'],hashtagLanguages:['ja']};f.c.enqueue({...concept(),languageStrategy:strategy});f.start();assert.equal((await f.c.tick()).state,'planning');assert.match(request.idea,/Speech language: ja/);assert.ok(request.idea.includes('ありがとう'));assert.match(request.idea,/Do not translate or add speech/);assert.equal(request.sceneCount,1);assert.equal(request.aspectRatio,'9:16');assert.equal(f.counts().submitted,0);
+});
+test('saved multilingual preparation stays idempotent after its originally verified research expires',t=>{
+  const f=setup(t),finding={id:'verified-language-fixture',access:'observed',independentlyVerified:true,validUntil:'2026-11-05T00:00:00Z'};
+  f.store.recordKnowledge({id:finding.id,kind:'observation',accountId:'page',resourceId:'gemini-creator-research.v1',text:'Isolated verified-source fixture',source:'fixture_review',evidence:finding});
+  f.c.work.add({id:'verified-language-task',kind:'prepare_video',title:'Original multilingual preparation',accountId:'page',payload:{production:{version:'gemini-concept.v1',languagePolicy:geminiLanguagePolicyVersion},creatorLearning:{external:[finding]}}});
+  const claim=f.c.work.claim('verified-language-task',{owner:'fixture',commandId:'verified-language-claim'}).task,choice={...concept(),languageStrategy:{...internationalLanguage,evidenceBasis:'verified_research',findingIds:[finding.id]}};
+  f.c.work.save({id:claim.id,owner:'fixture',commandId:'verified-language-save',claimToken:claim.claimToken,revision:claim.revision,status:'prepared',result:JSON.stringify(choice)});const item=f.c.enqueuePrepared(claim.id);f.advance(2*86400000);f.restart();assert.equal(f.c.enqueuePrepared(claim.id).id,item.id);assert.equal(f.counts().submitted,0);
+});
+for(const [code,caption,hashtags] of [['en','A tiny hero, a big heart.',''],['ja','小さなヒーローの大きな心。','#小さな物語'],['th','ฮีโร่ตัวจิ๋ว หัวใจไม่จิ๋ว','']])test('Gemini reviewed '+code+' caption remains exact through unpublished draft preparation',async t=>{
+  const f=setup(t);let copy:any;const prepare=f.scc.prepare.bind(f.scc);f.scc.prepare=async(input)=>{copy=input;return prepare(input);};
+  const item=f.c.enqueue({...concept(),languageStrategy:{...internationalLanguage,captionLanguages:[code],hashtagLanguages:hashtags?[code]:[]}});f.start();await f.c.tick();await f.c.tick();f.read(evidence('completed'));await f.c.tick();
+  const result=await f.c.review({itemId:item.id,sha256:sha,decision:'accepted',visual:'pass',audio:'pass',source:'owner',notes:'Isolated fixture audiovisual acceptance; actual content and copy reviewed',caption,hashtags},true);assert.equal(result.approved,false);assert.equal(result.queued,false);assert.equal(copy.caption,caption);assert.equal(copy.hashtags,hashtags);assert.equal(copy.scheduledAt,null);const qa=f.store.listKnowledge({accountId:'page',resourceId:item.id,limit:20}).find(k=>k.id==='production-qa:'+item.id)!;assert.equal((qa.evidence as any).languageStrategy.captionLanguages[0],code);
 });
 test('three sequential original submissions finish into QA backlog without any Facebook analytics',async t=>{
   const f=setup(t);for(let n=1;n<=3;n++)f.enqueue(n);f.start();
@@ -185,7 +210,7 @@ test('standing creation consults external cache before concepts without waiting 
   f.c.work.save({id:claim.id,owner:'fixture',commandId:'research-save',claimToken:claim.claimToken,revision:claim.revision,status:'prepared',result:JSON.stringify({version:'gemini-creator-research.v1',observedAt:'2026-11-04T00:00:00Z',validUntil:'2026-11-05T00:00:00Z',access:'blocked',limitations:'Facebook access unavailable; no metrics invented.',examples:[],principles:[]})});
   const next=await f.c.tick();assert.equal(next.state,'needs_concept');const task=f.store.getWork(next.taskId)!;assert.equal(task.payload.creatorLearning.external.length,1);assert.equal(task.payload.creatorLearning.external[0].access,'blocked');assert.equal(f.counts().submitted,0);
   const prepared=f.c.work.claim(task.id,{owner:'fixture',commandId:'concept-claim'}).task;
-  f.c.work.save({id:task.id,owner:'fixture',commandId:'concept-save',claimToken:prepared.claimToken,revision:prepared.revision,status:'prepared',result:JSON.stringify({...concept(),researchUse:{findingIds:['invented'],principleIds:[],originality:'Original subject and action'}})});
+  f.c.work.save({id:task.id,owner:'fixture',commandId:'concept-save',claimToken:prepared.claimToken,revision:prepared.revision,status:'prepared',result:JSON.stringify({...concept(),languageStrategy:internationalLanguage,researchUse:{findingIds:['invented'],principleIds:[],originality:'Original subject and action'}})});
   assert.throws(()=>f.c.enqueuePrepared(task.id),/unsupplied/);assert.equal(f.counts().submitted,0);
 });
 

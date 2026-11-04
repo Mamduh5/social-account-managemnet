@@ -283,3 +283,9 @@ test('unconfirmed supervisor exit preserves concurrency until explicit process r
   const f=setup(t);f.add('one');f.add('two');f.fake.behavior=async()=>{throw new ExecutionError('supervisor_exit_uncertain');};
   await f.runner.tick();assert.equal(f.store.runnerSessions()[0].mayBeRunning,true);f.advance();assert.equal((await f.runner.tick()).state,'concurrency_limit');assert.equal(f.fake.calls.length,1);
 });
+
+test('multilingual policy is scoped to Gemini concepts and creator research despite Thai Page defaults',async t=>{
+  const f=setup(t);f.add('gemini-language',{kind:'prepare_video',accountId:'page',payload:{production:{version:'gemini-concept.v1'},pageContext:{account:{name:'โลกจริงหลุดบท'},voice:{profile:{language:'Thai'}}}}});await f.runner.tick();const instructions=f.fake.calls[0].context.instructions;
+  assert.match(instructions,/supersedes inherited Thai-only/);assert.match(instructions,/languageStrategy/);assert.match(instructions,/internationally/);assert.match(instructions,/Do not add speech, narration or subtitles/);assert.match(instructions,/actual reviewed video/);
+  f.add('flow-legacy',{kind:'story_plan',payload:{provider:'flow_web'}});f.advance();await f.runner.tick();assert.doesNotMatch(f.fake.calls[1].context.instructions,/gemini-multilingual|languageStrategy|supersedes inherited/);
+});
