@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+
 export class ApiError extends Error {
   constructor(public readonly status: number | null, public readonly code: string, public readonly uncertain: boolean) {
     super(code);
@@ -30,6 +32,27 @@ export class JsonClient {
 
   get<T = unknown>(resource: string): Promise<T> { return this.request<T>('GET', resource); }
   post<T = unknown>(resource: string, body: unknown, options: { idempotencyKey?: string } = {}): Promise<T> { return this.request<T>('POST', resource, body, options.idempotencyKey); }
+
+  /** Bounded read-only artifact verification; never writes or transforms media. */
+  async media(resource:string,maxBytes:number):Promise<{sha256:string;bytes:number}> {
+    if(!Number.isSafeInteger(maxBytes)||maxBytes<1||maxBytes>1024**3)throw new Error('Invalid media byte bound');
+    const url=new URL(resource,this.origin);
+    if(!resource.startsWith('/')||resource.startsWith('//')||resource.includes('\\')||url.origin!==this.origin||url.search||url.hash||url.username||url.password)throw new Error('Invalid media resource');
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),this.timeoutMs);
+    try {
+      this.requestCount++;
+      const r=await this.fetcher(url,{method:'GET',signal:controller.signal,redirect:'error'});
+      if(!r.ok||!r.body)throw new ApiError(r.status,'media_unavailable',false);
+      const length=Number(r.headers.get('content-length'));
+      if(length>maxBytes)throw new ApiError(r.status,'media_byte_limit',false);
+      const hash=createHash('sha256'),reader=r.body.getReader();let bytes=0;
+      try {for(;;){const part=await reader.read();if(part.done)break;bytes+=part.value.byteLength;if(bytes>maxBytes)throw new ApiError(r.status,'media_byte_limit',false);hash.update(part.value);}}
+      finally{await reader.cancel().catch(()=>{});}
+      if(!bytes)throw new ApiError(r.status,'empty_media',false);
+      return {sha256:hash.digest('hex'),bytes};
+    }catch(e){if(e instanceof ApiError)throw e;throw new ApiError(null,'media_read_failed',false);}
+    finally{controller.abort();clearTimeout(timer);}
+  }
 
   private async request<T>(method: 'GET' | 'POST', resource: string, body?: unknown, idempotencyKey?: string): Promise<T> {
     if (!resource.startsWith('/') || resource.startsWith('//') || resource.includes('\\')) throw new Error('Expected an absolute API path.');

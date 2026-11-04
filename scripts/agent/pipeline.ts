@@ -22,7 +22,7 @@ interface ProjectResponse {
   created_at?: string;
   updated_at?: string;
   error?: string;
-  scenes?: Array<{order:number;status:string;clip_url?:string}>;
+  scenes?: Array<{order:number;status:string;clip_url?:string;generation_request?:Record<string,any>}>;
   id?: string;
   title?: string;
   topic?: string;
@@ -36,6 +36,10 @@ interface ProjectResponse {
   scene_seconds?: number;
   aspect_ratio?: string;
   gemini_workflow?: string;
+  account_policy?: {mode?:string;account_id?:string};
+  starting_image?: unknown;
+  subject_reference?: unknown;
+  audio_policy?:string;
   generation_settings?: { version?: string; mode?: string; performance_tempo?: number };
   generation_resolution?: string;
   acceptance_type?: string;
@@ -104,6 +108,51 @@ export function geminiQueueRequest(input: PipelineCreateInput): GeminiQueueReque
 export class PipelineAdapter {
   constructor(private readonly client: Pick<JsonClient, 'get' | 'post' | 'origin'>) {}
 
+  async productionStatus():Promise<Record<string,any>> {
+    const r=await this.client.get<Record<string,any>>('/gemini-autopilot');
+    const s=r?.scheduler;
+    if(r?.provider!=='gemini_web'||!s||!Array.isArray(s.queue)||typeof s.enabled!=='boolean'||typeof r.worker_enabled!=='boolean'||typeof r.recovery_status?.submission_unresolved!=='boolean'||!Number.isInteger(s.configured_submission_cap)||s.configured_submission_cap<1||!Number.isInteger(s.submissions_this_window)||s.submissions_this_window<0)throw new ApiError(200,'invalid_production_admission',false);
+    return {available:r.available===true,workerEnabled:r.worker_enabled,nativeEnabled:s.enabled,activeRunId:s.active_run??null,observationLocked:!!s.observation_token,unresolved:r.recovery_status.submission_unresolved,
+      cap:s.configured_submission_cap,used:s.submissions_this_window,windowStartedAt:s.window_started_at??null,providerAllowance:null,
+      accountingHold:!!s.recovery_only||!!s.storage_block||s.block_reason==='external_submission_accounting',
+      availability:r.availability_status??null,blockers:(r.quota_timing?.remaining_blockers??[]).filter((x:string)=>x!=='autopilot_paused'),
+      nextCheckAt:r.availability_status?.next_recheck_at??r.quota_timing?.application_fallback_at??null,
+      boundedRequests:Object.entries(r.force_retry_status??{}).map(([jobId,v]:[string,any])=>({jobId,...v}))};
+  }
+
+  /** Only fresh checks and the existing bounded worker request can submit work. */
+  checkProductionAvailability(){return this.client.post<Record<string,any>>('/gemini-autopilot/recover',{action:'availability_check'});}
+  async prepareProduction(input:PipelineCreateInput,accountId:string):Promise<{projectId:string}> {
+    if(!/^[A-Za-z0-9_-]{1,128}$/.test(accountId))throw new Error('Invalid Gemini account identity');
+    const request=geminiQueueRequest(input);
+    if(request.scene_count!==1||request.aspect_ratio!=='9:16')throw new Error('Standalone Gemini production requires one portrait scene');
+    const r=await this.client.post<{job_id?:string}>('/gemini-autopilot/queue',{...request,gemini_workflow:'standalone_10s_v1',account_policy:{mode:'specific',account_id:accountId}});
+    try{projectPath(r.job_id!);}catch{throw new ApiError(202,'invalid_pipeline_create_response',true);}
+    return {projectId:r.job_id!};
+  }
+  async verifyProduction(projectId:string,input:PipelineCreateInput,accountId:string,requirePlanned=false){
+    const p=await this.project(projectId),expected=geminiQueueRequest(input),s=p.generation_settings;
+    if(p.topic!==expected.idea || p.scene_count!==1 || p.scene_seconds!==10 || p.aspect_ratio!=='9:16' || p.audio_policy!=='clip_native' || p.gemini_workflow!=='standalone_10s_v1' || s?.version!=='generation_settings.v1' || s?.mode!=='dense_performance' || s.performance_tempo!==2 || p.account_policy?.mode!=='specific' || p.account_policy.account_id!==accountId || p.starting_image || p.subject_reference)throw new Error('Original project differs from authorized standalone production intent');
+    if(requirePlanned){const r=p.scenes?.[0]?.generation_request,g=r?.generation_settings;
+      if(p.scenes?.length!==1 || r?.scene_order!==1 || r.duration_seconds!==10 || r.aspect_ratio!=='9:16' || r.reference_mode!=='none' || r.start_frame || r.initial_frame || g?.version!=='generation_settings.v1' || g?.mode!=='dense_performance' || g.performance_tempo!==2)throw new Error('Saved scene request differs from the text-only native-audio contract');
+    }
+    return {projectId};
+  }
+  async submitProduction(projectId:string,requestId:string){projectPath(projectId);
+    const result=await this.client.post<Record<string,any>>('/gemini-autopilot/force-retry',{job_id:projectId,scene_order:1,request_id:requestId,confirmed:true});
+    const status=result?.force_retry_status;
+    if(status?.job_id!==projectId || status.request_id!==requestId || typeof status.in_progress!=='boolean')throw new ApiError(202,'invalid_bounded_request_response',true);
+    return result;
+  }
+  recoverProduction(projectId:string,runId:string){projectPath(projectId);if(!/^[A-Za-z0-9_-]{1,128}$/.test(runId))throw new Error('Invalid original run');return this.client.post('/gemini-autopilot/projects/'+encodeURIComponent(projectId)+'/video-recovery/'+encodeURIComponent(runId)+'/recover',{});}
+  async productionArtifact(projectId:string,maxBytes:number){
+    const project=await this.project(projectId),url=this.mediaURL(project.video_url,projectId);
+    if(project.status!=='completed'||!url)throw new Error('Original completed artifact is required');
+    const client=this.client as JsonClient;
+    if(typeof client.media!=='function')throw new Error('Bounded artifact verification is unavailable');
+    return client.media(new URL(url).pathname,maxBytes);
+  }
+
   async create(input: PipelineCreateInput): Promise<{ projectId: string }> {
     const request = geminiQueueRequest(input);
     if(request.scene_count!==1 || request.aspect_ratio!=='9:16') throw new Error('New Gemini agent tasks require one complete portrait ten-second text-only scene. Experimental projects require explicit Pipeline review.');
@@ -154,7 +203,7 @@ export class PipelineAdapter {
       plannedScenes:project.scenes?.length??0,scenes:(project.scenes||[]).map(s=>({order:s.order,status:s.status,hasClip:!!s.clip_url})),
       original:{projectId,runId:run?.id??null,sceneOrder:run?.scene_order??null,accountId:run?.account_id??null,conversationUrl},
       run:{status:run?.status??null,at:run?.at??null,expiresAt:run?.expires_at??null,finishedAt:run?.finished_at??null,
-        submissionIntent:run?.submission_intent===true,acknowledged:run?.submission_acknowledged===true},
+        submissionIntent:run?.submission_intent===true,acknowledged:run?.submission_acknowledged===true,resolution:run?.resolution??null},
       session:{active:!!run&&overview.scheduler.active_run===run.id,activeRunId:overview.scheduler.active_run??null,
         observationLocked:!!overview.scheduler.observation_token,providerSession:text(run?.session,120),unresolved:recovery.submission_unresolved===true,
         nativeBlock:text(overview.scheduler.block_reason,80)},

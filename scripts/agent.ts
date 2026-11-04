@@ -11,11 +11,24 @@ import {configureRunner} from './agent/runner-config.js';
 import {manageSchedule} from './agent/runner-schedule.js';
 import {AgentContent} from './agent/content.js';
 import {AgentResearch} from './agent/research.js';
+import {GeminiProduction} from './agent/production.js';
 import {prepareResearchTask,researchReceipt} from './agent/content-run.js';
 import {validateContentResult,contentOutputSchema} from './agent/content-contract.js';
 
 const version = 'agent-workflow.v1';
 const commands = {
+  'production-status':'Read durable production scope/backlog, independent of Facebook analytics.',
+  'production-config':'Read or replace disabled bounded-production configuration using --input.',
+  'production-enqueue':'Save a validated gemini-concept.v1 from --input; no provider submission.',
+  'production-start':'Authorize one bounded cycle from --input id/geminiAccountId/pageAccountId/maxSubmissions/expiresAt and --owner-authorized.',
+  'production-stop':'Disable new production and retain all original operations and reservations.',
+  'production-close':'After exact original reconciliation, close a stopped/resolved scope with --owner-authorized. Never clears native locks or counts.',
+  'production-tick':'One bounded production step; no timer or recurring schedule.',
+  'production-resume':'Fresh supported readiness after manual intervention; requires --owner-authorized.',
+  'production-reconcile':'Read back an exact original project for --run item and --input projectId after a lost creation response.',
+  'production-review':'Record actual owner audiovisual QA and prepare an unapproved draft; --input and --owner-authorized.',
+  'production-observe':'Read exact publication receipts and saved checkpoint metrics; optional --input postId/accountId. Never publishes or refreshes providers.',
+  'production-publication-plan':'Read the next ready exact draft and independent Page cadence admission. No approval or queue action.',
   context: 'Accounts, categories, branding and optional Page voice (--account).',
   discover: 'Completed Pipeline library page; --input contains optional filters/cursor.',
   import: 'Import a selected completed library project through SCC deduplication; --input projectId/categoryId/title.',
@@ -115,7 +128,13 @@ async function main() {
     const local = () => store ||= new AgentStore(statePath);
     const contentScc=new SccAdapter(new JsonClient(sccClient.origin,{timeoutMs:10_000}));
     const content=()=>new AgentContent(local(),contentScc);
-    const runner=()=>new AgentRunner(local(),path.join(path.dirname(statePath),'runner'),undefined,undefined,async id=>{const before=contentScc.client.requestCount;const result=await content().persist(id);return {...result,httpRequests:contentScc.client.requestCount-before};});
+    const production=()=>new GeminiProduction(local(),new PipelineAdapter(new JsonClient(pipelineClient.origin,{timeoutMs:90_000})),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath));
+    const runner=()=>new AgentRunner(local(),path.join(path.dirname(statePath),'runner'),undefined,undefined,async id=>{const before=contentScc.client.requestCount;const result=await content().persist(id);return {...result,httpRequests:contentScc.client.requestCount-before};},async()=>{
+      const result=await production().tick();
+      try{await new GeminiProduction(local(),pipeline,contentScc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath)).observe();}
+      catch{local().setRunnerState('production.observationError',{code:'saved_observation_unavailable',at:new Date().toISOString()});}
+      return result;
+    });
     const workflow = () => new AgentWorkflow(local(),pipeline,scc,{scc:sccClient.origin,pipeline:pipelineClient.origin});
     const run = () => {
       if (typeof flags.run !== 'string' || !flags.run) throw new WorkflowError('run_required', 'Supply the stable --run ID.');
@@ -129,6 +148,18 @@ async function main() {
     if (!Number.isSafeInteger(offset) || offset < 0) throw new WorkflowError('invalid_offset', 'offset must be a nonnegative whole number.');
     let data: unknown;
     switch(command) {
+      case 'production-status':data=production().status();break;
+      case 'production-config':data=flags.input?production().configure(input):production().config();break;
+      case 'production-enqueue':data=production().enqueue(input);break;
+      case 'production-start':data=production().start(input,flags['owner-authorized']===true);break;
+      case 'production-stop':data=production().stop();break;
+      case 'production-close':data=await production().close(flags['owner-authorized']===true);break;
+      case 'production-tick':data=await production().tick();break;
+      case 'production-resume':data=await production().resume(flags['owner-authorized']===true);break;
+      case 'production-reconcile':data=await production().reconcile(run(),input.projectId);break;
+      case 'production-review':data=await production().review(input,flags['owner-authorized']===true);break;
+      case 'production-observe':data=await production().observe(input.postId,input.accountId);break;
+      case 'production-publication-plan':data=await production().publicationPlan();break;
       case 'context': data = await scc.context(account,{limit,offset}); break;
       case 'discover': data = await scc.discover({...input,limit:input.limit ?? Math.min(limit,50)}); break;
       case 'import': {

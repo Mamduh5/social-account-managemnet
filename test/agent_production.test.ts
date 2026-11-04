@@ -1,0 +1,153 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {AgentStore} from '../scripts/agent/store.js';
+import {GeminiProduction} from '../scripts/agent/production.js';
+import {PipelineAdapter} from '../scripts/agent/pipeline.js';
+import {SccAdapter} from '../scripts/agent/scc.js';
+import {JsonClient,ApiError} from '../scripts/agent/http.js';
+import {AgentRunner} from '../scripts/agent/runner.js';
+import {configureRunner,defaultRunnerConfig} from '../scripts/agent/runner-config.js';
+
+const sha='a'.repeat(64),targets={pipeline:'http://localhost:8080',scc:'http://localhost:3001'};
+const concept=(n=1)=>({version:'gemini-concept.v1',fictional:true,accountId:'page',title:'Leaf '+n,idea:'A leaf helps a miniature excavator '+n,hook:'Rain splashes its face',development:'The leaf bends over it',payoff:'It settles under the leaf umbrella',category:'living_objects'});
+function evidence(state='awaiting_external_generation'):any{return {project:{state,media:{videoUrl:state==='completed'?targets.pipeline+'/final.mp4':null}},plannedScenes:1,run:{status:'',submissionIntent:false,acknowledged:false,resolution:null},session:{active:false,unresolved:false},recovery:{required:false,canRecover:false,state:''},original:{projectId:'project-1',runId:null},failure:null};}
+function setup(t:any,config:any={}){
+  const dir=mkdtempSync(path.join(tmpdir(),'scc-production-')),file=path.join(dir,'agent.db');let store=new AgentStore(file),now=new Date('2026-11-04T00:00:00Z');
+  let read=evidence(),created=0,submitted=0,recovered=0,checks=0,imports=0,branded=0,drafts=0,free=10*1024**3;
+  let native:any={available:true,workerEnabled:true,nativeEnabled:false,activeRunId:null,observationLocked:false,unresolved:false,accountingHold:false,cap:4,used:0,availability:{blocker_code:'video_available',stale:false,previous_submission_uncertain:false,conflicting_evidence:false},boundedRequests:[],blockers:[]};
+  let submitBehavior=async()=>({accepted:true}),createBehavior=async()=>({projectId:'project-'+(++created)}),checkBehavior=async()=>({});
+  const pipeline={productionStatus:async()=>structuredClone(native),checkProductionAvailability:async()=>{checks++;return checkBehavior();},prepareProduction:async(input:any,accountId:any)=>{assert.equal(accountId,'gemini_web-main');assert.equal(input.sceneCount,1);assert.equal(input.aspectRatio,'9:16');return createBehavior();},verifyProduction:async(projectId:string)=>({projectId}),submitProduction:async()=>{submitted++;native.used++;return submitBehavior();},inspect:async()=>structuredClone(read),recoverProduction:async(_project:string,runId:string)=>{assert.equal(runId,'original-run');recovered++;return {};},productionArtifact:async()=>({sha256:sha,bytes:1024})} as unknown as PipelineAdapter;
+  const media={width:720,height:1280,duration:10,file_size:1024,provenance:{sha256:sha,hasAudio:true}};
+  let publication:any={post:{destinations:[{id:'dest',account_id:'page',status:'published',confirmation_source:'api',verification_status:'confirmed',remote_post_id:'remote',remote_post_url:'https://facebook.com/reel/remote',published_at:'2026-11-03T00:00:00Z'}]}};
+  let draft:any={id:'draft',revision:1,status:'draft',queuedPostId:null};let history:any={items:[],hasMore:false};
+  const scc={pageContext:async()=>({account:{id:'page',name:'Page',graphId:'123'},rules:[]}),pipelineOrigin:async()=>targets.pipeline,importVideo:async()=>{imports++;return {videoId:'video'};},media:async()=>media,brandProduction:async()=>{branded++;return {variantId:'variant'};},prepare:async()=>{drafts++;return {draft};},getDraft:async()=>draft,review:async()=>({draft}),history:async()=>history,publication:async()=>publication,analytics:async()=>({history:[{view_count:null,like_count:0,observed_at:'2026-11-03T00:15:00Z',source:'meta_graph_api'}],missingStatisticsAreZero:false})} as unknown as SccAdapter;
+  const build=()=>new GeminiProduction(store,pipeline,scc,targets,dir,()=>new Date(now),()=>free);let controller=build();controller.configure(config);
+  const start=(n=3)=>controller.start({id:'scope',geminiAccountId:'gemini_web-main',pageAccountId:'page',maxSubmissions:n,expiresAt:'2026-11-04T06:00:00Z'},true);
+  const counts=()=>({created,submitted,recovered,checks,imports,branded,drafts});
+  t.after(()=>{store.close();rmSync(dir,{recursive:true,force:true});});
+  return {get c(){return controller;},get store(){return store;},pipeline,scc,start,counts,media,native,
+    enqueue:(n=1)=>controller.enqueue(concept(n)),read:(r:any)=>{read=r;},advance:(ms=301000)=>{now=new Date(now.getTime()+ms);},free:(n:number)=>{free=n;},
+    submit:(fn:()=>Promise<any>)=>{submitBehavior=fn;},create:(fn:()=>Promise<any>)=>{createBehavior=fn;},check:(fn:()=>Promise<any>)=>{checkBehavior=fn;},draft:(d:any)=>{draft=d;},publication:(p:any)=>{publication=p;},history:(h:any)=>{history=h;},
+    restart:()=>{store.close();store=new AgentStore(file);controller=build();return controller;},dir};
+}
+test('disabled defaults require explicit bounded account/Page/expiry scope; no allowance inferred',async t=>{
+  const f=setup(t);assert.deepEqual(await f.c.tick(),{state:'disabled',actions:0});assert.throws(()=>f.c.start({}),/scope/);assert.throws(()=>f.c.configure({enabled:true}),/explicitly/);assert.equal(f.c.status().providerAllowance,null);assert.equal(f.counts().submitted,0);f.start();assert.throws(()=>f.start(),/existing/);
+});
+test('three sequential original submissions finish into QA backlog without any Facebook analytics',async t=>{
+  const f=setup(t);for(let n=1;n<=3;n++)f.enqueue(n);f.start();
+  for(let n=1;n<=3;n++){
+    f.read(evidence());assert.equal((await f.c.tick()).state,'planning');assert.equal((await f.c.tick()).state,'bounded_request_queued');
+    const active=evidence();active.run={status:'running',submissionIntent:true,acknowledged:true};active.session.active=true;f.read(active);assert.equal((await f.c.tick()).state,'generating');assert.equal(f.counts().submitted,n);
+    f.read(evidence('completed'));assert.equal((await f.c.tick()).state,'awaiting_qa');
+  }
+  assert.equal((await f.c.tick()).state,'cycle_finished');assert.equal(f.counts().submitted,3);assert.equal(f.counts().imports,3);assert.equal(f.c.status().inventory.items,3);assert.equal(f.counts().drafts,0);
+});
+for(const blocker of ['video_limit_reached','weekly_limit_exhausted','quota_exhausted'])test('early provider '+blocker+' retains original planned task and does not spend another slot',async t=>{
+  const f=setup(t);f.enqueue();f.start();await f.c.tick();f.check(async()=>{f.native.availability.blocker_code=blocker;f.native.availability.next_recheck_at='2026-11-04T05:00:00Z';return {};});
+  assert.equal((await f.c.tick()).state,blocker);assert.equal(f.counts().submitted,0);f.advance();assert.equal((await f.c.tick()).state,'waiting_provider');assert.equal(f.counts().checks,1);assert.equal(f.native.used,0);
+});
+test('human verification holds the original, never interacts with a challenge or submits replacement',async t=>{
+  const f=setup(t);f.enqueue();f.start();await f.c.tick();await f.c.tick();const r=evidence();r.run.submissionIntent=true;r.session.unresolved=true;r.failure={code:'human_action_required'};r.original.runId='original-run';f.read(r);
+  assert.equal((await f.c.tick()).state,'human_action_required');f.restart();assert.equal((await f.c.tick()).state,'human_action_required');assert.equal(f.counts().submitted,1);assert.equal(f.counts().recovered,0);
+});
+test('stale result imports the exact original turn once, preserving the sole generation request',async t=>{
+  const f=setup(t);f.enqueue();f.start();await f.c.tick();await f.c.tick();const r=evidence();r.session.unresolved=true;r.recovery={required:true,canRecover:true};r.original.runId='original-run';f.read(r);
+  assert.equal((await f.c.tick()).state,'recovering_original');assert.equal((await f.c.tick()).state,'recovery_required');assert.equal(f.counts().recovered,1);
+  f.read(evidence('completed'));f.restart();assert.equal((await f.c.tick()).state,'awaiting_qa');assert.equal(f.counts().submitted,1);assert.equal(f.store.providerOwner('gemini_web:'+targets.pipeline),null);
+});
+test('lost generation response remains counted and uncertain across process restart, without replay',async t=>{
+  const f=setup(t);const item=f.enqueue();f.start();await f.c.tick();f.submit(async()=>{throw new ApiError(null,'request_timeout',true);});assert.equal((await f.c.tick()).state,'reconciliation_required');
+  f.restart();f.advance();assert.equal((await f.c.tick()).state,'reconciliation_required');assert.equal(f.counts().submitted,1);assert.equal(f.c.status().cycle!.state.attempts instanceof Array,true);assert.equal(f.store.getOperation(item.id,'production_submit')!.status,'uncertain');
+  f.read(evidence('completed'));assert.equal((await f.c.tick()).state,'awaiting_qa');assert.equal(f.counts().submitted,1);
+});
+test('lost creation response can attach a verified original project without a second creation',async t=>{
+  const f=setup(t);const item=f.enqueue();f.start();let calls=0;f.create(async()=>{calls++;throw new ApiError(null,'request_timeout',true);});await f.c.tick();f.restart();await f.c.tick();assert.equal(calls,1);
+  await f.c.reconcile(item.id,'known-original');assert.equal(f.store.getOperation(item.id,'production_create')!.status,'succeeded');assert.equal((await f.c.tick()).state,'bounded_request_queued');assert.equal(calls,1);
+});
+test('correlated terminal provider failure stops the cycle and preserves accounting',async t=>{
+  const f=setup(t);f.enqueue();f.enqueue(2);f.start();await f.c.tick();await f.c.tick();const r=evidence('failed');r.run={submissionIntent:true,acknowledged:true,status:'provider_failed',resolution:'conclusive_provider_failure_no_video'};r.failure={code:'provider_error'};f.read(r);
+  assert.equal((await f.c.tick()).state,'provider_failure_hold');f.restart();await f.c.tick();assert.equal(f.counts().submitted,1);assert.equal(f.native.used,1);await assert.rejects(()=>f.c.resume(true),/ends this bounded cycle/);
+});
+test('native quota rejection after dispatch is terminal, not an endless generating state or replacement request',async t=>{
+  const f=setup(t);f.enqueue();f.start();await f.c.tick();await f.c.tick();const r=evidence();r.run={submissionIntent:true,acknowledged:false,status:'failed',finishedAt:'2026-11-04T00:01:00Z',resolution:'quota_rejected_no_video'};r.failure={code:'weekly_limit'};f.read(r);
+  assert.equal((await f.c.tick()).state,'provider_failure_hold');assert.equal(f.store.providerOwner('gemini_web:'+targets.pipeline),null);assert.equal(f.counts().submitted,1);assert.equal(f.native.used,1);
+  await assert.rejects(()=>f.c.close(),/owner/);await f.c.close(true);assert.equal(f.c.status().cycle!.state.phase,'finished');assert.equal(f.native.used,1);
+});
+test('application cap, another native worker or uncertain original block admission without a provider call',async t=>{
+  for(const patch of [{used:4},{nativeEnabled:true},{unresolved:true},{activeRunId:'other'},{accountingHold:true}]){
+    const f=setup(t);f.enqueue();f.start();Object.assign(f.native,patch);assert.notEqual((await f.c.tick()).state,'planning');assert.equal(f.counts().submitted,0);assert.equal(f.counts().checks,0);
+  }
+});
+test('backlog capacity admits already reserved work at capacity; rejects extra concepts and low disk',async t=>{
+  const f=setup(t,{maxBacklogItems:1});f.enqueue();assert.throws(()=>f.enqueue(2),/capacity/);f.start();assert.equal((await f.c.tick()).state,'planning');
+  const g=setup(t);g.enqueue();g.start();g.free(0);assert.equal((await g.c.tick()).state,'storage_hold');assert.equal(g.counts().created,0);
+});
+test('stop during fresh readiness revokes dispatch before submission accounting; low disk after planning also holds',async t=>{
+  const f=setup(t);f.enqueue();f.start();await f.c.tick();f.check(async()=>{f.c.stop();return {};});assert.equal((await f.c.tick()).state,'reconciliation_required');assert.equal(f.counts().submitted,0);assert.deepEqual(f.c.status().cycle!.state.attempts,[]);
+  const g=setup(t);g.enqueue();g.start();await g.c.tick();g.free(0);assert.equal((await g.c.tick()).state,'storage_hold');assert.equal(g.counts().submitted,0);
+});
+test('concurrent ticks reserve one active item and never create parallel Pipeline projects',async t=>{
+  const f=setup(t);f.enqueue();f.enqueue(2);f.start();const results=await Promise.all([f.c.tick(),f.c.tick()]);assert.ok(results.some(r=>r.state==='busy'));assert.equal(f.counts().created,1);assert.equal(f.c.status().backlog.filter((j:any)=>j.phase==='planning').length,1);
+});
+test('scope expiry stops new submissions but preserves and imports an already generated original',async t=>{
+  const f=setup(t);f.enqueue();f.start();await f.c.tick();await f.c.tick();f.advance(7*3600000);f.read(evidence('completed'));assert.equal((await f.c.tick()).state,'awaiting_qa');assert.equal((await f.c.tick()).state,'scope_expired');assert.equal(f.counts().submitted,1);
+});
+test('failed audiovisual QA keeps immutable media, occupies backlog and never brands/publishes',async t=>{
+  const f=setup(t);const item=f.enqueue();f.start();await f.c.tick();await f.c.tick();f.read(evidence('completed'));await f.c.tick();
+  await f.c.review({itemId:item.id,sha256:sha,decision:'rejected',visual:'pass',audio:'fail',source:'owner',notes:'Harsh audio requires owner review',caption:'Leaf'},true);
+  assert.equal((f.c.status().backlog[0] as any).phase,'qa_failed');assert.equal(f.counts().branded,0);assert.equal(f.c.status().inventory.items,1);
+});
+test('accepted exact master prepares branding and unapproved draft once; publication does not consume generation',async t=>{
+  const f=setup(t);const item=f.enqueue();f.start();await f.c.tick();await f.c.tick();f.read(evidence('completed'));await f.c.tick();
+  const review={itemId:item.id,sha256:sha,decision:'accepted',visual:'pass',audio:'pass',source:'owner',notes:'Watched and listened to the exact master',caption:'Thai caption'};
+  await assert.rejects(()=>f.c.review(review),/owner/);assert.equal((await f.c.review(review,true)).state,'ready');f.restart();await f.c.review(review,true);assert.equal(f.counts().branded,1);assert.equal(f.counts().drafts,1);
+  f.draft({id:'draft',revision:1,status:'queued',queuedPostId:'post'});await f.c.observe();assert.equal((f.c.status().backlog[0] as any).phase,'published');assert.equal(f.c.status().inventory.items,0);assert.equal(f.counts().submitted,1);
+});
+test('saved metric checkpoints retain unavailable values and actual source timestamps, independent of generation',async t=>{
+  const f=setup(t);const r=await f.c.observe('post','page');assert.equal(r.state,'observation_saved');assert.equal(r.metrics!.history[0].view_count,null);assert.equal(r.metrics!.history[0].like_count,0);assert.equal(r.metrics!.history[0].observed_at,'2026-11-03T00:15:00Z');assert.equal(f.counts().submitted,0);assert.equal((await f.c.tick()).state,'disabled');
+});
+test('publication cadence is independent of disabled production and requires separate exact approval',async t=>{
+  const f=setup(t);const item=f.enqueue();f.store.patchState(item.id,{phase:'ready',draftId:'draft',variantId:'variant',videoId:'video'});f.draft({id:'draft',revision:2,status:'draft',videoId:'video',destinations:[{accountId:'page',selectedVariantId:'variant'}]});
+  f.history({hasMore:false,items:[{account_id:'page',status:'published',published_at:'2026-11-03 23:30:00'}]});
+  const wait=await f.c.publicationPlan();assert.equal(wait.state,'publication_cadence_wait');assert.equal(wait.earliestAt,'2026-11-04T23:30:00.000Z');assert.equal(f.c.status().config.enabled,false);assert.equal(f.counts().submitted,0);
+  f.advance(25*3600000);const ready=await f.c.publicationPlan();assert.equal(ready.state,'exact_owner_approval_required');assert.equal(ready.automatic,false);assert.equal(ready.draft.revision,2);
+  f.history({hasMore:false,items:[{account_id:'page',status:'uploading',submission_state:'uncertain'}]});assert.equal((await f.c.publicationPlan()).state,'original_publication_requires_reconciliation');
+});
+test('SQLite UTC publication times are not interpreted as Bangkok wall time, and premature checkpoint history is retained',async t=>{
+  const f=setup(t);f.publication({post:{destinations:[{id:'dest',account_id:'page',status:'published',confirmation_source:'api',verification_status:'confirmed',remote_post_id:'remote',remote_post_url:'https://facebook.com/reel/remote',published_at:'2026-11-03 23:30:00'}]}});
+  assert.equal((await f.c.observe('post','page')).state,'no_observation_due');
+  const tracked=f.store.runnerState<any[]>('production.observations')!;tracked[0].checkpoints.push({hours:1,checkedAt:'2026-11-04T00:00:00Z',metrics:{history:[]}});f.store.setRunnerState('production.observations',tracked);
+  assert.equal((await f.c.observe()).state,'no_observation_due');assert.equal(f.store.runnerState<any[]>('production.observations')![0].checkpoints[0].timingStatus,'premature_unzoned_timestamp');
+  f.advance(3600000);assert.equal((await f.c.observe()).state,'observation_saved');assert.equal(f.store.runnerState<any[]>('production.observations')![0].checkpoints.length,2);
+});
+test('runner uses one existing trigger for production despite exhausted text-model budget, respecting pause/authorization',async t=>{
+  const f=setup(t);let steps=0;configureRunner(f.store,{...defaultRunnerConfig(),enabled:true,maxInvocationsPerDay:1},true);
+  new AgentRunner(f.store,f.dir).work.add({id:'old',kind:'story_plan',title:'Existing task'});
+  f.store.saveRunnerSession({id:'spent',taskId:'old',status:'completed',startedAt:'2026-11-04T00:00:00Z',reservedTokens:1,usage:{tokens:1}});
+  const runner=new AgentRunner(f.store,f.dir,undefined,()=>new Date('2026-11-04T00:01:00Z'),undefined,async()=>{steps++;return {state:'generating'};});assert.equal((await runner.tick()).state,'production:generating');assert.equal(steps,1);
+  runner.control('pause');assert.equal((await runner.tick()).state,'paused');assert.equal(steps,1);
+});
+test('artifact reader enforces byte bound and same-origin paths without transforms',async()=>{
+  const client=new JsonClient('http://localhost:3001',{fetch:async()=>new Response('verified bytes')});const result=await client.media('/video.mp4',100);assert.equal(result.bytes,14);assert.equal(result.sha256.length,64);
+  await assert.rejects(()=>client.media('/video.mp4',3),/media_byte_limit/);await assert.rejects(()=>client.media('//foreign/video.mp4',100),/Invalid media/);
+});
+test('production HTTP contract pins account, review-first policy and no image; mismatched historical project cannot submit',async()=>{
+  const calls:any[]=[];let project:any={id:'project',provider:'gemini_web',autopilot:{provider:'gemini_web'},status:'awaiting_external_generation',topic:'One original story',scene_count:1,scene_seconds:10,aspect_ratio:'9:16',gemini_workflow:'standalone_10s_v1',audio_policy:'clip_native',scenes:[{order:1,status:'pending',generation_request:{scene_order:1,duration_seconds:10,aspect_ratio:'9:16',reference_mode:'none',generation_settings:{version:'generation_settings.v1',mode:'dense_performance',performance_tempo:2}}}],account_policy:{mode:'specific',account_id:'gemini_web-main'},generation_settings:{version:'generation_settings.v1',mode:'dense_performance',performance_tempo:2}};
+  const adapter=new PipelineAdapter(new JsonClient(targets.pipeline,{fetch:async(url,init)=>{calls.push({url:String(url),method:init?.method,body:init?.body?JSON.parse(String(init.body)):null});return Response.json(init?.method==='POST'?{job_id:'project'}:project);}}));
+  const input={title:'Story',idea:'One original story'};await adapter.prepareProduction(input,'gemini_web-main');assert.equal(calls[0].body.gemini_workflow,'standalone_10s_v1');assert.deepEqual(calls[0].body.account_policy,{mode:'specific',account_id:'gemini_web-main'});assert.equal(calls[0].body.scene_count,1);assert.equal(calls[0].body.starting_image,undefined);
+  await adapter.verifyProduction('project',input,'gemini_web-main',true);const saved=project.scenes[0].generation_request;for(const patch of [{start_frame:{}},{duration_seconds:8},{reference_mode:'image'},{generation_settings:{mode:'standard'}}]){project.scenes[0].generation_request={...saved,...patch};await assert.rejects(()=>adapter.verifyProduction('project',input,'gemini_web-main',true),/Saved scene request/);}project.scenes[0].generation_request=saved;project={...project,scene_count:2};await assert.rejects(()=>adapter.verifyProduction('project',input,'gemini_web-main'),/differs/);
+  project={...project,scene_count:1,provider:'flow_web'};await assert.rejects(()=>adapter.verifyProduction('project',input,'gemini_web-main'));assert.equal(calls.filter(c=>c.method==='POST').length,1);
+});
+test('Page preparation uses actual operator DTO and immutable media/variant readback',async()=>{
+  let rendered=false;const calls:string[]=[];
+  const adapter=new SccAdapter(new JsonClient(targets.scc,{fetch:async(url,init)=>{
+    const p=new URL(String(url)).pathname;calls.push(p);
+    if(p.endsWith('/context'))return Response.json({account:{id:'page',name:'Page',graphId:'123',identityVerifiedAt:'2026-11-04T00:00:00Z'},contextFingerprint:'fp',rules:[],voice:{},brandKit:{}});
+    if(p.endsWith('/render-preview')){rendered=true;assert.equal(JSON.parse(String(init?.body)).brandKit.safeArea.bottom,420);return Response.json({variantId:'variant',sha256:sha});}
+    return Response.json({video:{id:'video',width:720,height:1280,duration:10,metadata_json:JSON.stringify({sha256:sha}),branded_variants:rendered?[{id:'variant',sha256:sha,width:720,height:1280,duration:10}]:[]}});
+  }}));
+  assert.equal((await adapter.brandProduction('video','page')).variantId,'variant');assert.ok(calls.every(p=>!p.includes('approve')&&!p.includes('queue')));
+});

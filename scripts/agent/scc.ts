@@ -91,6 +91,26 @@ function compactVoice(voice:JsonObject):JsonObject {
 export class SccAdapter {
   constructor(readonly client: JsonClient) {}
 
+  async pageContext(accountId:string):Promise<JsonObject> {
+    const data=await this.client.get<JsonObject>('/api/operator/pages/'+encodeURIComponent(accountId)+'/context');
+    // This server-owned endpoint accepts only active real Facebook Pages. Its
+    // DTO exposes verified Graph identity, not raw platform/account_type fields.
+    if(data.account?.id!==accountId || !/^\d+$/.test(String(data.account.graphId??'')) || !data.account.identityVerifiedAt || !data.contextFingerprint || !Array.isArray(data.rules))throw new Error('Verified real Facebook Page context required');
+    return {...pick(data,['account','brandKit','contextFingerprint','rules','notice']),voice:compactVoice(data.voice??{})};
+  }
+
+  /** Explicit portrait render for a reviewed Gemini production item; account defaults are untouched. */
+  async brandProduction(videoId:string,accountId:string):Promise<JsonObject> {
+    const context=await this.pageContext(accountId),media=await this.media(videoId);
+    if(media.width*16!==media.height*9 || Math.abs(media.duration-10)>0.15 || !media.provenance.sha256)throw new Error('Expected verified ten-second portrait master');
+    const brandKit={mode:'moving',watermarkType:'moving_text',text:context.account.name,movementPreset:'corner_jump',intervalSeconds:3,fontSize:36,opacity:0.6,fontColor:'white',safeArea:{top:180,bottom:420,left:90,right:180}};
+    const result=await this.client.post<JsonObject>('/api/branding/render-preview',{videoId,brandKit,presetName:'Gemini standalone portrait'});
+    if(!resourceId(result.variantId) || !/^[a-f0-9]{64}$/.test(result.sha256??''))throw new ApiError(200,'invalid_branding_response',true);
+    const updated=await this.media(videoId),variant=updated.variants.find((v:JsonObject)=>v.id===result.variantId);
+    if(updated.provenance.sha256!==media.provenance.sha256 || !variant || variant.sha256!==result.sha256 || variant.width*16!==variant.height*9 || Math.abs(variant.duration-10)>0.15)throw new ApiError(200,'unverified_branding_variant',true);
+    return {variantId:variant.id,sha256:variant.sha256,contextFingerprint:context.contextFingerprint,brandKit};
+  }
+
   /** Reuse the Content Assistant voice and operator library; no model call. */
   async preparationContext(accountId:string):Promise<JsonObject> {
     const data=await this.client.get<JsonObject>('/api/operator/pages/'+encodeURIComponent(accountId)+'/context');
