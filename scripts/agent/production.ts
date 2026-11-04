@@ -285,6 +285,8 @@ export class GeminiProduction {
       const media=await this.scc.media(imported.videoId);
       if(media.provenance.sha256!==facts.sha256||media.file_size!==facts.bytes)throw new Error('Imported master differs from verified final artifact');
       const technical=media.width*16===media.height*9&&Math.abs(media.duration-10)<0.15&&media.provenance.hasAudio===true;
+      const native=await this.pipeline.productionStatus();
+      if(native.recoveryHold&&!native.unresolved&&!native.activeRunId&&!native.observationLocked&&!native.boundedRequests.some((r:Any)=>r.in_progress))await this.once(item.id,'production_reconcile_recovery',{projectId,sha256:facts.sha256},()=>this.pipeline.reconcileProductionRecovery());
       this.save(item.id,{phase:technical?'awaiting_qa':'qa_failed',videoId:imported.videoId,media:{sha256:facts.sha256,bytes:facts.bytes,technical,metadata:media},original:e.original});
       this.store.releaseProvider(providerScope,item.id);this.save(cycle.id,{activeItem:null});
       const policy=this.policyFor(scope);if(policy&&policy.state.humanHold==='reconciliation_required')this.save(policy.id,{humanHold:null});
@@ -391,9 +393,24 @@ export class GeminiProduction {
     if(op.status!=='succeeded')this.store.finishOperation(itemId,'production_create','succeeded',result);
     this.save(itemId,{projectId,creationReconciledAt:this.clock().toISOString()});return {itemId,projectId,reconciled:true};
   }
-  async resume(ownerAuthorized=false){if(!ownerAuthorized)throw new Error('Manual security completion or failed-scope review requires owner authorization');const cycle=this.cycle();if(!cycle)throw new Error('No original cycle');
+  async resume(ownerAuthorized=false){if(!ownerAuthorized)throw new Error('Manual security completion or failed-scope review requires owner authorization');
+    const token=randomUUID(),now=this.clock().getTime(),acquired=this.store.transaction(()=>{const old=this.store.runnerState<Any>('production.lease');if(old&&Date.parse(old.until)>now)return false;this.store.setRunnerState('production.lease',{token,until:new Date(now+900000).toISOString()});return true;});
+    if(!acquired)throw new Error('Original production observation is busy');
+    try{return await this.resumeOriginal();}finally{if(this.store.runnerState<Any>('production.lease')?.token===token)this.store.setRunnerState('production.lease',null);}
+  }
+  private async resumeOriginal(){const cycle=this.cycle();if(!cycle)throw new Error('No original cycle');
     if(cycle.state.phase==='provider_failure_hold'||cycle.state.phase==='planning_failure_hold')throw new Error('A provider/planning failure ends this bounded cycle; reconcile the original before authorizing another scope');
-    await this.pipeline.checkProductionAvailability();const fresh=await this.pipeline.productionStatus();if(fresh.availability?.blocker_code!=='video_available'||fresh.availability.stale)throw new Error('Fresh supported availability did not pass');this.save(cycle.id,{phase:'active'});const policy=this.policyFor((cycle.input as Any).scope);if(policy)this.save(policy.id,{humanHold:null,nextCheckAt:null});return this.status();}
+    const scope=(cycle.input as Any).scope as Scope;
+    if(cycle.state.activeItem){const item=this.item(String(cycle.state.activeItem));if(item.state.projectId){let e=await this.pipeline.inspect(String(item.state.projectId));
+      if(e.session.active)throw new Error('Original generation is still active');
+      if(e.session.unresolved&&e.original.runId){const count=Number(item.state.manualRecoveryChecks??0);if(count>=this.config().maxRecoveryChecks)throw new Error('Original recovery check limit reached');this.save(item.id,{manualRecoveryChecks:count+1});await this.once(item.id,'owner_security_recovery_'+count,{projectId:item.state.projectId,runId:e.original.runId},()=>this.pipeline.recoverProduction(String(item.state.projectId),e.original.runId));e=await this.pipeline.inspect(String(item.state.projectId));}
+      if(e.project.state==='completed'&&!e.session.unresolved)await this.advance(cycle,this.item(item.id),scope,this.config());
+      else if(e.session.unresolved)throw new Error('Original result remains unresolved; no fresh submission is permitted');
+    }}
+    await this.pipeline.checkProductionAvailability();const fresh=await this.pipeline.productionStatus(),a=fresh.availability;
+    if(!a||a.stale||a.conflicting_evidence||a.previous_submission_uncertain||/human|login|security|captcha/.test(String(a.blocker_code))||fresh.unresolved)throw new Error('Fresh supported availability did not pass');
+    if(a.blocker_code!=='video_available'&&!/quota|weekly|limit|capacity|disabled/.test(String(a.blocker_code)))throw new Error('Fresh supported availability remains unknown');
+    this.save(cycle.id,{phase:'active'});const policy=this.policyFor(scope);if(policy){this.save(policy.id,{humanHold:null,nextCheckAt:null});if(a.blocker_code!=='video_available')this.capacityWait(scope,fresh,a.blocker_code);}return this.status();}
   async review(input:unknown,ownerAuthorized=false){if(!ownerAuthorized)throw new Error('Actual owner audiovisual review is required');const r=reviewSchema.parse(input),j=this.item(r.itemId),media=j.state.media as Any;
     if(!['awaiting_qa','branding','ready'].includes(String(j.state.phase))||media?.sha256!==r.sha256 || (j.state.qa&&stableHash(j.state.qa)!==stableHash(r)))throw new Error('Review must bind the unchanged original master and original QA decision');
     if(j.state.phase==='ready')return {state:'ready',draft:await this.scc.getDraft(String(j.state.draftId)),approved:false,queued:false};
