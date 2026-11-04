@@ -48,7 +48,7 @@ export class AgentRunner {
       expiredManualClaims:this.store.workCandidates().filter(t=>t.status==='claimed'&&Date.parse(t.leaseUntil)<=this.clock().getTime()&&!this.store.runnerSessions({taskId:t.id}).length).length,
       recoverySessions:this.store.runnerSessions({status:'recovery_required',limit:20}).map(this.compactSession),
       recentSessions:sessions.map(this.compactSession),recoveryRequired:this.store.runnerSessions({status:'recovery_required',limit:10000}).length,
-      networkCalls:0,notice:'Eligibility uses local saved context. No automatic generation refresh, publication, or provider recovery.'};
+      networkCalls:0,notice:this.productionStep?'Status uses saved context. Optional production steps require a separate bounded scope; publication retains its independent exact approval.':'Eligibility uses local saved context. No automatic generation refresh, publication, or provider recovery.'};
   }
   private compactSession(s:Session){const {claim,result,...compact}=s;return {...compact,hasResult:!!result};}
   async detect(){const c=this.config();const results:ExecutorCapability[]=[];for(const executor of c.executors)results.push(await this.executors.detect(executor));return {executors:results};}

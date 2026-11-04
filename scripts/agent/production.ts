@@ -150,13 +150,15 @@ export class GeminiProduction {
     if(cycle.state.activeItem){const item=this.item(String(cycle.state.activeItem));
       if(!item.state.projectId)throw new Error('Reconcile the original creation before closing');
       const e=await this.pipeline.inspect(String(item.state.projectId));
+      const native=n.boundedRequests.find((r:Any)=>r.jobId===item.state.projectId&&r.request_id===item.state.requestId);
+      const admissionBlocked=native?.state==='blocked'&&!native.in_progress&&!e.original.runId&&!e.run.submissionIntent&&!e.run.acknowledged;
       const resolved=['conclusive_provider_failure_no_video','owner_confirmed_no_video','quota_rejected_no_video','provider_error_no_result'].includes(e.run.resolution);
       if(e.session.active||e.session.unresolved||e.project.state==='completed'||((e.run.submissionIntent||e.run.acknowledged)&&!resolved))throw new Error('Import completed media or resolve the exact original run before closing');
-      if(this.store.getOperation(item.id,'production_submit')&&!(e.run.finishedAt||resolved))throw new Error('Unconfirmed dispatch intent cannot be closed');
-      this.save(item.id,{phase:'failed',closedAt:this.clock().toISOString(),closeReason:'owner_reviewed_resolved_or_unsubmitted',original:e.original});
+      if(this.store.getOperation(item.id,'production_submit')&&!(e.run.finishedAt||resolved||admissionBlocked))throw new Error('Unconfirmed dispatch intent cannot be closed');
+      this.save(item.id,{phase:'failed',closedAt:this.clock().toISOString(),closeReason:admissionBlocked?'native_admission_blocked_no_provider_submission':'authorized_resolved_or_unsubmitted',original:e.original,...(admissionBlocked?{admission:native}:{})});
       this.store.releaseProvider('gemini_web:'+this.targets.pipeline,item.id);
     }
-    this.save(cycle.id,{phase:'finished',activeItem:null,finishedAt:this.clock().toISOString(),closeReason:'owner_reviewed'});
+    this.save(cycle.id,{phase:'finished',activeItem:null,finishedAt:this.clock().toISOString(),closeReason:'authorized_close_after_verified_resolution'});
     this.store.setRunnerState('production.config',{...this.config(),enabled:false});return this.status();
   }
   private cycle(){const id=this.store.runnerState<string>('production.active');const c=id?this.store.getJob(id):null;if(!c)return null;if(stableHash((c.input as Any).targets)!==stableHash(this.targets)||stableHash(this.config())!==(c.input as Any).configHash)throw new Error('Production configuration or targets changed; review a new authorization');return c;}
@@ -172,12 +174,21 @@ export class GeminiProduction {
         brief:'Original fictional visual entertainment. Immediate hook, one consequential development, visible payoff. One ten-second portrait text-only clip with native sound. No multi-scene continuation or irrelevant dialogue. Return a gemini-concept.v1 object in result. Do not repeat prior concepts across Pages merely for volume. Missing trend research does not prevent an original fictional concept; do not invent popularity or factual claims.'}});}
     return {state:'needs_concept',taskId:id};
   }
-  private async eligibleNative(ownProjectId?:string){const n=await this.pipeline.productionStatus();
+  private async eligibleNative(accountId:string,ownProjectId?:string){const n=await this.pipeline.productionStatus();
     if(!n.available||!n.workerEnabled)return {n,block:'provider_unavailable'};
     if(n.nativeEnabled)return {n,block:'native_scheduler_running'};
     if(n.unresolved||n.activeRunId||n.observationLocked||n.boundedRequests.some((r:Any)=>r.in_progress&&r.jobId!==ownProjectId))return {n,block:'original_submission_protected'};
     if(n.accountingHold)return {n,block:'accounting_or_storage_hold'};
     if(n.used>=n.cap)return {n,block:'application_cap'};
+    const usage=n.accountUsage?.[accountId];
+    if(usage){
+      if(!Number.isInteger(usage.submissions)||usage.submissions<0)return {n,block:'account_application_accounting_unknown'};
+      const start=Date.parse(usage.window_started_at??''),hours=n.applicationWindowHours;
+      // Mirror the native accountUsage eligibility predicate without changing
+      // its ledger. An expired application window says nothing about provider quota.
+      const expired=Number.isFinite(start)&&typeof hours==='number'&&hours>0&&start+hours*3600000<=this.clock().getTime();
+      if(usage.submissions>=n.cap&&!expired)return {n,block:'account_application_cap'};
+    }
     return {n,block:null};
   }
   async tick(){const c=this.config();if(!c.enabled)return {state:'disabled',actions:0};const cycle=this.cycle();if(!cycle)return {state:'activation_required',actions:0};
@@ -194,7 +205,7 @@ export class GeminiProduction {
     if(Date.parse(scope.expiresAt)<=this.clock().getTime()){this.save(cycle.id,{phase:'expired'});return {state:'scope_expired',actions:0};}
     if((cycle.state.attempts as string[]).length>=Math.min(scope.maxSubmissions,c.targetPerWindow)||Number(cycle.state.createdProjects)>=scope.maxSubmissions){this.save(cycle.id,{phase:'finished',finishedAt:this.clock().toISOString()});return {state:'cycle_finished',actions:0};}
     const free=this.freeBytes();if(!Number.isFinite(free)||free<c.minimumFreeBytes+c.reservationBytes)return {state:'storage_hold',actions:0};
-    const native=await this.eligibleNative();if(native.block)return {state:native.block,actions:0,providerAllowance:null};
+    const native=await this.eligibleNative(scope.geminiAccountId);if(native.block)return {state:native.block,actions:0,providerAllowance:null,nextCheckAt:native.n.accountWaitNext};
     for(const t of this.store.listWork(100)){if(t.kind==='prepare_video'&&t.status==='prepared'&&t.accountId===scope.pageAccountId&&t.payload?.production?.version==='gemini-concept.v1'){
       try{this.enqueuePrepared(t.id);}catch(e){if(!this.inventory().full)throw e;}
     }}
@@ -260,27 +271,36 @@ export class GeminiProduction {
     if(!create)throw new Error('Missing original creation intent');
     const expected=create.request as Any;
     await this.pipeline.verifyProduction(projectId,expected.input,expected.accountId,true);
-    const n=await this.eligibleNative(projectId);if(n.block)return {state:n.block,actions:0};
+    const n=await this.eligibleNative(scope.geminiAccountId,projectId);
     const own=n.n.boundedRequests.find((r:Any)=>r.jobId===projectId);
     const requestId='scc-production-'+stableHash({cycle:cycle.id,item:item.id}).slice(0,40);
     const previous=this.store.getOperation(item.id,'production_submit');
     if(own?.request_id===requestId){
+      if(own.state==='blocked'&&!own.in_progress&&!e.original.runId&&!e.run.submissionIntent&&!e.run.acknowledged&&!e.session.active&&!e.session.unresolved){
+        this.save(item.id,{phase:'admission_blocked',admission:own,original:e.original});this.save(cycle.id,{phase:'application_capacity_hold'});
+        this.store.recordGeneration(item.id,{condition:'admission_blocked',checkedAt:this.clock().toISOString(),evidence:{nativeRequest:own,original:e.original,providerSubmitted:false}});
+        this.store.releaseProvider(providerScope,item.id);
+        return {state:'native_admission_blocked',actions:0,providerSubmitted:false,nativeRequest:own};
+      }
       if(previous&&['pending','uncertain'].includes(previous.status))this.store.finishOperation(item.id,'production_submit','succeeded',{nativeRequest:own,readBackAt:this.clock().toISOString()});
       return {state:own.in_progress?'generating':'native_request_recorded',actions:0};
     }
+    if(n.block)return {state:n.block,actions:0,nextCheckAt:n.n.accountWaitNext};
     if(previous)return {state:'reconciliation_required',actions:0,originalOperationStatus:previous.status};
     const observed=n.n.availability;
     if(observed&&/human|login|security/.test(String(observed.blocker_code)))return {state:'human_action_required',actions:0};
     const next=Date.parse(String(item.state.nextAvailabilityAt??''));if(Number.isFinite(next)&&next>this.clock().getTime())return {state:'waiting_provider',actions:0,nextCheckAt:item.state.nextAvailabilityAt};
     this.save(item.id,{nextAvailabilityAt:new Date(this.clock().getTime()+c.observationSeconds*1000).toISOString()});
     await this.pipeline.checkProductionAvailability();
-    const ready=await this.eligibleNative(projectId),a=ready.n.availability;
+    const ready=await this.eligibleNative(scope.geminiAccountId,projectId),a=ready.n.availability;
     const nativeBlock=ready.block??ready.n.blockers?.[0];
     if(nativeBlock||!a||a.blocker_code!=='video_available'||a.stale||a.conflicting_evidence||a.previous_submission_uncertain){
       const providerDate=Date.parse(String(a?.next_recheck_at??''));
       this.save(item.id,{nextAvailabilityAt:Number.isFinite(providerDate)&&providerDate>this.clock().getTime()?a.next_recheck_at:new Date(this.clock().getTime()+c.refreshObservationHours*3600000).toISOString(),providerBlocker:nativeBlock??a?.blocker_code??'unknown'});
       return {state:nativeBlock??String(a?.blocker_code??'availability_unknown'),actions:0,providerAllowance:null};
     }
+    const admission=ready.n.boundedRequests.find((r:Any)=>r.jobId===projectId);
+    if(!admission||admission.available!==true){this.save(item.id,{admission:admission??null});this.save(cycle.id,{phase:'application_capacity_hold'});return {state:'native_project_admission_blocked',actions:0,providerSubmitted:false,nativeRequest:admission??null};}
     if((cycle.state.attempts as string[]).length>=Math.min(scope.maxSubmissions,c.targetPerWindow))return {state:'cycle_budget',actions:0};
     await this.once(item.id,'production_submit',{projectId,requestId,scope:scope.id},()=>this.pipeline.submitProduction(projectId,requestId),()=>{
       const current=this.authorized(cycle.id,item.id,scope),attempts=current.state.attempts as string[];

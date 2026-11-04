@@ -17,9 +17,9 @@ function evidence(state='awaiting_external_generation'):any{return {project:{sta
 function setup(t:any,config:any={}){
   const dir=mkdtempSync(path.join(tmpdir(),'scc-production-')),file=path.join(dir,'agent.db');let store=new AgentStore(file),now=new Date('2026-11-04T00:00:00Z');
   let read=evidence(),created=0,submitted=0,recovered=0,checks=0,imports=0,branded=0,drafts=0,free=10*1024**3;
-  let native:any={available:true,workerEnabled:true,nativeEnabled:false,activeRunId:null,observationLocked:false,unresolved:false,accountingHold:false,cap:4,used:0,availability:{blocker_code:'video_available',stale:false,previous_submission_uncertain:false,conflicting_evidence:false},boundedRequests:[],blockers:[]};
+  let native:any={available:true,workerEnabled:true,nativeEnabled:false,activeRunId:null,observationLocked:false,unresolved:false,accountingHold:false,cap:4,used:0,availability:{blocker_code:'video_available',stale:false,previous_submission_uncertain:false,conflicting_evidence:false},boundedRequests:[],blockers:[],accountUsage:{},applicationWindowHours:5};
   let submitBehavior=async()=>({accepted:true}),createBehavior=async()=>({projectId:'project-'+(++created)}),checkBehavior=async()=>({});
-  const pipeline={productionStatus:async()=>structuredClone(native),checkProductionAvailability:async()=>{checks++;return checkBehavior();},prepareProduction:async(input:any,accountId:any)=>{assert.equal(accountId,'gemini_web-main');assert.equal(input.sceneCount,1);assert.equal(input.aspectRatio,'9:16');return createBehavior();},verifyProduction:async(projectId:string)=>({projectId}),submitProduction:async()=>{submitted++;native.used++;return submitBehavior();},inspect:async()=>structuredClone(read),recoverProduction:async(_project:string,runId:string)=>{assert.equal(runId,'original-run');recovered++;return {};},productionArtifact:async()=>({sha256:sha,bytes:1024})} as unknown as PipelineAdapter;
+  const pipeline={productionStatus:async()=>structuredClone(native),checkProductionAvailability:async()=>{checks++;return checkBehavior();},prepareProduction:async(input:any,accountId:any)=>{assert.equal(accountId,'gemini_web-main');assert.equal(input.sceneCount,1);assert.equal(input.aspectRatio,'9:16');const result=await createBehavior();if(!native.boundedRequests.some((r:any)=>r.jobId===result.projectId))native.boundedRequests.push({jobId:result.projectId,available:true,in_progress:false,state:'idle'});return result;},verifyProduction:async(projectId:string)=>{if(!native.boundedRequests.some((r:any)=>r.jobId===projectId))native.boundedRequests.push({jobId:projectId,available:true,in_progress:false,state:'idle'});return {projectId};},submitProduction:async()=>{submitted++;native.used++;return submitBehavior();},inspect:async()=>structuredClone(read),recoverProduction:async(_project:string,runId:string)=>{assert.equal(runId,'original-run');recovered++;return {};},productionArtifact:async()=>({sha256:sha,bytes:1024})} as unknown as PipelineAdapter;
   const media={width:720,height:1280,duration:10,file_size:1024,provenance:{sha256:sha,hasAudio:true}};
   let publication:any={post:{destinations:[{id:'dest',account_id:'page',status:'published',confirmation_source:'api',verification_status:'confirmed',remote_post_id:'remote',remote_post_url:'https://facebook.com/reel/remote',published_at:'2026-11-03T00:00:00Z'}]}};
   let draft:any={id:'draft',revision:1,status:'draft',queuedPostId:null};let history:any={items:[],hasMore:false};
@@ -80,6 +80,20 @@ test('application cap, another native worker or uncertain original block admissi
   for(const patch of [{used:4},{nativeEnabled:true},{unresolved:true},{activeRunId:'other'},{accountingHold:true}]){
     const f=setup(t);f.enqueue();f.start();Object.assign(f.native,patch);assert.notEqual((await f.c.tick()).state,'planning');assert.equal(f.counts().submitted,0);assert.equal(f.counts().checks,0);
   }
+});
+test('pinned-account cap blocks before creating another project even when global usage is low; no ledger reset',async t=>{
+  const f=setup(t);f.enqueue();f.start();f.native.used=1;f.native.accountUsage={'gemini_web-main':{submissions:4,window_started_at:'2026-11-03T23:00:00Z'}};
+  assert.equal((await f.c.tick()).state,'account_application_cap');assert.equal(f.counts().created,0);assert.equal(f.counts().submitted,0);assert.equal(f.native.accountUsage['gemini_web-main'].submissions,4);
+  f.advance(5*3600000);assert.equal((await f.c.tick()).state,'planning');assert.equal(f.native.accountUsage['gemini_web-main'].submissions,4);
+});
+test('native blocked bounded request with no original run is conclusive admission failure, not generation or blind replay',async t=>{
+  const f=setup(t);const item=f.enqueue();f.start();await f.c.tick();await f.c.tick();const requestId=f.store.getJob(item.id)!.state.requestId;
+  f.native.accountUsage={'gemini_web-main':{submissions:4,window_started_at:'2026-11-04T00:00:00Z'}};f.native.boundedRequests=[{jobId:'project-1',request_id:requestId,state:'blocked',available:false,in_progress:false,unavailable_reason:'Pinned account application safety cap'}];
+  assert.equal((await f.c.tick()).state,'native_admission_blocked');assert.equal(f.counts().submitted,1);assert.equal(f.store.providerOwner('gemini_web:'+targets.pipeline),null);await f.c.close(true);assert.equal(f.c.status().cycle!.state.phase,'finished');assert.equal(f.native.accountUsage['gemini_web-main'].submissions,4);
+});
+test('native per-project restriction after a fresh available capability check blocks dispatch',async t=>{
+  const f=setup(t);f.enqueue();f.start();await f.c.tick();f.native.boundedRequests=[{jobId:'project-1',available:false,in_progress:false,state:'idle',unavailable_reason:'Account weekly restriction'}];
+  assert.equal((await f.c.tick()).state,'native_project_admission_blocked');assert.equal(f.counts().submitted,0);
 });
 test('backlog capacity admits already reserved work at capacity; rejects extra concepts and low disk',async t=>{
   const f=setup(t,{maxBacklogItems:1});f.enqueue();assert.throws(()=>f.enqueue(2),/capacity/);f.start();assert.equal((await f.c.tick()).state,'planning');
@@ -150,4 +164,12 @@ test('Page preparation uses actual operator DTO and immutable media/variant read
     return Response.json({video:{id:'video',width:720,height:1280,duration:10,metadata_json:JSON.stringify({sha256:sha}),branded_variants:rendered?[{id:'variant',sha256:sha,width:720,height:1280,duration:10}]:[]}});
   }}));
   assert.equal((await adapter.brandProduction('video','page')).variantId,'variant');assert.ok(calls.every(p=>!p.includes('approve')&&!p.includes('queue')));
+});
+test('bounded-request HTTP receipt and per-account accounting remain distinct from provider allowance',async()=>{
+  let malformed=false;
+  const adapter=new PipelineAdapter(new JsonClient(targets.pipeline,{fetch:async(url,init)=>{
+    if(init?.method==='POST'){const body=JSON.parse(String(init.body));assert.deepEqual(body,{job_id:'project',scene_order:1,request_id:'request',confirmed:true});return Response.json(malformed?{}:{force_retry_status:{job_id:'project',request_id:'request',in_progress:true}});}
+    return Response.json({provider:'gemini_web',available:true,worker_enabled:true,recovery_status:{submission_unresolved:false},scheduler:{enabled:false,queue:[],configured_submission_cap:4,submissions_this_window:1,window_hours:5,account_usage:{'gemini_web-main':{submissions:4,window_started_at:'2026-11-04T03:43:26Z'}}}});
+  }}));
+  const status=await adapter.productionStatus();assert.equal(status.used,1);assert.equal(status.accountUsage['gemini_web-main'].submissions,4);assert.equal(status.providerAllowance,null);await adapter.submitProduction('project','request');malformed=true;await assert.rejects(()=>adapter.submitProduction('project','request'),/invalid_bounded_request_response/);
 });
