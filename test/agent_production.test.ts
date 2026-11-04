@@ -192,6 +192,11 @@ test('standing creation consults external cache before concepts without waiting 
 test('external research preparation continues during standing account-cap waits',async t=>{
   const f=setup(t);await f.c.authorizePolicy(standing(),true);f.native.accountUsage={'gemini_web-main':{submissions:4,window_started_at:'2026-11-04T00:00:00Z'}};assert.equal((await f.c.tick()).state,'account_application_cap');assert.equal(f.store.listWork().filter(t=>t.kind==='research_concept').length,1);assert.equal(f.counts().submitted,0);
 });
+
+test('a done Gemini preparation still creates only its original durable concept',t=>{
+  const f=setup(t);f.c.work.add({id:'done-concept',kind:'prepare_video',title:'Original complete scene',accountId:'page',payload:{production:{version:'gemini-concept.v1'}}});const claim=f.c.work.claim('done-concept',{owner:'fixture',commandId:'done-claim'}).task;
+  f.c.work.save({id:claim.id,owner:'fixture',commandId:'done-save',claimToken:claim.claimToken,revision:claim.revision,status:'done',result:JSON.stringify(concept())});const item=f.c.enqueuePrepared(claim.id);assert.equal(f.c.enqueuePrepared(claim.id).id,item.id);assert.equal(f.counts().submitted,0);
+});
 test('standing policy runs six sequential clips across two estimated windows and restart without another owner authorization',async t=>{
   const f=setup(t);for(let n=1;n<=6;n++)f.enqueue(n);f.native.windowStartedAt='2026-11-04T00:00:00Z';await f.c.authorizePolicy(standing(),true);
   for(let n=1;n<=6;n++){

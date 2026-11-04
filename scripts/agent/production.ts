@@ -167,7 +167,7 @@ export class GeminiProduction {
       this.save(id,{phase:'queued',queuedAt:this.clock().toISOString()});this.store.setRunnerState('production.items',[...ids,id]);return this.item(id);
     });
   }
-  enqueuePrepared(taskId:string){const t=this.store.getWork(taskId);if(!t||t.kind!=='prepare_video'||t.status!=='prepared'||t.payload?.production?.version!=='gemini-concept.v1')throw new Error('Use an exact prepared Gemini production concept task');let value=t.result;if(typeof value==='string'){try{value=JSON.parse(value);}catch{throw new Error('Prepared concept must contain valid serialized gemini-concept.v1 JSON');}}const concept=productionConceptSchema.parse(value);if(concept.accountId!==t.accountId)throw new Error('Prepared concept Page identity changed');
+  enqueuePrepared(taskId:string){const t=this.store.getWork(taskId);if(!t||t.kind!=='prepare_video'||!['prepared','done'].includes(t.status)||t.payload?.production?.version!=='gemini-concept.v1')throw new Error('Use an exact prepared Gemini production concept task');let value=t.result;if(typeof value==='string'){try{value=JSON.parse(value);}catch{throw new Error('Prepared concept must contain valid serialized gemini-concept.v1 JSON');}}const concept=productionConceptSchema.parse(value);if(concept.accountId!==t.accountId)throw new Error('Prepared concept Page identity changed');
     const supplied=[...(t.payload?.creatorLearning?.external??[]),...(t.payload?.creatorLearning?.historicalHypotheses??[])];
     if(concept.researchUse&&(concept.researchUse.findingIds.some(id=>!supplied.some(f=>f.id===id))||concept.researchUse.principleIds.some(id=>!supplied.some(f=>f.principles?.some((p:Any)=>p.id===id)))))throw new Error('Concept cites unsupplied creator evidence');
     return this.enqueue(concept,{taskId:t.id,revision:t.revision});}
@@ -263,7 +263,7 @@ export class GeminiProduction {
     if(!scope.policyId&&((cycle.state.attempts as string[]).length>=Math.min(scope.maxSubmissions,c.targetPerWindow)||Number(cycle.state.createdProjects)>=scope.maxSubmissions)){this.save(cycle.id,{phase:'finished',finishedAt:this.clock().toISOString()});return {state:'cycle_finished',actions:0};}
     const free=this.freeBytes();if(!Number.isFinite(free)||free<c.minimumFreeBytes+c.reservationBytes)return {state:'storage_hold',actions:0};
     const native=await this.eligibleNative(scope.geminiAccountId);if(native.block){this.capacityWait(scope,native.n,native.block);return {state:native.block,actions:0,providerAllowance:null,nextCheckAt:this.policyFor(scope)?.state.nextCheckAt??native.n.accountWaitNext};}
-    for(const t of this.store.listWork(100)){if(t.kind==='prepare_video'&&t.status==='prepared'&&t.accountId===scope.pageAccountId&&t.payload?.production?.version==='gemini-concept.v1'){
+    for(const t of this.store.listWork(100)){if(t.kind==='prepare_video'&&['prepared','done'].includes(t.status)&&t.accountId===scope.pageAccountId&&t.payload?.production?.version==='gemini-concept.v1'){
       try{this.enqueuePrepared(t.id);}catch(e){if(!this.inventory().full)throw e;}
     }}
     const item=this.items().find(j=>j.state.phase==='queued'&&(j.input as Any).concept.accountId===scope.pageAccountId);
