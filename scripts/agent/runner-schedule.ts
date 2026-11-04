@@ -2,6 +2,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {createRequire} from 'node:module';
 import {AgentStore} from './store.js';
 import {getRunnerConfig,runnerAuthorized} from './runner-config.js';
 import {runProcess,type ProcessRunner} from './executors.js';
@@ -11,7 +12,8 @@ function windowsArgument(s:string):string{return '"'+s.replace(/(\\*)"/g,'$1$1\\
 function writeLauncher(repository:string,state:string,timeoutMs:number,scheduleId?:string):string {
   const directory=path.join(path.dirname(state),'runner','launchers');mkdirSync(directory,{recursive:true});
   const file=path.join(directory,randomUUID()+'.vbs');
-  const command=[process.execPath,'--import',pathToFileURL(path.join(repository,'node_modules/tsx/dist/loader.mjs')).href,
+  let loader=path.join(repository,'node_modules/tsx/dist/loader.mjs');try{loader=createRequire(path.join(repository,'package.json')).resolve('tsx');}catch{/* Export-only fixtures may not contain installed dependencies. */}
+  const command=[process.execPath,'--import',pathToFileURL(loader).href,
     path.join(repository,'scripts/agent/scheduled-host.ts'),repository,path.resolve(state),scheduleId??'-',String(timeoutMs)].map(windowsArgument).join(' ');
   const quoted=(s:string)=>'"'+s.replace(/"/g,'""')+'"';
   // WScript is a GUI executable; Run(..., 0, True) hides Node and waits for its real exit.

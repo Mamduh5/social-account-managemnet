@@ -3,6 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {createRequire} from 'node:module';
 import {AgentStore} from './store.js';
 import {runProcess,ExecutionError} from './executors.js';
 
@@ -20,7 +21,8 @@ async function main(){
   const parent=setInterval(()=>{try{process.kill(process.ppid,0);}catch{controller.abort();}},1000);
   const abort=()=>controller.abort();process.on('SIGINT',abort);process.on('SIGTERM',abort);
   try{
-    const args=['--import',pathToFileURL(path.join(repository,'node_modules/tsx/dist/loader.mjs')).href,path.join(repository,'scripts/agent.ts'),'runner-tick','--state',state,
+    const loader=createRequire(path.join(repository,'package.json')).resolve('tsx');
+    const args=['--import',pathToFileURL(loader).href,path.join(repository,'scripts/agent.ts'),'runner-tick','--state',state,
       ...(scheduleId==='-'?[]:['--schedule',scheduleId])];
     const output=await runProcess(process.execPath,args,{cwd:repository,timeoutMs,maxBytes:1048576,signal:controller.signal,diagnosticsDirectory:directory,
       onSpawn:pid=>{receipt.runnerPid=pid;receipt.status='running';save();}});
