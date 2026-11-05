@@ -14,6 +14,7 @@ import { InboxView } from './views/InboxView';
 import { ActivityView } from './views/ActivityView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { SettingsView } from './views/SettingsView';
+import { VideoReviewView } from './views/VideoReviewView';
 import { ContentAssistantView } from './views/ContentAssistantView';
 import { GroupsWorkspaceView } from './views/GroupsWorkspaceView';
 import { CalendarView } from './views/CalendarView';
@@ -21,7 +22,7 @@ import { RetainedFeature } from './features/FeatureActivity';
 import { invalidateResources, useResourceRefresh } from './api/resource-events';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<string>(new URLSearchParams(window.location.search).has('connectionAccount') ? 'accounts' : 'dashboard');
+  const [activeTab, setActiveTab] = useState<string>(new URLSearchParams(window.location.search).has('connectionAccount') ? 'accounts' : new URLSearchParams(window.location.search).get('view')==='video-review'?'video-review':'dashboard');
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [targetBrandingAccountId, setTargetBrandingAccountId] = useState<string | undefined>(undefined);
@@ -108,6 +109,7 @@ export function App() {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'accounts', label: 'Accounts & Categories', icon: Users },
     { id: 'publishing', label: 'Publishing Center', icon: Send },
+    { id: 'video-review', label: 'Video Review', icon: Sparkles },
     { id: 'calendar', label: 'Content Calendar', icon: Calendar },
     { id: 'assistant', label: 'Content Assistant', icon: Sparkles },
     { id: 'groups', label: 'Groups Planning', icon: Users },
@@ -280,6 +282,7 @@ export function App() {
           <RetainedFeature name="publishing" activeTab={activeTab}>
             <PublishingView selectedCategory={selectedCategory} />
           </RetainedFeature>
+          <RetainedFeature name="video-review" activeTab={activeTab}><VideoReviewView onBranding={handleNavigateToBranding}/></RetainedFeature>
           <RetainedFeature name="assistant" activeTab={activeTab}><ContentAssistantView /></RetainedFeature>
           <RetainedFeature name="groups" activeTab={activeTab}><GroupsWorkspaceView /></RetainedFeature>
           <RetainedFeature name="branding" activeTab={activeTab}>

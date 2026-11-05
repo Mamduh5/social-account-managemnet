@@ -38,6 +38,7 @@ import {calendarRouter} from './routes/calendar.routes.js';
 import {operatorRouter} from './routes/operator-workspace.routes.js';
 import {testDataInventoryRouter} from './routes/test-data-inventory.routes.js';
 import {testDataMetadataRouter} from './routes/test-data-metadata.routes.js';
+import {videoReviewRouter} from './routes/video-review.routes.js';
 
 const app=express(),server=http.createServer(app);
 const port=Number(process.env.PORT||3001),managed=process.env.SCC_OWNER_MANAGED==='true';
@@ -72,6 +73,7 @@ async function boot(){
  app.use('/api/assistant',assistantRouter);app.use('/api/groups',groupsRouter);
  app.use('/api/calendar',calendarRouter);
  app.use('/api/operator',operatorRouter);
+ app.use('/api/video-review',videoReviewRouter());
  app.use('/api/test-data',testDataInventoryRouter);
  app.use('/api/test-data-metadata',testDataMetadataRouter);
  app.use('/api/publishing',generalPublishingRouter);app.use('/api/publishing',publishingRouter);

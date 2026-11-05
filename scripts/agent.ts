@@ -14,11 +14,18 @@ import {AgentResearch} from './agent/research.js';
 import {CreatorResearch} from './agent/creator-research.js';
 import {GeminiProduction} from './agent/production.js';
 import {PagePublicationPolicies} from './agent/page-publication-policy.js';
+import {OwnerVideoReviews} from './agent/video-review.js';
 import {prepareResearchTask,researchReceipt} from './agent/content-run.js';
 import {validateContentResult,contentOutputSchema} from './agent/content-contract.js';
 
 const version = 'agent-workflow.v1';
 const commands = {
+  'video-review-list':'Read the existing Gemini owner review queue; no provider operation.',
+  'video-review-policy-preview':'Read-only proposed Page policy eligibility. Cannot authorize or publish.',
+  'video-review-policy-save':'Save an explicitly disabled Page proposal only; never a publication grant.',
+  'video-review-policy-revoke':'Revoke an exact existing Page publication grant; cannot activate one.',
+  'video-review-decide':'Save explicit exact-media owner QA from --input; publication excluded.',
+  'video-review-edit':'Revise the exact existing unqueued candidate caption/variant from --input.',
   'production-policy':'Read or authorize a standing production policy with --input and --owner-authorized; publication is excluded.',
   'production-policy-revoke':'Revoke standing production immediately; original results remain recoverable.',
   'page-publication-policy':'Read standing Page grants or authorize --input with separate --owner-authorized. Production approval is insufficient.',
@@ -147,6 +154,7 @@ async function main() {
     const content=()=>new AgentContent(local(),contentScc);
     const production=()=>new GeminiProduction(local(),new PipelineAdapter(new JsonClient(pipelineClient.origin,{timeoutMs:90_000})),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath));
     const publication=()=>new PagePublicationPolicies(local(),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin});
+    const videoReviews=()=>new OwnerVideoReviews(local(),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath));
     const runner=()=>new AgentRunner(local(),path.join(path.dirname(statePath),'runner'),undefined,undefined,async id=>{const before=contentScc.client.requestCount;const result=await content().persist(id);return {...result,httpRequests:contentScc.client.requestCount-before};},async()=>{
       let result:Record<string,any>;try{result=await production().tick();}catch{result={state:'production_reconciliation_required',actions:0};}
       try{await production().processBacklog();}catch{local().setRunnerState('production.backlogLastTick',{state:'backlog_review_required',observedAt:new Date().toISOString()});}
@@ -168,6 +176,12 @@ async function main() {
     if (!Number.isSafeInteger(offset) || offset < 0) throw new WorkflowError('invalid_offset', 'offset must be a nonnegative whole number.');
     let data: unknown;
     switch(command) {
+      case 'video-review-list':data=await videoReviews().list();break;
+      case 'video-review-policy-preview':data=await videoReviews().publicationProposal(input);break;
+      case 'video-review-policy-save':data=await videoReviews().publicationProposal(input,true,flags['owner-authorized']===true);break;
+      case 'video-review-policy-revoke':data=await videoReviews().revokePublication(input,flags['owner-authorized']===true);break;
+      case 'video-review-decide':{const result=await videoReviews().decide(input,flags['owner-authorized']===true);data=input.decision==='approve'?{...result,progress:await videoReviews().advance(result.itemId)}:result;break;}
+      case 'video-review-edit':data=await videoReviews().edit(input,flags['owner-authorized']===true);break;
       case 'production-policy':data=flags.input?await production().authorizePolicy(input,flags['owner-authorized']===true):production().policyStatus();break;
       case 'production-inspect':data=await production().inspectStatus();break;
       case 'production-import-reconcile':if(Object.keys(input).some(k=>k!=='videoId')||typeof input.videoId!=='string')throw new Error('Supply exact original videoId');data=await production().reconcileImport(run(),input.videoId);break;

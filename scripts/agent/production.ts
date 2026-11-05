@@ -2,6 +2,7 @@ import {statfsSync} from 'node:fs';
 import path from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
 import {z} from 'zod';
+import {OwnerVideoReviews} from './video-review.js';
 import {AgentStore,stableHash,type AgentJob} from './store.js';
 import {ApiError} from './http.js';
 import {PipelineAdapter} from './pipeline.js';
@@ -94,7 +95,7 @@ export class GeminiProduction {
   private item(id:string):AgentJob{const j=this.store.getJob(id);if(!j||!(j.input as Any).production||stableHash((j.input as Any).targets)!==stableHash(this.targets))throw new Error('Unknown production item or changed API targets');return j;}
   private save(id:string,value:Any){return this.store.patchState(id,value);}
   private inventory(){const c=this.config();const items=this.items().filter(j=>j.state.phase!=='published'&&(j.state.phase!=='failed'||!!j.state.media));
-    const bytes=items.reduce((n,j)=>n+Number((j.state.media as Any)?.bytes??(['queued','planning','generating','recovering'].includes(String(j.state.phase))?c.reservationBytes:0))+Number((j.state.technicalQa as Any)?.artifactBytes??0)+Number(j.state.candidateVariantBytes??0),0);
+    const bytes=items.reduce((n,j)=>n+Number((j.state.media as Any)?.bytes??(['queued','planning','generating','recovering'].includes(String(j.state.phase))?c.reservationBytes:0))+Number((j.state.technicalQa as Any)?.artifactBytes??0)+Number((j.state.ownerVariantQa as Any)?.artifactBytes??0)+Number(j.state.candidateVariantBytes??0),0);
     return {items:items.length,bytes,full:items.length>=c.maxBacklogItems||bytes+c.reservationBytes>c.maxBacklogBytes};}
   status(){const active=this.store.runnerState<string>('production.active');const cycle=active?this.store.getJob(active):null;
     const scope=(cycle?.input as Any)?.scope as Scope|undefined,hold=scope?this.policyAdmission(scope):null,lastSuccess=this.items().filter(j=>j.state.videoId&&(j.state.media as Any)?.technical).sort((a,b)=>Date.parse(String(b.state.lastCheckedAt))-Date.parse(String(a.state.lastCheckedAt)))[0];
@@ -463,6 +464,8 @@ export class GeminiProduction {
   }
   async processBacklog(){
     if(!this.config().enabled)return {state:'backlog_disabled',actions:0};
+    const reviewed=await new OwnerVideoReviews(this.store,this.scc,this.targets,this.directory).advance();
+    if(reviewed.state!=='no_owner_review_work')return reviewed;
     const token=randomUUID(),now=this.clock().getTime(),acquired=this.store.transaction(()=>{const old=this.store.runnerState<Any>('production.lease');if(old&&Date.parse(old.until)>now)return false;this.store.setRunnerState('production.lease',{token,until:new Date(now+900000).toISOString()});return true;});
     if(!acquired)return {state:'backlog_busy',actions:0};
     let result:Any={state:'no_backlog_work',actions:0};

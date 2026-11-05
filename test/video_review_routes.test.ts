@@ -1,0 +1,19 @@
+import {test,after} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync} from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import express from 'express';
+const temporary=process.env.SCC_DATA_DIR??mkdtempSync(path.join(os.tmpdir(),'scc-review-routes-'));process.env.SCC_DATA_DIR=temporary;process.env.SCC_ISOLATED_TEST='true';
+let closeDatabase:(()=>void)|undefined;
+after(()=>{closeDatabase?.();});
+test('same-origin review routes expose only review and disabled policy operations',async t=>{
+ const {videoReviewRouter}=await import('../server/src/routes/video-review.routes.js'),{VideoReviewService}=await import('../server/src/services/video-review.service.js'),{localAccess}=await import('../server/src/local-access.js'),{db}=await import('../server/src/db/database.js');closeDatabase=()=>db.close();
+ const calls:any[]=[];const service=new VideoReviewService(async(action,input:any)=>{calls.push({action,input});if(input?.enabled===true)throw new Error('Publication activation is unavailable');return {action,fixture:true};});const app=express();app.use(localAccess);app.use(express.json());app.use('/api/video-review',videoReviewRouter(service));const server=app.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server.once('listening',resolve));t.after(()=>server.close());const origin='http://127.0.0.1:'+(server.address() as any).port;
+ assert.equal((await fetch(origin+'/api/video-review')).status,200);
+ for(const endpoint of ['decision','edit','publication-policy/preview','publication-policy/proposal'])assert.equal((await fetch(origin+'/api/video-review/'+endpoint,{method:'POST',headers:{'content-type':'application/json'},body:'{}'})).status,200);
+ for(const endpoint of ['publish','queue','generate','publication-policy/activate'])assert.equal((await fetch(origin+'/api/video-review/'+endpoint,{method:'POST'})).status,404);
+ assert.equal((await fetch(origin+'/api/video-review/decision',{method:'POST',headers:{origin:'https://untrusted.example','content-type':'application/json'},body:'{}'})).status,403);
+ assert.equal((await fetch(origin+'/api/video-review/publication-policy/preview',{method:'POST',headers:{'content-type':'application/json'},body:'{"enabled":true}'})).status,409);
+ assert.deepEqual(calls.slice(0,5).map(x=>x.action),['list','decide','edit','preview','proposal']);
+});

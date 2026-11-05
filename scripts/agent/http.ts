@@ -31,6 +31,7 @@ export class JsonClient {
   }
 
   get<T = unknown>(resource: string): Promise<T> { return this.request<T>('GET', resource); }
+  put<T = unknown>(resource: string, body: unknown): Promise<T> { return this.request<T>('PUT', resource, body); }
   post<T = unknown>(resource: string, body: unknown, options: { idempotencyKey?: string } = {}): Promise<T> { return this.request<T>('POST', resource, body, options.idempotencyKey); }
 
   /** Bounded read-only artifact verification; never writes or transforms media. */
@@ -54,12 +55,13 @@ export class JsonClient {
     finally{controller.abort();clearTimeout(timer);}
   }
 
-  private async request<T>(method: 'GET' | 'POST', resource: string, body?: unknown, idempotencyKey?: string): Promise<T> {
+  private async request<T>(method: 'GET' | 'POST' | 'PUT', resource: string, body?: unknown, idempotencyKey?: string): Promise<T> {
     if (!resource.startsWith('/') || resource.startsWith('//') || resource.includes('\\')) throw new Error('Expected an absolute API path.');
     const target = new URL(resource, this.origin);
     if (target.origin !== this.origin || target.hash || target.username || target.password) throw new Error('Invalid API path.');
     const headers: Record<string, string> = { accept: 'application/json' };
-    if (method === 'POST') headers['content-type'] = 'application/json';
+    const mutation=method!=='GET';
+    if (mutation) headers['content-type'] = 'application/json';
     if (idempotencyKey) {
       if (!/^[A-Za-z0-9_.:-]{1,200}$/.test(idempotencyKey)) throw new Error('Invalid idempotency key.');
       headers['idempotency-key'] = idempotencyKey;
@@ -68,16 +70,16 @@ export class JsonClient {
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       this.requestCount++;
-      const result = await this.fetcher(target, { method, headers, body: method === 'POST' ? JSON.stringify(body) : undefined, signal: controller.signal, redirect: 'error' });
+      const result = await this.fetcher(target, { method, headers, body: mutation ? JSON.stringify(body) : undefined, signal: controller.signal, redirect: 'error' });
       if (!result.ok) {
         // Do not echo provider responses: they can contain tokens or raw account details.
-        throw new ApiError(result.status, 'http_' + result.status, method === 'POST' && (result.status >= 500 || [408, 425].includes(result.status)));
+        throw new ApiError(result.status, 'http_' + result.status, mutation && (result.status >= 500 || [408, 425].includes(result.status)));
       }
       try { return await result.json() as T; }
-      catch { throw new ApiError(result.status, 'invalid_json_response', method === 'POST'); }
+      catch { throw new ApiError(result.status, 'invalid_json_response', mutation); }
     } catch (error) {
       if (error instanceof ApiError) throw error;
-      throw new ApiError(null, controller.signal.aborted ? 'request_timeout' : 'transport_failed', method === 'POST');
+      throw new ApiError(null, controller.signal.aborted ? 'request_timeout' : 'transport_failed', mutation);
     } finally { clearTimeout(timer); }
   }
 }

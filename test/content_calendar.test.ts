@@ -242,7 +242,9 @@ test('Account isolation: cannot create plan for another Page without explicit au
   );
 });
 
-test('One-time campaign approval binds exact hash, revisions, account, and schedules all jobs atomically', () => {
+test('One-time campaign approval binds exact hash, revisions, account, and schedules all jobs atomically', (t) => {
+  // This fixture's first slot is 5 November 2026; keep it future independently of the wall clock.
+  t.mock.method(Date,'now',()=>Date.parse('2026-11-04T00:00:00Z'));
   // Create a 2-item plan to test batch approval
   const plan = calendarService.createCampaignPlan({
     accountId: testPageId,

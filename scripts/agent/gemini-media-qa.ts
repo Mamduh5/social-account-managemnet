@@ -21,9 +21,22 @@ export function pcmEvidence(bytes:Buffer){
 export class GeminiMediaQa {
   constructor(readonly directory:string,readonly process:ProcessRunner=runProcess,readonly fetcher:typeof fetch=fetch,readonly clock:()=>Date=()=>new Date()){}
   async inspect(origin:string,media:Record<string,any>,maxBytes:number){
+    return this.inspectFile(origin,media,maxBytes,false);
+  }
+  async inspectVariant(origin:string,media:Record<string,any>,variant:Record<string,any>,maxBytes:number){
+    return this.inspectFile(origin,{...media,id:variant.id,file_size:variant.file_size,streamUrl:variant.downloadUrl,provenance:{sha256:variant.sha256}},maxBytes,true);
+  }
+  async verifySource(origin:string,media:Record<string,any>,maxBytes:number,variant?:Record<string,any>){
+    const item=variant?{...variant,streamUrl:variant.downloadUrl,provenance:{sha256:variant.sha256}}:media;
+    const base=loopbackOrigin(origin),url=new URL(item.streamUrl,base),decoded=decodeURIComponent(url.pathname);
+    if(url.origin!==base||url.search||url.hash||url.username||url.password||decoded.includes('\\')||decoded.split('/').includes('..')||!decoded.startsWith(variant?'/uploads/renders/':'/uploads/')||(!variant&&decoded.startsWith('/uploads/renders/'))||!decoded.endsWith('.mp4'))throw new Error('Invalid reviewed media URL');
+    const facts=await new (await import('./http.js')).JsonClient(base,{fetch:this.fetcher,timeoutMs:60000}).media(url.pathname,maxBytes);
+    if(facts.sha256!==item.provenance.sha256||facts.bytes!==item.file_size)throw new Error('Reviewed source integrity differs');return facts;
+  }
+  private async inspectFile(origin:string,media:Record<string,any>,maxBytes:number,isVariant:boolean){
     const sha=media.provenance?.sha256,id=media.id;
     if(!/^[a-f0-9]{64}$/.test(sha??'')||!/^[A-Za-z0-9_-]{1,150}$/.test(id??'')||!Number.isSafeInteger(media.file_size)||media.file_size<1||media.file_size>maxBytes)throw new Error('Unverified or oversized Gemini master');
-    const root=path.resolve(this.directory,sha),master=path.join(root,'master.mp4'),report=path.join(root,'report.json'),sheet=path.join(root,'contact.jpg');await mkdir(root,{recursive:true});
+    const root=path.resolve(this.directory,...(isVariant?['variants',sha]:[sha])),master=path.join(root,'master.mp4'),report=path.join(root,'report.json'),sheet=path.join(root,'contact.jpg');await mkdir(root,{recursive:true});
     const existing=await readFile(report,'utf8').catch(()=>null);
     if(existing){const r=JSON.parse(existing);if(r.version!==version||r.sha256!==sha||r.videoId!==id||await fileSha256(master)!==sha||await fileSha256(sheet)!==r.contactSheet.sha256)throw new Error('Cached QA evidence differs');return r;}
     if(await stat(master).catch(()=>null)){if(await fileSha256(master)!==sha)throw new Error('Cached master integrity differs');}
@@ -31,7 +44,7 @@ export class GeminiMediaQa {
       const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),60000),temporary=master+'.partial-'+randomUUID();
       try{
         const base=loopbackOrigin(origin),resource=media.streamUrl??'/api/publishing/videos/'+encodeURIComponent(id)+'/stream',url=new URL(resource,base),decoded=decodeURIComponent(url.pathname);
-        if(url.origin!==base||url.username||url.password||url.search||url.hash||decoded.includes('\\')||decoded.split('/').includes('..')||(media.streamUrl&&(!decoded.startsWith('/uploads/')||decoded.startsWith('/uploads/renders/')||!decoded.endsWith('.mp4'))))throw new Error('Invalid master stream URL');
+        if(url.origin!==base||url.username||url.password||url.search||url.hash||decoded.includes('\\')||decoded.split('/').includes('..')||(media.streamUrl&&(!decoded.startsWith(isVariant?'/uploads/renders/':'/uploads/')||(!isVariant&&decoded.startsWith('/uploads/renders/'))||!decoded.endsWith('.mp4'))))throw new Error('Invalid master stream URL');
         const response=await this.fetcher(url,{redirect:'error',signal:controller.signal});
         if(!response.ok||!response.body)throw new Error('Master stream unavailable: HTTP '+response.status);
         if(Number(response.headers.get('content-length'))>maxBytes)throw new Error('Master stream oversized');

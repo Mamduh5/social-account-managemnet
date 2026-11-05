@@ -119,6 +119,13 @@ export class SccAdapter {
     return {variantId:v.id,sha256:v.sha256,reconciled:true};
   }
 
+  async verifyReviewVariant(videoId:string,variantId:string,accountId:string):Promise<JsonObject>{
+    const [context,raw]=await Promise.all([this.pageContext(accountId),this.client.get<JsonObject>('/api/publishing/videos/'+encodeURIComponent(videoId))]);
+    const v=raw.video?.branded_variants?.find((x:JsonObject)=>x.id===variantId);let kit:JsonObject;try{kit=typeof v?.brand_kit_json==='string'?JSON.parse(v.brand_kit_json):v?.brand_kit_json;}catch{throw new Error('Variant branding proof unavailable');}
+    if(v?.video_id!==videoId||kit?.text!==context.account.name||kit?.mode!=='moving'||kit?.watermarkType!=='moving_text'||!['corner_jump','smooth_sine','diagonal_bounce'].includes(kit?.movementPreset)||kit?.safeArea?.top<120||kit?.safeArea?.bottom<280||kit?.safeArea?.right<120||!Number.isFinite(kit?.safeArea?.top)||!Number.isFinite(kit?.safeArea?.bottom)||!Number.isFinite(kit?.safeArea?.right)||v.width*16!==v.height*9||Math.abs(v.duration-10)>.15||!/^[a-f0-9]{64}$/.test(v.sha256??''))throw new Error('Choose a portrait moving-text variant with the exact Page name and required safe areas');
+    return {id:v.id,sha256:v.sha256,accountId,graphId:context.account.graphId};
+  }
+
   /** Reuse the Content Assistant voice and operator library; no model call. */
   async preparationContext(accountId:string):Promise<JsonObject> {
     const data=await this.client.get<JsonObject>('/api/operator/pages/'+encodeURIComponent(accountId)+'/context');
@@ -221,6 +228,13 @@ export class SccAdapter {
     const result=await this.client.get<JsonObject>('/api/publishing/drafts/'+encodeURIComponent(draftId));
     if(!validDraft(result?.draft) || result.draft.id!==draftId) throw new ApiError(200,'invalid_scc_draft_response',false);
     return result.draft;
+  }
+
+  async editReviewDraft(draftId:string,revision:number,caption:string,hashtags:string,variantId:string):Promise<JsonObject>{
+    const draft=await this.getDraft(draftId);if(draft.revision!==revision||draft.queuedPostId||draft.destinations?.length!==1||draft.contentType!=='reel')throw new ApiError(409,'review_draft_revision_changed',false);
+    const body={...draftPayload(draft),revision,destinations:[{...draft.destinations[0],caption,hashtags,selectedVariantId:variantId,applyBranding:false}]};
+    const result=await this.client.put<JsonObject>('/api/publishing/drafts/'+encodeURIComponent(draftId),body);
+    if(result?.draft?.id!==draftId||result.draft.revision!==revision+1||result.draft.approvedRevision||result.draft.queuedPostId)throw new ApiError(200,'unconfirmed_review_edit',true);return result.draft;
   }
 
   async review(draftId:string): Promise<JsonObject> {

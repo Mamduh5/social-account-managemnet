@@ -13,6 +13,27 @@ function time(value:unknown){return typeof value==='string'?Date.parse(/^\d{4}-\
 export class PagePublicationPolicies {
   constructor(readonly store:AgentStore,readonly scc:SccAdapter,readonly targets:{scc:string;pipeline:string},readonly clock:()=>Date=()=>new Date()){}
   status(){return (this.store.runnerState<string[]>('publication.policies')??[]).map(id=>this.store.getJob(id)!).map(j=>({id:j.id,policy:(j.input as Any).policy,state:j.state}));}
+  async preview(raw:unknown){const p=pagePublicationPolicySchema.parse(raw),page=await this.scc.pageContext(p.accountId);if(page.account.graphId!==p.graphId)throw new Error('Publication Page identity differs');
+    const history=await this.scc.history({limit:100}),rows=history.items.filter((x:Any)=>x.account_id===p.accountId),now=this.clock().getTime();
+    const pending=rows.some((x:Any)=>!['published','failed','cancelled'].includes(x.status)||x.submission_state==='uncertain'),dates=rows.filter((x:Any)=>x.status==='published').map((x:Any)=>time(x.published_at));
+    const jobs=(this.store.runnerState<string[]>('production.items')??[]).map(id=>this.store.getJob(id)!).filter(j=>j&&(j.input as Any).concept?.accountId===p.accountId),items=[];
+    for(const j of jobs.filter(j=>j.state.videoId)){const s=j.state as Any;let reason='eligible';
+      if(p.expiresAt&&Date.parse(p.expiresAt)<=now)reason='policy_expired';
+      else if(history.hasMore||dates.some((d:number)=>!Number.isFinite(d)))reason='publication_history_incomplete';
+      else if(pending)reason='original_publication_reconciliation_required';
+      else if(s.publicationPostId||s.publicationIntent)reason='original_publication_exists';
+      else if(s.phase!=='ready'||s.qa?.decision!=='accepted'||s.qa.visual!=='pass'||s.qa.audio!=='pass'||s.qa.sha256!==s.media?.sha256)reason='owner_quality_review_required';
+      else if(!s.variantReview||s.variantReview.sha256!==s.variantSha256||s.variantReview.masterAudioHash!==s.variantReview.variantAudioHash)reason='final_variant_review_required';
+      else{try{const [d,m]=await Promise.all([this.scc.getDraft(s.draftId),this.scc.media(s.videoId)]),v=m.variants.find((x:Any)=>x.id===s.variantId);
+        if(d.queuedPostId)reason='original_publication_exists';
+        else if(m.provenance.sha256!==s.qa.sha256||v?.sha256!==s.variantSha256||d.videoId!==s.videoId||d.destinations.length!==1||d.destinations[0].accountId!==p.accountId||d.destinations[0].selectedVariantId!==s.variantId||d.scheduledAt!==null||draftFingerprint(d)!==s.draftHash||d.destinations[0].caption!==s.qa.caption||d.destinations[0].hashtags!==(s.qa.hashtags??'')||(s.ownerReview&&(s.ownerReview.decision!=='approve'||s.ownerReview.scope.draftRevision!==d.revision||s.ownerReview.scope.draftHash!==draftFingerprint(d))))reason='review_revision_changed';
+        else if(jobs.some(other=>other.id!==j.id&&other.state.media&&(other.state.media as Any).sha256===s.qa.sha256&&(other.state.publicationPostId||other.state.publicationIntent)))reason='duplicate_publication_hold';
+        else if(dates.filter((t:number)=>t>now-86400000).length>=p.maxPer24Hours||dates.some((t:number)=>t+p.minimumHours*3600000>now))reason='publication_cadence_wait';
+      }catch{reason='draft_or_media_unavailable';}}
+      items.push({itemId:j.id,title:(j.input as Any).concept.title,draftId:s.draftId??s.candidateDraftId??null,eligible:reason==='eligible',reason});
+    }
+    return {enabled:false,previewOnly:true,page:{id:p.accountId,name:page.account.name,graphId:p.graphId},proposal:p,eligibleContentTypes:['reel'],approvedContentOnly:true,duplicatePrevention:true,items,receipts:rows.slice(0,20).map((x:Any)=>({status:x.status,postId:x.remote_post_id,permalink:x.remote_post_url,publishedAt:x.published_at,source:x.confirmation_source})),analyticsHandoff:'Confirmed receipts remain in existing SCC publishing history and analytics; no new submission is created.',activePolicies:this.status()};
+  }
   async authorize(raw:unknown,ownerAuthorized=false){if(!ownerAuthorized)throw new Error('Separate standing Page publication authorization required');const p=pagePublicationPolicySchema.parse(raw),now=this.clock().getTime();if(p.expiresAt&&Date.parse(p.expiresAt)<=now)throw new Error('Publication policy expired');
     const page=await this.scc.pageContext(p.accountId);if(page.account.graphId!==p.graphId)throw new Error('Publication Page identity differs');
     const id='page-publication-policy:'+p.id;return this.store.transaction(()=>{
@@ -47,6 +68,7 @@ export class PagePublicationPolicies {
     const page=await this.scc.pageContext(p.accountId);if(page.account.graphId!==p.graphId)throw new Error('Standing publication Page identity changed');
     const media=await this.scc.media(state.videoId),variant=media.variants.find((v:Any)=>v.id===state.variantId);if(media.provenance.sha256!==qa.sha256||!variant||variant.sha256!==state.variantSha256)throw new Error('Publication media integrity differs');
     let draft=await this.scc.getDraft(state.draftId);if(draft.videoId!==state.videoId||draft.scheduledAt!==null||draft.destinations.length!==1||draft.destinations[0].accountId!==p.accountId||draft.destinations[0].selectedVariantId!==state.variantId||draft.destinations[0].applyBranding!==false||draftFingerprint(draft)!==state.draftHash)throw new Error('Publication draft changed since final review');
+    if(state.ownerReview&&(state.ownerReview.decision!=='approve'||state.ownerReview.scope?.draftRevision!==draft.revision||state.ownerReview.scope?.draftHash!==draftFingerprint(draft)||state.ownerReview.scope?.variantSha256!==state.variantSha256||state.ownerReview.scope?.sha256!==qa.sha256))return {state:'owner_review_revision_changed',actions:0};
     if(draft.destinations[0].caption!==qa.caption||draft.destinations[0].hashtags!==(qa.hashtags??''))throw new Error('Publication caption differs from creative QA');
     const approval={revision:draft.revision,accountId:p.accountId,payloadHash:draftFingerprint(draft)};
     // Read back the exact existing queue receipt before any possible new action.
