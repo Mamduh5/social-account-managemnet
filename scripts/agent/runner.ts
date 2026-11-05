@@ -7,6 +7,7 @@ import {configureRunner,getRunnerConfig,runnerAuthorized,type RunnerConfig} from
 import {parseCodexOutput,agentResultSchema,CommandExecutors,ExecutionError,type ExecutorCapability,type ExecutionResult} from './executors.js';
 import {creatorResearchInstructions} from './creator-research.js';
 import {geminiLanguageInstructions} from './gemini-language.js';
+import {selectGeminiConceptContext,GeminiContextLimit} from './gemini-concept-context.js';
 
 type Session=Record<string,any>;
 export class AgentRunner {
@@ -97,6 +98,11 @@ export class AgentRunner {
     if(task.payload?.production?.version==='gemini-concept.v1')value.instructions+=' Learn from creatorLearning reusable principles and local feedback independently. Include optional researchUse {findingIds,principleIds,originality} identifying only supplied evidence; explain how your new subject, action and payoff are original. Do not copy source content or claim stale/unverified performance as current fact. No fresh searches for each concept.';
     if(task.payload?.production?.version==='gemini-concept.v1')value.instructions+=' The concept also requires the languageStrategy metadata described next; it is an additional object field, not a text field. For Gemini this owner policy supersedes inherited Thai-only or default language preferences; preserve all other Page rules. '+geminiLanguageInstructions;
     if(task.payload?.creatorResearch?.version==='gemini-creator-research.v1')value.instructions=creatorResearchInstructions+' '+geminiLanguageInstructions+' Optional per-example languageObservation {spokenLanguage:string|null,textLanguages:[language-tags],audience:string|null,limitations:string}. Unheard speech is null, not inferred from captions or Page name.';
+    if(task.payload?.production?.version==='gemini-concept.v1'){
+      const record=(admission:Record<string,any>)=>{const key='context-admission:'+task.id;if(JSON.stringify(this.store.runnerState(key))!==JSON.stringify(admission))this.store.setRunnerState(key,admission);};
+      try{const selected=selectGeminiConceptContext(value,config.maxContextBytes);record({...selected.admission,taskRevision:task.revision});return selected.text;}
+      catch(e){if(e instanceof GeminiContextLimit)record({...e.admission,taskRevision:task.revision});throw e;}
+    }
     const text=JSON.stringify(value);if(Buffer.byteLength(text)>config.maxContextBytes)throw new Error('context_limit');return text;
   }
   /** Convert interrupted durable intents to holds without reclaiming or repeating them. */
