@@ -15,6 +15,8 @@ export const agentResultSchema=z.object({
   lessons:z.array(z.string().min(1).max(2000)).max(5),
 }).strict();
 export type AgentResult=z.infer<typeof agentResultSchema>;
+/** Scoped JSON transport for Page preparation; usage is not part of agent-result.v1. */
+export function parsePageContentOutput(stdout:string){const parsed=JSON.parse(stdout),{usage,researchAudit:ignored,...result}=parsed;if(usage&&(!Number.isSafeInteger(usage.tokens)||usage.tokens<0||typeof usage.source!=='string'||!usage.source))throw new Error('Invalid reported usage');return {result:agentResultSchema.parse(result),usage:usage??null};}
 export interface ExecutionResult {result:AgentResult;usage:{tokens:number;source:string;inputTokens?:number;outputTokens?:number}|null;diagnostics?:ProcessDiagnostics;researchAudit?:{searches:number;opens:number;urls:string[]};}
 export interface ExecutorCapability {id:string;adapter:ExecutorConfig['adapter'];available:boolean;reason:string;command?:string;args?:string[];usageAccounting?:string;capabilities?:{liveResearch:boolean;structuredOutput:boolean;fileAccess:boolean;unattended:boolean};authentication?:string;}
 export class ExecutionError extends Error {
@@ -174,7 +176,8 @@ export class CommandExecutors {
     let task:any={};try{task=JSON.parse(context).task??{};}catch{}
     const structured=task.payload?.content?.responseContract==='agent-content-result.v1';
     const creator=task.payload?.creatorResearch?.version==='gemini-creator-research.v1';
-    const live=(structured&&task.payload.content.requiresLiveResearch===true)||creator;
+    const pageContent=task.payload?.pageContent?.version==='page-content.v1';
+    const live=(structured&&task.payload.content.requiresLiveResearch===true)||creator||(pageContent&&task.payload.pageContent.requiresLiveResearch===true);
     if(live&&(!config.liveResearch||!capability.capabilities?.liveResearch))throw new ExecutionError('live_research_capability_unavailable',true);
     writeFileSync(schemaPath,JSON.stringify(structured?contentOutputSchema():z.toJSONSchema(agentResultSchema)),{flag:'wx'});
     let args:string[],env=safeEnvironment();
@@ -208,6 +211,7 @@ export class CommandExecutors {
           if(parsed.usage&&typeof parsed.usage==='object'&&Number.isSafeInteger(parsed.usage.tokens))usage=parsed.usage;
           if(parsed.researchAudit&&typeof parsed.researchAudit==='object')researchAudit=parsed.researchAudit;
           if(structured&&'result' in parsed)value=typeof parsed.result==='string'?JSON.parse(parsed.result):parsed.result;
+          else if(pageContent){const result=parsePageContentOutput(output.stdout);value=result.result;usage=result.usage;}
           else if(creator||task.payload?.production?.version==='gemini-concept.v1'){const {usage:_usage,researchAudit:_audit,...result}=parsed;value=result;}
           else value=parsed;
         }else value=parsed;

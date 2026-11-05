@@ -4,7 +4,7 @@ import path from 'node:path';
 import {AgentStore,stableHash} from './store.js';
 import {AgentWorkQueue,compactWork} from './work-queue.js';
 import {configureRunner,getRunnerConfig,runnerAuthorized,type RunnerConfig} from './runner-config.js';
-import {parseCodexOutput,agentResultSchema,CommandExecutors,ExecutionError,type ExecutorCapability,type ExecutionResult} from './executors.js';
+import {parseCodexOutput,parsePageContentOutput,agentResultSchema,CommandExecutors,ExecutionError,type ExecutorCapability,type ExecutionResult} from './executors.js';
 import {creatorResearchInstructions} from './creator-research.js';
 import {pageContentInstructions} from './page-content.js';
 import {geminiLanguageInstructions} from './gemini-language.js';
@@ -259,6 +259,14 @@ export class AgentRunner {
   async reconcileSavedResult(id:string,ownerAuthorized=false){
     if(!ownerAuthorized)throw new Error('Saved result reconciliation requires owner authorization');
     const session=this.store.runnerSession(id);
+    const pageTask=session&&this.store.getWork(session.taskId);
+    if(session?.adapter==='json'&&pageTask?.payload?.pageContent?.version==='page-content.v1'){
+      const expected=path.resolve(this.directory,'sessions',id,'process');
+      if(session.status!=='recovery_required'||session.mayBeRunning||session.diagnostics?.exitCode!==0||path.resolve(session.diagnostics.directory)!==expected||pageTask.status!=='blocked'||pageTask.result?.invocationId!==id||this.store.getOperation('page-content:'+pageTask.id,'prepare'))throw new Error('Only the stopped original Page preparation without a draft intent can be reconciled');
+      const output=parsePageContentOutput(readFileSync(path.join(expected,'stdout.log'),'utf8'));
+      this.store.transaction(()=>{const current=this.store.getWork(pageTask.id)!;if(current.revision!==pageTask.revision||this.store.runnerSession(id)!.status!=='recovery_required')throw new Error('Original result reconciliation raced another change');this.store.saveWork({...current,status:output.result.status,result:output.result.result,owner:null,claimToken:null,leaseUntil:null,revision:current.revision+1,updatedAt:this.clock().toISOString()});this.store.saveRunnerSession({...session,...output,status:output.result.status==='blocked'?'failed':'completed',previousError:session.error,error:null,mayBeRunning:false,reconciledFromSavedTrace:true,reconciledAt:this.clock().toISOString()});});
+      return {id,taskId:pageTask.id,invokedModel:false,usage:output.usage,requiresPreparationValidation:true};
+    }
     if(!session||session.adapter!=='codex'||session.status!=='recovery_required'||session.mayBeRunning||session.diagnostics?.exitCode!==0)throw new Error('Only a stopped successful executor with a held parsing result can be reconciled');
     const expected=path.resolve(this.directory,'sessions',id,'process');
     if(path.resolve(session.diagnostics.directory)!==expected)throw new Error('Original process receipt path differs');
