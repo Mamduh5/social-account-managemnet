@@ -79,6 +79,7 @@ export class AgentRunner {
   }
   private eligible(c:RunnerConfig){
     return this.store.workCandidates().filter(task=>task.status==='ready'&&this.work.available(task)).filter(task=>{
+      if(task.payload?.pageContent?.version==='page-content.v1'){const p=this.store.runnerState<Session>('page-content.config');if(p&&(!p.enabled||p.expiresAt&&Date.parse(p.expiresAt)<=this.clock().getTime()||!p.entries.some((e:Session)=>e.accountId===task.accountId&&e.graphId===task.payload.pageContent.request.graphId&&e.formats.includes(task.payload.pageContent.format))))return false;}
       const policyId=task.payload?.production?.policyId??task.payload?.creatorResearch?.policyId;if(policyId){const policy=this.store.getJob(policyId),grant=policy?.input as Session;if(!policy?.state.enabled||policy.state.revokedAt||(grant?.policy?.expiresAt&&Date.parse(grant.policy.expiresAt)<=this.clock().getTime()))return false;}
       const prior=this.store.runnerSessions({taskId:task.id});
       return !prior.some(s=>['reserved','running','recovery_required'].includes(s.status))&&prior.length<c.maxAttempts;
