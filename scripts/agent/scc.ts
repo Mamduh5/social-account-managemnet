@@ -90,6 +90,7 @@ function compactVoice(voice:JsonObject):JsonObject {
 /** HTTP-only adapter. It never imports the owner database, starts workers, or invokes an AI provider. */
 export class SccAdapter {
   constructor(readonly client: JsonClient) {}
+  async verifyPublicationMedia(videoId:string,variantId:string,masterSha:string,variantSha:string){const media=await this.media(videoId),variant=media.variants.find((v:JsonObject)=>v.id===variantId);if(media.provenance.sha256!==masterSha||variant?.sha256!==variantSha)throw new Error('Publication source identity differs');const {GeminiMediaQa}=await import('./gemini-media-qa.js'),qa=new GeminiMediaQa('unused-source-verification');const master=await qa.verifySource(this.client.origin,media,64*1024*1024),branded=await qa.verifySource(this.client.origin,media,64*1024*1024,variant);return {master,variant:branded};}
 
   async pageContext(accountId:string):Promise<JsonObject> {
     const data=await this.client.get<JsonObject>('/api/operator/pages/'+encodeURIComponent(accountId)+'/context');

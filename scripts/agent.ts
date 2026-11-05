@@ -29,6 +29,8 @@ const commands = {
   'production-policy':'Read or authorize a standing production policy with --input and --owner-authorized; publication is excluded.',
   'production-policy-revoke':'Revoke standing production immediately; original results remain recoverable.',
   'page-publication-policy':'Read standing Page grants or authorize --input with separate --owner-authorized. Production approval is insufficient.',
+  'publication-streams':'Read independent Reel/text/image queues and rate accounting for --account; --input saves disabled text/image limits only.',
+  'page-publication-control':'Pause/resume the exact standing grant with --run and --input action; --owner-authorized required.',
   'page-publication-policy-revoke':'Revoke the exact --run Page grant.',
   'page-publication-tick':'One independent existing-queue publication step; disabled without a Page grant.',
   'page-publication-reconcile':'Read back the original queue receipt for --run production item; never uploads again.',
@@ -191,6 +193,8 @@ async function main() {
       case 'production-candidate-review':data=production().candidateReview(input);break;
       case 'production-policy-revoke':data=production().revokePolicy();break;
       case 'page-publication-policy':data=flags.input?await publication().authorize(input,flags['owner-authorized']===true):publication().status();break;
+      case 'publication-streams':if(flags.input){if(!flags['owner-authorized'])throw new Error('Owner scope required');data=await publication().streamProposal(input);}else{if(!account)throw new Error('Supply --account');data=await publication().streams(account);}break;
+      case 'page-publication-control':data=publication().control(run(),input.action,flags['owner-authorized']===true);break;
       case 'page-publication-policy-revoke':data=publication().revoke(run());break;
       case 'page-publication-tick':data=await publication().tick();break;
       case 'page-publication-reconcile':data=await publication().reconcile(run());break;
