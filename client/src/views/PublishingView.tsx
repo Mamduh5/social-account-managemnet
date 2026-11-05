@@ -24,6 +24,7 @@ import { DestinationConfigCard } from '../components/publishing/DestinationConfi
 import { QueueTable } from '../components/publishing/QueueTable';
 import { VideoLibraryGrid } from '../components/publishing/VideoLibraryGrid';
 import { Modal } from '../components/common/Modal';
+import { PageContentPreparation } from '../components/publishing/PageContentPreparation';
 
 interface Props {
   selectedCategory?: string;
@@ -166,6 +167,7 @@ export const PublishingView: React.FC<Props> = () => {
 
   return (
     <div className="space-y-6">
+      <PageContentPreparation />
       <p className="text-xs text-slate-400">
         Reels use the existing video workflow. General Page posts are prepared as drafts for explicit review and approval. Opening a native handoff never marks content published.
       </p>

@@ -6,6 +6,7 @@ import {AgentWorkQueue,compactWork} from './work-queue.js';
 import {configureRunner,getRunnerConfig,runnerAuthorized,type RunnerConfig} from './runner-config.js';
 import {parseCodexOutput,agentResultSchema,CommandExecutors,ExecutionError,type ExecutorCapability,type ExecutionResult} from './executors.js';
 import {creatorResearchInstructions} from './creator-research.js';
+import {pageContentInstructions} from './page-content.js';
 import {geminiLanguageInstructions} from './gemini-language.js';
 import {selectGeminiConceptContext,GeminiContextLimit} from './gemini-concept-context.js';
 
@@ -85,7 +86,7 @@ export class AgentRunner {
   }
   private context(task:Session,config:RunnerConfig):string {
     const researchTask=task.payload?.content?.responseContract==='agent-content-result.v1';
-    const knowledge=researchTask?[]:this.store.listKnowledge({accountId:task.accountId??null,resourceId:task.runId,limit:3}).map(k=>({kind:k.kind,text:k.text.slice(0,1500),source:k.source&&k.source.length>512?k.source.slice(0,512)+' [excerpt; retrieve full knowledge separately]':k.source}));
+    const knowledge=researchTask||task.payload?.pageContent?.version==='page-content.v1'?[]:this.store.listKnowledge({accountId:task.accountId??null,resourceId:task.runId,limit:3}).map(k=>({kind:k.kind,text:k.text.slice(0,1500),source:k.source&&k.source.length>512?k.source.slice(0,512)+' [excerpt; retrieve full knowledge separately]':k.source}));
     const observation=task.runId?this.store.generationSnapshot(task.runId):null;
     const value={version:'agent-task.v1',task:{id:task.id,kind:task.kind,title:task.title,payload:task.payload,requirements:task.requirements,scope:task.accountId?'account':'unassigned'},
       knowledge,generation:observation?{condition:observation.condition,checkedAt:observation.checkedAt,original:observation.evidence?.original??null}:null,
@@ -98,6 +99,7 @@ export class AgentRunner {
     if(task.payload?.production?.version==='gemini-concept.v1')value.instructions+=' Learn from creatorLearning reusable principles and local feedback independently. Include optional researchUse {findingIds,principleIds,originality} identifying only supplied evidence; explain how your new subject, action and payoff are original. Do not copy source content or claim stale/unverified performance as current fact. No fresh searches for each concept.';
     if(task.payload?.production?.version==='gemini-concept.v1')value.instructions+=' The concept also requires the languageStrategy metadata described next; it is an additional object field, not a text field. For Gemini this owner policy supersedes inherited Thai-only or default language preferences; preserve all other Page rules. '+geminiLanguageInstructions;
     if(task.payload?.creatorResearch?.version==='gemini-creator-research.v1')value.instructions=creatorResearchInstructions+' '+geminiLanguageInstructions+' Optional per-example languageObservation {spokenLanguage:string|null,textLanguages:[language-tags],audience:string|null,limitations:string}. Unheard speech is null, not inferred from captions or Page name.';
+    if(task.payload?.pageContent?.version==='page-content.v1')value.instructions=pageContentInstructions;
     if(task.payload?.production?.version==='gemini-concept.v1'){
       const record=(admission:Record<string,any>)=>{const key='context-admission:'+task.id;if(JSON.stringify(this.store.runnerState(key))!==JSON.stringify(admission))this.store.setRunnerState(key,admission);};
       try{const selected=selectGeminiConceptContext(value,config.maxContextBytes);record({...selected.admission,taskRevision:task.revision});return selected.text;}
@@ -187,7 +189,7 @@ export class AgentRunner {
         for(const executor of config.executors.filter(e=>e.kinds.includes(task.kind))){
           if(!capabilities.has(executor.id))capabilities.set(executor.id,await this.executors.detect(executor));
           const capability=capabilities.get(executor.id)!;
-          if((task.payload?.content?.requiresLiveResearch||task.payload?.creatorResearch)&&!capability.capabilities?.liveResearch){lastState='live_research_capability_unavailable';continue;}
+          if((task.payload?.content?.requiresLiveResearch||task.payload?.creatorResearch||task.payload?.pageContent?.requiresLiveResearch)&&!capability.capabilities?.liveResearch){lastState='live_research_capability_unavailable';continue;}
           if(capability.available){selected={task,executor,capability,context};break;}
         }
         if(selected)break;

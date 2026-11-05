@@ -17,6 +17,8 @@ test('same-origin review routes expose only review and disabled policy operation
  assert.equal((await fetch(origin+'/api/video-review/publication-policy/preview',{method:'POST',headers:{'content-type':'application/json'},body:'{"enabled":true}'})).status,409);
  assert.deepEqual(calls.slice(0,5).map(x=>x.action),['list','decide','edit','preview','proposal']);
  assert.equal((await fetch(origin+'/api/video-review/publication-status?accountId=page')).status,200);assert.equal(calls.at(-1).action,'publicationStatus');
+ assert.equal((await fetch(origin+'/api/video-review/page-content')).status,200);assert.equal(calls.at(-1).action,'pageContent');
+ assert.equal((await fetch(origin+'/api/video-review/page-content',{method:'POST'})).status,404);
  assert.equal((await fetch(origin+'/api/video-review/publication-policy/control',{method:'POST',headers:{'content-type':'application/json'},body:'{"action":"pause"}'})).status,200);assert.equal(calls.at(-1).action,'publicationControl');
  assert.equal((await fetch(origin+'/api/video-review/publication-policy/control',{method:'POST',headers:{origin:'https://untrusted.example','content-type':'application/json'},body:'{}'})).status,403);
 });

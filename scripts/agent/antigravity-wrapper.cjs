@@ -31,7 +31,7 @@ try {
 const task = context.task || {};
 const payload = task.payload || {};
 const geminiRoute = require('./antigravity-gemini.cjs');
-const geminiRequest = geminiRoute.request(context);
+const geminiRequest = require('./antigravity-page-content.cjs').request(context) || geminiRoute.request(context);
 if (geminiRequest) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-gemini-'));
   try {

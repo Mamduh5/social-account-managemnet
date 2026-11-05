@@ -15,11 +15,18 @@ import {CreatorResearch} from './agent/creator-research.js';
 import {GeminiProduction} from './agent/production.js';
 import {PagePublicationPolicies} from './agent/page-publication-policy.js';
 import {OwnerVideoReviews} from './agent/video-review.js';
+import {PageContent} from './agent/page-content.js';
 import {prepareResearchTask,researchReceipt} from './agent/content-run.js';
 import {validateContentResult,contentOutputSchema} from './agent/content-contract.js';
 
 const version = 'agent-workflow.v1';
 const commands = {
+  'page-content-status':'Read bounded text/image preparation and awaiting-imagery evidence; no publication.',
+  'page-content-config':'Configure bounded preparation only with --input and --owner-authorized; never a publication grant.',
+  'page-content-enqueue':'Prepare an exact original text/image research task from --input; no model invocation.',
+  'page-content-persist':'Save completed --task as an unapproved draft or awaiting-imagery concept.',
+  'page-content-reconcile':'Read back the known original --input draftId for --task after a lost save response.',
+  'page-content-attach-images':'Bind reviewed existing uploaded images to --task with --input and --owner-authorized; never generates images.',
   'video-review-list':'Read the existing Gemini owner review queue; no provider operation.',
   'video-review-policy-preview':'Read-only proposed Page policy eligibility. Cannot authorize or publish.',
   'video-review-policy-save':'Save an explicitly disabled Page proposal only; never a publication grant.',
@@ -156,6 +163,7 @@ async function main() {
     const local = () => store ||= new AgentStore(statePath);
     const contentScc=new SccAdapter(new JsonClient(sccClient.origin,{timeoutMs:10_000}));
     const content=()=>new AgentContent(local(),contentScc);
+    const pageContent=()=>new PageContent(local(),contentScc);
     const production=()=>new GeminiProduction(local(),new PipelineAdapter(new JsonClient(pipelineClient.origin,{timeoutMs:90_000})),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath));
     const publication=()=>new PagePublicationPolicies(local(),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin});
     const videoReviews=()=>new OwnerVideoReviews(local(),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath));
@@ -163,6 +171,7 @@ async function main() {
       let result:Record<string,any>;try{result=await production().tick();}catch{result={state:'production_reconciliation_required',actions:0};}
       try{await production().processBacklog();}catch{local().setRunnerState('production.backlogLastTick',{state:'backlog_review_required',observedAt:new Date().toISOString()});}
       try{local().setRunnerState('publication.lastTick',{...await publication().tick(),at:new Date().toISOString()});}catch{local().setRunnerState('publication.lastTick',{state:'publication_review_required',at:new Date().toISOString()});}
+      try{local().setRunnerState('page-content.lastTick',{...await pageContent().advance(),at:new Date().toISOString()});}catch{local().setRunnerState('page-content.lastTick',{state:'preparation_review_required',at:new Date().toISOString()});}
       try{await new GeminiProduction(local(),pipeline,contentScc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath)).observe();}
       catch{local().setRunnerState('production.observationError',{code:'saved_observation_unavailable',at:new Date().toISOString()});}
       return result;
@@ -180,6 +189,12 @@ async function main() {
     if (!Number.isSafeInteger(offset) || offset < 0) throw new WorkflowError('invalid_offset', 'offset must be a nonnegative whole number.');
     let data: unknown;
     switch(command) {
+      case 'page-content-status':data=pageContent().status();break;
+      case 'page-content-config':data=await pageContent().configure(input,flags['owner-authorized']===true);break;
+      case 'page-content-enqueue':data=await pageContent().enqueue(input);break;
+      case 'page-content-persist':data=await pageContent().persist(task());break;
+      case 'page-content-reconcile':data=await pageContent().reconcile(task(),input.draftId);break;
+      case 'page-content-attach-images':data=await pageContent().attachImages(task(),input,flags['owner-authorized']===true);break;
       case 'video-review-list':data=await videoReviews().list();break;
       case 'video-review-policy-preview':data=await videoReviews().publicationProposal(input);break;
       case 'video-review-policy-save':data=await videoReviews().publicationProposal(input,true,flags['owner-authorized']===true);break;

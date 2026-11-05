@@ -14,7 +14,7 @@ export interface PrepareReelInput {
 }
 export interface ExactDraftInput {revision: number; accountId: string; payloadHash: string;}
 export interface PrepareContentInput extends PrepareReelInput {categoryId?: string;}
-export interface GeneralPreparation {title:string;contentType:'text'|'image'|'reel';videoId?:string;scheduledAt:null;destinations:Array<{accountId:string;caption:string;hashtags:string;attachments:Array<{mediaId:string;altText:string}>;applyBranding:boolean}>;}
+export interface GeneralPreparation {title:string;contentType:'text'|'image'|'multi_image'|'reel';videoId?:string;scheduledAt:null;destinations:Array<{accountId:string;caption:string;hashtags:string;attachments:Array<{mediaId:string;altText:string}>;applyBranding:boolean}>;}
 
 function pick(value: JsonObject | undefined, keys: string[]): JsonObject {
   return Object.fromEntries(keys.filter(key=>value?.[key]!==undefined).map(key=>[key,value![key]]));
@@ -320,6 +320,10 @@ export class SccAdapter {
     if(original.post?.content_type!=='reel'||original.post.destinations.length!==1||!d||d.is_demo||d.remote_post_id!==remoteId||!/^\d+$/.test(remoteId)||!/^\d+$/.test(graphId))throw new Error('Original Reel scope differs');
     if(d.status!=='published'||d.submission_state==='uncertain')await this.client.post('/api/publishing/destinations/'+encodeURIComponent(d.id)+'/reconcile-reel',{accountId,graphId,remoteId});
     return this.publication(postId);
+  }
+  async reconcileGeneralPublication(postId:string,accountId:string,graphId:string,remoteId:string):Promise<JsonObject>{
+    const page=await this.pageContext(accountId),original=await this.publication(postId),d=original.post?.destinations?.[0];if(page.account.graphId!==graphId||!['text','image','multi_image'].includes(original.post?.content_type)||original.post.destinations.length!==1||d?.account_id!==accountId||d.is_demo||d.remote_post_id!==remoteId||!/^\d+(?:_\d+)?$/.test(remoteId))throw new Error('Original general publication scope differs');
+    if(d.status!=='published')await this.client.post('/api/publishing/destinations/'+encodeURIComponent(d.id)+'/reconcile',{});return this.publication(postId);
   }
 }
 
