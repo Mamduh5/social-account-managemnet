@@ -2,7 +2,7 @@ import {stableHash} from './store.js';
 import {draftFingerprint} from './scc.js';
 type Any=Record<string,any>;
 export const publicationFormats=['reel','text','image'] as const;
-export const publicationFormat=(row:Any)=>row.content_type??'reel';
+export const publicationFormat=(row:Any)=>row.content_type==='multi_image'?'image':row.content_type??'reel';
 export function publicationTime(value:unknown){return typeof value==='string'?Date.parse(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/.test(value)?value.replace(' ','T')+'Z':value):NaN;}
 export function publicationCadence(rows:Any[],policy:Any,now:number){
   const dates=rows.filter(r=>r.status==='published').map(r=>publicationTime(r.published_at)),confirmed24h=dates.filter(d=>d>now-86400000).length;

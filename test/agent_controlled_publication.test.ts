@@ -27,7 +27,8 @@ function fixture(t:any){
 
 test('five confirmed Reels, separate formats, three-hour spacing and next rolling-day eligibility without bursts',async t=>{
  const f=fixture(t);for(let n=1;n<=6;n++)f.add(n);await f.grant();
- for(let n=0;n<8;n++)f.rows.push({account_id:'page',content_type:n%2?'text':'image',status:'published',published_at:f.now().toISOString()});
+ for(let n=0;n<8;n++)f.rows.push({account_id:'page',content_type:n%3===0?'multi_image':n%2?'text':'image',status:'published',published_at:f.now().toISOString()});
+ const initial=await f.controller().streams('page');assert.equal(initial.find(s=>s.contentType==='text')!.confirmed24h,3);assert.equal(initial.find(s=>s.contentType==='image')!.confirmed24h,5);
  for(let n=1;n<=5;n++){assert.equal((await f.controller().tick()).state,'publication_queued');f.confirm(n);assert.equal((await f.controller().tick()).state,'publication_cadence_wait');if(n<5)f.advance(3*3600000);}
  assert.equal(f.calls.queues,5);f.advance(3*3600000);const held=await f.controller().tick();assert.equal(held.state,'publication_cadence_wait');assert.equal(held.confirmed24h,5);assert.equal(held.nextEligibleAt,'2026-11-06T06:00:00.000Z');
  f.advance(9*3600000);assert.equal((await f.controller().tick()).state,'publication_queued');assert.equal(f.calls.queues,6);
