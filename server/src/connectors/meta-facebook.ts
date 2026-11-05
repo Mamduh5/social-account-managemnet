@@ -285,10 +285,16 @@ export class MetaFacebookConnector implements AccountConnector {
     console.info('[MetaReels]', JSON.stringify({ destinationId: payload.destinationId, stage: 'finish', httpStatus: finishRes.status, success: finishData.success, videoId }));
 
     if (onProgress) onProgress(90, 'processing');
-
+    return this.verifyReelStatus(account,String(videoId),payload.destinationId,onProgress,this.polling.attempts);
+  }
+  async reconcileReel(account:any,remoteId:string):Promise<PublishResult>{
+    if(!account.access_token||account.is_demo||!/^\d+$/.test(remoteId))throw new Error('An authorized original Meta Reel ID is required');
+    return this.verifyReelStatus(account,remoteId,'original-reconciliation',undefined,1);
+  }
+  private async verifyReelStatus(account:any,videoId:string,destinationId:string,onProgress:((pct:number,stage:string)=>void)|undefined,attempts:number):Promise<PublishResult>{
     // Phase 4: Video Processing Status Check & URL Verification
     let reelUrl = '';
-    for (let attempt = 0; attempt < this.polling.attempts; attempt++) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
       const statusRes = await fetch(
         `${this.baseUrl}/${this.apiVersion}/${videoId}?fields=status,permalink_url`,
         { headers: { Authorization: `Bearer ${account.access_token}` }, signal: AbortSignal.timeout(10000) }
@@ -304,10 +310,10 @@ export class MetaFacebookConnector implements AccountConnector {
         if (permalink.protocol !== 'https:' || !['www.facebook.com', 'facebook.com'].includes(permalink.hostname) || permalink.username || permalink.password)
           throw new Error('Meta returned an unexpected permalink; reconcile the saved remote ID.');
         reelUrl = permalink.href;
-        console.info('[MetaReels]', JSON.stringify({ destinationId: payload.destinationId, stage: 'published', httpStatus: statusRes.status, videoId, videoStatus: status.video_status, publishingStatus: status.publishing_phase.status, permalink: reelUrl }));
+        console.info('[MetaReels]', JSON.stringify({ destinationId, stage: 'published', httpStatus: statusRes.status, videoId, videoStatus: status.video_status, publishingStatus: status.publishing_phase.status, permalink: reelUrl }));
         break;
       }
-      if (attempt + 1 < this.polling.attempts) await new Promise(resolve => setTimeout(resolve, this.polling.intervalMs));
+      if (attempt + 1 < attempts) await new Promise(resolve => setTimeout(resolve, this.polling.intervalMs));
     }
     if (!reelUrl) throw new Error(`Meta processing is not confirmed complete for remote ID ${videoId}; reconcile before retry.`);
 

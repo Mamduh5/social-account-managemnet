@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import {queueService} from '../services/queue.service.js';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -165,6 +166,7 @@ publishingRouter.post('/destinations/:id/retry', (req, res) => {
     res.status(statusCode).json({ error: err.message });
   }
 });
+publishingRouter.post('/destinations/:id/reconcile-reel',async(req,res)=>{try{await queueService.reconcileReelDestination(String(req.params.id),req.body);res.json({success:true,reconciled:true});}catch(err:any){res.status(409).json({error:err.message});}});
 
 // CANCEL a destination
 publishingRouter.post('/destinations/:id/cancel', (req, res) => {

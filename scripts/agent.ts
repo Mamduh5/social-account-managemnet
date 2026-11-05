@@ -24,6 +24,8 @@ const commands = {
   'video-review-policy-preview':'Read-only proposed Page policy eligibility. Cannot authorize or publish.',
   'video-review-policy-save':'Save an explicitly disabled Page proposal only; never a publication grant.',
   'video-review-policy-revoke':'Revoke an exact existing Page publication grant; cannot activate one.',
+  'video-review-publication-status':'Read current exact-Page calendar/rolling counts and protected originals; --input accountId.',
+  'video-review-publication-control':'Pause/resume the existing exact-Page grant; --input and --owner-authorized. No activation or publication.',
   'video-review-decide':'Save explicit exact-media owner QA from --input; publication excluded.',
   'video-review-edit':'Revise the exact existing unqueued candidate caption/variant from --input.',
   'production-policy':'Read or authorize a standing production policy with --input and --owner-authorized; publication is excluded.',
@@ -182,6 +184,8 @@ async function main() {
       case 'video-review-policy-preview':data=await videoReviews().publicationProposal(input);break;
       case 'video-review-policy-save':data=await videoReviews().publicationProposal(input,true,flags['owner-authorized']===true);break;
       case 'video-review-policy-revoke':data=await videoReviews().revokePublication(input,flags['owner-authorized']===true);break;
+      case 'video-review-publication-status':data=await videoReviews().publicationStatus(input);break;
+      case 'video-review-publication-control':data=await videoReviews().controlPublication(input,flags['owner-authorized']===true);break;
       case 'video-review-decide':{const result=await videoReviews().decide(input,flags['owner-authorized']===true);data=input.decision==='approve'?{...result,progress:await videoReviews().advance(result.itemId)}:result;break;}
       case 'video-review-edit':data=await videoReviews().edit(input,flags['owner-authorized']===true);break;
       case 'production-policy':data=flags.input?await production().authorizePolicy(input,flags['owner-authorized']===true):production().policyStatus();break;

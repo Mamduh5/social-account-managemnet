@@ -114,6 +114,8 @@ export interface AccountConnector {
   getCapabilities(): ConnectorCapabilities;
   verifyHealth(account: any): Promise<ConnectionHealth>;
   publishVideo(account: any, payload: PublishDestinationPayload, onProgress?: (pct: number, stage: string) => void): Promise<PublishResult>;
+  /** Read only: verify the original saved Reel ID, never upload or finish again. */
+  reconcileReel?(account:any,remoteId:string):Promise<PublishResult>;
   publishPost?(account: any, payload: PagePostPayload, onProgress?: (pct: number, stage: string) => void): Promise<PublishResult>;
   fetchComments(account: any, options?: { postId?: string; limit?: number }): Promise<CommentFetchResult[]>;
   replyComment(account: any, commentId: string, text: string): Promise<{ success: boolean; replyId?: string; errorMessage?: string }>;

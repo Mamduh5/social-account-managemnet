@@ -337,6 +337,7 @@ export class PublishingRepository {
   recordRemoteUpload(id: string, remoteId: string) {
     db.prepare("UPDATE publishing_destinations SET remote_post_id=?,verification_status='unverified',updated_at=datetime('now') WHERE id=? AND status='uploading'").run(remoteId, id);
   }
+  confirmReelReconciliation(id:string,remoteId:string,permalink:string){db.transaction(()=>{const d=this.getDestinationById(id) as any;if(!d||(d.content_type??'reel')!=='reel'||d.remote_post_id!==remoteId)throw new Error('Original Reel identity changed');if(d.status!=='published')this.markDestinationPublished({destinationId:id,remotePostId:remoteId,remotePostUrl:permalink,verificationStatus:'confirmed',confirmationSource:'api'});else if(d.confirmation_source!=='api'||d.verification_status!=='confirmed')throw new Error('Original publication receipt is not verified');if(generalPostsReady(db))db.prepare("UPDATE publishing_destinations SET submission_state=NULL WHERE id=? AND remote_post_id=? AND content_type='reel'").run(id,remoteId);}).immediate();}
 
   markAwaitingConfirmation(id: string, remoteId?: string, remoteUrl?: string) {
     db.prepare("UPDATE publishing_destinations SET status='awaiting_confirmation', progress=90, remote_post_id=?, remote_post_url=?, verification_status='unverified', updated_at=datetime('now') WHERE id=?").run(remoteId || null, remoteUrl || null, id);

@@ -315,6 +315,12 @@ export class SccAdapter {
     return {post:{...pick(post,['id','video_id','content_type','title','status','scheduled_at','created_at','updated_at']),
       destinations:post.destinations.map((destination:JsonObject)=>({...pick(destination,['id','post_id','account_id','account_name','account_handle','platform','is_demo','content_type','status','progress','error_message','retry_count','max_retries','remote_post_id','remote_post_url','published_at','confirmation_source','verification_status','submission_state','created_at','updated_at']),scheduled_at:post.scheduled_at ?? null}))}};
   }
+  async reconcileReelPublication(postId:string,accountId:string,graphId:string,remoteId:string):Promise<JsonObject>{
+    const original=await this.publication(postId),d=original.post?.destinations?.find((d:JsonObject)=>d.account_id===accountId);
+    if(original.post?.content_type!=='reel'||original.post.destinations.length!==1||!d||d.is_demo||d.remote_post_id!==remoteId||!/^\d+$/.test(remoteId)||!/^\d+$/.test(graphId))throw new Error('Original Reel scope differs');
+    if(d.status!=='published'||d.submission_state==='uncertain')await this.client.post('/api/publishing/destinations/'+encodeURIComponent(d.id)+'/reconcile-reel',{accountId,graphId,remoteId});
+    return this.publication(postId);
+  }
 }
 
 function compactGroup(group:JsonObject):JsonObject {

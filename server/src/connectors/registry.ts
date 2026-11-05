@@ -135,6 +135,10 @@ export function getConnector(account: any): AccountConnector {
       if (!capabilities.canPublish) throw new Error(blocked().errorMessage);
       return adapter.publishVideo(authorized, payload, progress);
     },
+    reconcileReel:async(_a,remoteId)=>{
+      if(!valid||!capabilities.canReadPostMetrics||account.platform!=='facebook'||account.account_type!=='page')throw new Error('Official Meta Page reading authorization required');
+      return metaConnector.reconcileReel(authorized,remoteId);
+    },
     fetchComments: async (_a, opts) =>
       capabilities.canReadComments
         ? adapter.fetchComments(authorized, opts)

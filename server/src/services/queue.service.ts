@@ -367,6 +367,19 @@ export class QueueService {
     try {await this.executeGeneralPost({...destination,post_id:destination.post_id,account_id:destination.account_id},true);} finally {this.inFlight.delete(id);}
   }
 
+  async reconcileReelDestination(id:string,scope:{accountId:string;graphId:string;remoteId:string}){
+    if(!scope||Object.keys(scope).some(k=>!['accountId','graphId','remoteId'].includes(k))||!/^\d+$/.test(scope.remoteId)||!/^\d+$/.test(scope.graphId))throw new Error('Exact saved Reel scope required');
+    const d=publishingRepo.getDestinationById(id) as any,account=d&&accountsRepo.getAccountById(d.account_id) as any;
+    if(!d||(d.content_type??'reel')!=='reel'||d.account_id!==scope.accountId||d.remote_post_id!==scope.remoteId||!account||account.archived_at||account.is_demo||account.platform!=='facebook'||account.account_type!=='page'||account.external_id!==scope.graphId||!account.identity_verified_at)throw new Error('Original Reel Page or remote identity differs');
+    if(d.status==='published'){if(d.confirmation_source!=='api'||d.verification_status!=='confirmed'||!d.remote_post_url)throw new Error('Original Reel receipt unverified');if(d.submission_state==='uncertain')publishingRepo.confirmReelReconciliation(id,scope.remoteId,d.remote_post_url);return;}
+    if(!['failed','cancelled','awaiting_confirmation','preparing'].includes(d.status)||this.inFlight.has(id))throw new Error('Original Reel is busy');
+    this.inFlight.add(id);try{const connector=getConnector(account);if(!connector.reconcileReel)throw new Error('Read-only Reel reconciliation unavailable');const result=await connector.reconcileReel(account,scope.remoteId);
+      if(!result.success||result.verificationStatus!=='confirmed'||result.remotePostId!==scope.remoteId||!result.remotePostUrl)throw new Error('Original Reel publication remains unconfirmed');
+      publishingRepo.confirmReelReconciliation(id,scope.remoteId,result.remotePostUrl);this.syncParentPostStatus(d.post_id);
+      activityRepo.logEvent({type:'publish_success',accountId:d.account_id,title:'Original Reel publication reconciled',message:'Read-only verification of the saved remote ID; no upload or finish repeated.',severity:'success'});eventService.broadcast('destination_updated',{destinationId:id,status:'published',progress:100,remotePostUrl:result.remotePostUrl});
+    }finally{this.inFlight.delete(id);}
+  }
+
   updateDestinationStatus(destinationId: string, status: DestinationStatus, progress: number) {
     publishingRepo.updateDestinationStatus(destinationId, status, progress);
 
