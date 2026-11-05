@@ -331,6 +331,27 @@ test('automatic original-result import reconciles only a proven completed hold; 
   const f=setup(t);f.enqueue();await f.c.authorizePolicy(standing(),true);await f.c.tick();await f.c.tick();f.read(evidence('completed'));f.native.recoveryHold=true;assert.equal((await f.c.tick()).state,'awaiting_qa');assert.equal(f.counts().reconcileHolds,1);assert.equal(f.counts().submitted,1);
   f.check(async()=>{f.native.availability={blocker_code:'weekly_limit_exhausted',stale:false,next_recheck_at:'2026-11-10T00:00:00Z'};f.native.nextCheckAt='2026-11-10T00:00:00Z';return {};});await f.c.resume(true);assert.equal((await f.c.tick()).state,'waiting_capacity');assert.equal((f.c.policyStatus() as any).state.humanHold,null);
 });
+
+test('real Gemini provider_block_reason drives exact-turn resume reconciliation before fresh readiness',async t=>{
+  const f=setup(t);f.enqueue();await f.c.authorizePolicy(standing(),true);await f.c.tick();await f.c.tick();
+  const pending=evidence();pending.original.runId='original-run';pending.run.submissionIntent=true;pending.session.unresolved=true;pending.failure={code:'human_action_required'};f.read(pending);assert.equal((await f.c.tick()).state,'human_action_required');
+  let held=false,reconciled=0;
+  const adapter=new PipelineAdapter(new JsonClient(targets.pipeline,{fetch:async(url,init)=>{
+    assert.equal(new URL(String(url)).pathname,init?.method==='POST'?'/gemini-autopilot/recover':'/gemini-autopilot');
+    if(init?.method==='POST'){assert.deepEqual(JSON.parse(String(init.body)),{action:'reconcile_recovery'});assert.equal(held,true);held=false;reconciled++;return Response.json({status:'ok'});}
+    return Response.json({provider:'gemini_web',available:true,worker_enabled:true,recovery_status:{submission_unresolved:false},availability_status:{blocker_code:'video_available',stale:false},scheduler:{enabled:false,queue:[],configured_submission_cap:4,submissions_this_window:1,provider_block_reason:held?'reconciliation_required':'',block_reason:'stale_legacy_value'}});
+  }}));
+  f.pipeline.productionStatus=()=>adapter.productionStatus();f.pipeline.reconcileProductionRecovery=()=>adapter.reconcileProductionRecovery();
+  f.recover(async()=>{f.read(evidence('completed'));held=true;return {};});f.check(async()=>{assert.equal(held,false,'readiness must follow audited reconciliation');return {};});
+  await f.c.resume(true);assert.equal(reconciled,1);assert.equal(f.counts().recovered,1);assert.equal(f.counts().imports,1);assert.equal(f.counts().submitted,1);assert.equal((f.c.policyStatus() as any).state.humanHold,null);
+});
+
+test('Gemini native blocker field preserves recovery, security and accounting dispositions',async()=>{
+  for(const code of ['reconciliation_required','result_recovery_pending','human_action_required','external_submission_accounting','']){
+    const adapter=new PipelineAdapter(new JsonClient(targets.pipeline,{fetch:async()=>Response.json({provider:'gemini_web',available:true,worker_enabled:true,recovery_status:{submission_unresolved:false},scheduler:{enabled:false,queue:[],configured_submission_cap:4,submissions_this_window:2,provider_block_reason:code,block_reason:'legacy_must_not_override'}})}));
+    const status=await adapter.productionStatus();assert.equal(status.providerBlock,code);assert.equal(status.recoveryHold,['reconciliation_required','result_recovery_pending'].includes(code));assert.equal(status.accountingHold,code==='external_submission_accounting');assert.equal(status.used,2);assert.equal(status.providerAllowance,null);
+  }
+});
 test('manual security recovery shares the production lease and cannot overlap an existing observation',async t=>{
   const f=setup(t);await f.c.authorizePolicy(standing(),true);f.store.setRunnerState('production.lease',{token:'existing',until:'2026-11-04T01:00:00Z'});await assert.rejects(()=>f.c.resume(true),/busy/);assert.equal(f.counts().recovered,0);assert.equal(f.counts().submitted,0);assert.equal(f.store.runnerState<any>('production.lease')?.token,'existing');
 });

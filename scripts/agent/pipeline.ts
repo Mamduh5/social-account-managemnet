@@ -112,12 +112,13 @@ export class PipelineAdapter {
     const r=await this.client.get<Record<string,any>>('/gemini-autopilot');
     const s=r?.scheduler;
     if(r?.provider!=='gemini_web'||!s||!Array.isArray(s.queue)||typeof s.enabled!=='boolean'||typeof r.worker_enabled!=='boolean'||typeof r.recovery_status?.submission_unresolved!=='boolean'||!Number.isInteger(s.configured_submission_cap)||s.configured_submission_cap<1||!Number.isInteger(s.submissions_this_window)||s.submissions_this_window<0)throw new ApiError(200,'invalid_production_admission',false);
+    const blockReason=s.provider_block_reason??s.block_reason;
     return {available:r.available===true,workerEnabled:r.worker_enabled,nativeEnabled:s.enabled,activeRunId:s.active_run??null,observationLocked:!!s.observation_token,unresolved:r.recovery_status.submission_unresolved,
       cap:s.configured_submission_cap,used:s.submissions_this_window,windowStartedAt:s.window_started_at??null,providerAllowance:null,
       accountUsage:s.account_usage??{},applicationWindowHours:s.window_hours??null,accountWaitNext:s.account_selection_wait?.next_recheck_at??null,
-      providerBlock:s.block_reason??s.provider_observation?.status??null,
-      recoveryHold:['reconciliation_required','result_recovery_pending'].includes(s.block_reason),
-      accountingHold:!!s.recovery_only||!!s.storage_block||s.block_reason==='external_submission_accounting',
+      providerBlock:blockReason??s.provider_observation?.status??null,
+      recoveryHold:['reconciliation_required','result_recovery_pending'].includes(blockReason),
+      accountingHold:!!s.recovery_only||!!s.storage_block||blockReason==='external_submission_accounting',
       availability:r.availability_status??null,blockers:(r.quota_timing?.remaining_blockers??[]).filter((x:string)=>x!=='autopilot_paused'),
       nextCheckAt:r.availability_status?.next_recheck_at??r.quota_timing?.application_fallback_at??null,
       boundedRequests:Object.entries(r.force_retry_status??{}).map(([jobId,v]:[string,any])=>({jobId,...v}))};
