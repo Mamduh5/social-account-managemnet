@@ -353,6 +353,9 @@ export class GeminiProduction {
       return {state:'provider_failure_hold',actions:0};
     }
     if(e.session.unresolved||(!ignoredResolved&&e.recovery.required)){
+      if(e.session.unresolved&&!e.session.active&&!e.session.observationLocked&&e.original.runId&&typeof this.pipeline.originalRecoveryStatus==='function'){
+        return this.recoverOriginalAutomatically(item,projectId,e.original.runId);
+      }
       const attempts=Number(item.state.recoveryChecks??0),next=Date.parse(String(item.state.nextRecoveryAt??''));
       if(!e.session.active&&e.recovery.canRecover&&e.original.runId&&attempts<c.maxRecoveryChecks&&(!Number.isFinite(next)||next<=this.clock().getTime())){
         // The supported project/run route can only recover that exact saved turn.
@@ -446,6 +449,41 @@ export class GeminiProduction {
       this.store.recordKnowledge({id:'import-reconciled:'+item.id,kind:'observation',accountId:(item.input as Any).concept.accountId,resourceId:item.id,source:'exact_scc_media_read_back',text:'Verified the original immutable import without repeating a POST.',evidence:{videoId,projectId:item.state.projectId,sha256:facts.sha256,bytes:facts.bytes,sourceFingerprint:fingerprint}});
       return {...result,itemId:item.id,next:'production-resume verifies the completed original and fresh readiness; no generation is submitted by reconciliation'};
     }finally{if(this.store.runnerState<Any>('production.lease')?.token===token)this.store.setRunnerState('production.lease',null);}
+  }
+  private async recoverOriginalAutomatically(item:AgentJob,projectId:string,runId:string){
+    const status=await this.pipeline.originalRecoveryStatus(projectId,runId);
+    const count=Number(item.state.automaticRecoveryChecks??0),step='production_original_recovery_'+runId+'_'+count;
+    // A lost response is reconciled from the exact native request receipt; no
+    // recovery POST or reload is replayed. Import remains the normal next step.
+    const op=this.store.getOperation(item.id,step);
+    if(op){
+      const expected=(op.request as Any).requestId;
+      if(status.auto_request_id===expected&&!status.busy){
+        if(op.status==='pending'||op.status==='uncertain')this.store.finishOperation(item.id,step,'succeeded',{reconciled:true,recovery:status});
+        if(op.status==='rejected')return {state:'original_recovery_operation_rejected',actions:0};
+        this.save(item.id,{automaticRecoveryChecks:count+1,automaticRecovery:status});return {state:'original_recovery_observed',actions:0};
+      }
+      return {state:'original_recovery_operation_uncertain',actions:0};
+    }
+    this.save(item.id,{automaticRecovery:status});
+    if(status.busy)return {state:'original_recovery_busy',actions:0};
+    if(status.state==='human_action_required'){
+      const cycle=this.cycle();if(cycle){this.save(cycle.id,{phase:'human_action_required'});const policy=this.policyFor((cycle.input as Any).scope);if(policy)this.save(policy.id,{humanHold:'human_action_required'});}
+      return {state:'human_action_required',actions:0};
+    }
+    if(['identity_mismatch','original_unavailable'].includes(status.state))return {state:status.state,actions:0};
+    if(count>=4||Number(status.auto_checks??0)>=4)return {state:'original_recovery_checks_exhausted',actions:0};
+    const next=Date.parse(status.auto_next_check_at??'');if(Number.isFinite(next)&&next>this.clock().getTime())return {state:'original_recovery_backoff',actions:0};
+    const requestId='scc-original-'+stableHash({itemId:item.id,projectId,runId,count}).slice(0,48);
+    try{
+      const receipt=await this.once(item.id,step,{projectId,runId,requestId},()=>this.pipeline.recoverOriginalAutomatically(projectId,runId,requestId));
+      this.save(item.id,{automaticRecoveryChecks:count+1,automaticRecoveryReceipt:receipt});
+      return {state:'recovering_original',actions:1};
+    }catch(error){
+      // Preserve this original and its immutable receipt. Independent callbacks
+      // still run; a rejected/uncertain attempt is never converted to a retry.
+      return {state:error instanceof ApiError&&!error.uncertain?'original_recovery_operation_rejected':'original_recovery_operation_uncertain',actions:0};
+    }
   }
   async resume(ownerAuthorized=false){if(!ownerAuthorized)throw new Error('Manual security completion or failed-scope review requires owner authorization');
     const token=randomUUID(),now=this.clock().getTime(),acquired=this.store.transaction(()=>{const old=this.store.runnerState<Any>('production.lease');if(old&&Date.parse(old.until)>now)return false;this.store.setRunnerState('production.lease',{token,until:new Date(now+900000).toISOString()});return true;});

@@ -151,6 +151,13 @@ export class PipelineAdapter {
     return result;
   }
   recoverProduction(projectId:string,runId:string){projectPath(projectId);if(!/^[A-Za-z0-9_-]{1,128}$/.test(runId))throw new Error('Invalid original run');return this.client.post('/gemini-autopilot/projects/'+encodeURIComponent(projectId)+'/video-recovery/'+encodeURIComponent(runId)+'/recover',{});}
+  async originalRecoveryStatus(projectId:string,runId:string){projectPath(projectId);if(!/^[A-Za-z0-9_-]{1,128}$/.test(runId))throw new Error('Invalid original run');
+    const r=await this.client.get<Record<string,any>>('/gemini-autopilot/projects/'+encodeURIComponent(projectId)+'/video-recovery');
+    const matches=r.recoveries?.filter((v:any)=>v.run_id===runId);if(matches?.length!==1)throw new Error('Missing exact original recovery receipt');return matches[0];
+  }
+  async recoverOriginalAutomatically(projectId:string,runId:string,requestId:string){projectPath(projectId);if(!/^[A-Za-z0-9_-]{1,128}$/.test(runId))throw new Error('Invalid original run');
+    return this.client.post('/gemini-autopilot/projects/'+encodeURIComponent(projectId)+'/video-recovery/'+encodeURIComponent(runId)+'/recover-auto',{}, {idempotencyKey:requestId});
+  }
   async productionArtifact(projectId:string,maxBytes:number){
     const project=await this.project(projectId),url=this.mediaURL(project.video_url,projectId);
     if(project.status!=='completed'||!url)throw new Error('Original completed artifact is required');

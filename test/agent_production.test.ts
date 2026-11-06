@@ -362,3 +362,28 @@ test('real executor string result is parsed into a durable concept without chang
   f.c.work.save({id:claim.id,owner:'fixture',commandId:'save-concept',claimToken:claim.claimToken,revision:claim.revision,status:'prepared',result:result.result});
   const item=f.c.enqueuePrepared('prepared-concept');assert.equal(item.state.phase,'queued');assert.equal((item.input as any).concept.hook,concept().hook);assert.equal(typeof result.result,'string');assert.equal(f.counts().created,0);
 });
+
+test('automatic original recovery bypasses stale canRecover display only, never the original reservation',async t=>{
+ const f=setup(t);const item=f.enqueue();f.start();await f.c.tick();await f.c.tick();const r=evidence();r.original.runId='original-run';r.run.submissionIntent=true;r.session.unresolved=true;r.recovery={required:true,canRecover:false};f.read(r);
+ let calls=0;let receipt:any={run_id:'original-run',state:'still_generating',auto_checks:0,busy:false};
+ f.pipeline.originalRecoveryStatus=async()=>structuredClone(receipt);
+ f.pipeline.recoverOriginalAutomatically=async(project,run,request)=>{assert.equal(run,'original-run');calls++;receipt={...receipt,auto_checks:1,auto_request_id:request,auto_next_check_at:'2026-11-04T01:00:00Z'};return {recoveries:[receipt]};};
+ assert.equal((await f.c.tick()).state,'recovering_original');f.restart();for(let i=0;i<5;i++)assert.equal((await f.c.tick()).state,'original_recovery_backoff');
+ assert.equal(calls,1);assert.equal(f.counts().submitted,1);assert.equal(f.store.providerOwner('gemini_web:'+targets.pipeline),item.id);
+ f.read(evidence('completed'));assert.equal((await f.c.tick()).state,'awaiting_qa');assert.equal(f.store.providerOwner('gemini_web:'+targets.pipeline),null);assert.equal(f.counts().imports,1);assert.equal(f.counts().submitted,1);
+});
+test('lost automatic original response reconciles the exact durable native request after restart without replay',async t=>{
+ const f=setup(t);const item=f.enqueue();f.start();await f.c.tick();await f.c.tick();const r=evidence();r.original.runId='original-run';r.session.unresolved=true;f.read(r);let calls=0;let receipt:any={run_id:'original-run',state:'needs_check',auto_checks:0,busy:false};
+ f.pipeline.originalRecoveryStatus=async()=>structuredClone(receipt);f.pipeline.recoverOriginalAutomatically=async(_p,_r,request)=>{calls++;receipt={...receipt,auto_request_id:request,auto_checks:1,state:'still_generating',auto_next_check_at:'2026-11-04T01:00:00Z'};throw new ApiError(null,'request_timeout',true);};
+ assert.equal((await f.c.tick()).state,'original_recovery_operation_uncertain');f.restart();assert.equal((await f.c.tick()).state,'original_recovery_observed');assert.equal((await f.c.tick()).state,'original_recovery_backoff');assert.equal(calls,1);
+ const op=f.store.getOperation(item.id,'production_original_recovery_original-run_0')!;assert.equal(op.status,'succeeded');assert.equal((op.response as any).reconciled,true);assert.equal(f.counts().submitted,1);
+});
+test('automatic recovery holds security, mismatches, exhausted and unrelated uncertain receipts without model or POST loops',async t=>{
+ for(const state of ['human_action_required','identity_mismatch','original_unavailable','exhausted','wrong_receipt']){
+ const f=setup(t);const item=f.enqueue();f.start();await f.c.tick();await f.c.tick();const r=evidence();r.original.runId='original-run';r.session.unresolved=true;f.read(r);let calls=0;
+ f.pipeline.originalRecoveryStatus=async()=>({run_id:'original-run',state,auto_checks:state==='exhausted'?4:0,busy:false,auto_request_id:'different-original-request'});
+ f.pipeline.recoverOriginalAutomatically=async()=>{calls++;throw Error('must not call')};
+ if(state==='wrong_receipt'){f.store.claimOperation(item.id,'production_original_recovery_original-run_0',{projectId:'project-1',runId:'original-run',requestId:'original-request'});f.store.finishOperation(item.id,'production_original_recovery_original-run_0','uncertain',{});}
+ for(let i=0;i<4;i++)await f.c.tick();assert.equal(calls,0);assert.equal(f.counts().submitted,1);assert.equal(f.store.providerOwner('gemini_web:'+targets.pipeline),item.id);
+ }
+});
