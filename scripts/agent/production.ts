@@ -280,6 +280,9 @@ export class GeminiProduction {
     if(!this.lane&&scope.policyId&&researchPolicy?.state.enabled&&!researchPolicy.state.revokedAt&&Date.parse(scope.expiresAt)>this.clock().getTime())new CreatorResearch(this.store,this.clock).maintain(scope.pageAccountId,scope.policyId);
     const policyHold=this.policyAdmission(scope);
     if(policyHold){const active=cycle.state.activeItem?this.item(String(cycle.state.activeItem)):null;
+      if(active&&this.lane&&active.state.projectId&&['planning','generating','recovering'].includes(String(active.state.phase))){
+        const released=await this.releaseRunlessAdmissionClaim(cycle,active,scope);if(released)return released;
+      }
       if(!active||!['generating','recovering'].includes(String(active.state.phase)))return {...policyHold,actions:0};
     }
     const policy=this.policyFor(scope),boundary=policy?.state.nextCheckAt;
@@ -449,6 +452,23 @@ export class GeminiProduction {
       this.store.recordKnowledge({id:'import-reconciled:'+item.id,kind:'observation',accountId:(item.input as Any).concept.accountId,resourceId:item.id,source:'exact_scc_media_read_back',text:'Verified the original immutable import without repeating a POST.',evidence:{videoId,projectId:item.state.projectId,sha256:facts.sha256,bytes:facts.bytes,sourceFingerprint:fingerprint}});
       return {...result,itemId:item.id,next:'production-resume verifies the completed original and fresh readiness; no generation is submitted by reconciliation'};
     }finally{if(this.store.runnerState<Any>('production.lease')?.token===token)this.store.setRunnerState('production.lease',null);}
+  }
+  private async releaseRunlessAdmissionClaim(cycle:AgentJob,item:AgentJob,scope:Scope){
+    if(this.store.providerOwner('gemini_web:'+this.targets.pipeline)!==item.id)return null;
+    const projectId=String(item.state.projectId),[e,n]=await Promise.all([this.pipeline.inspect(projectId),this.pipeline.productionStatus()]);
+    if(n.nativeEnabled||e.session.active||e.session.unresolved||e.session.observationLocked||e.original.runId||e.run.submissionIntent||e.run.acknowledged||n.activeRunId||n.unresolved||n.observationLocked||n.boundedRequests.some((r:Any)=>r.in_progress))return null;
+    const operations=this.store.jobOperations(item.id);if(operations.some(o=>o.status==='pending'||o.status==='uncertain'))return null;
+    const requestId=item.state.requestId,own=n.boundedRequests.find((r:Any)=>r.jobId===projectId&&r.request_id===requestId);
+    const submission=operations.find(o=>/^production_submit(?:_\d+)?$/.test(o.step)&&(o.request as Any)?.requestId===requestId&&(o.request as Any)?.projectId===projectId&&o.status==='succeeded');
+    if(!submission||!own||own.state!=='blocked'||own.in_progress||own.run_id)return null;
+    // SCC-only lease release. Native restrictions, counted attempts and exact
+    // project/request history survive; reacquisition still uses normal admission.
+    this.store.transaction(()=>{
+      if(this.store.providerOwner('gemini_web:'+this.targets.pipeline)!==item.id)throw new Error('Original provider owner changed');
+      this.save(item.id,{phase:'queued',runlessAdmission:{requestId,projectId,native:own,observedAt:this.clock().toISOString()}});
+      this.save(cycle.id,{activeItem:null});this.store.releaseProvider('gemini_web:'+this.targets.pipeline,item.id);
+      this.store.recordKnowledge({id:'runless-admission-released:'+requestId,kind:'observation',resourceId:item.id,accountId:scope.pageAccountId,source:'exact_native_blocked_request_and_runless_project',text:'Released SCC lane claim for a conclusive pre-provider admission block during policy wait. Original counted attempt/project and native restrictions retained.',evidence:{projectId,requestId,submissionStep:submission.step,native:own}});
+    });return {state:'runless_admission_claim_released',actions:1,itemId:item.id,providerSubmitted:false};
   }
   private async recoverOriginalAutomatically(item:AgentJob,projectId:string,runId:string){
     const status=await this.pipeline.originalRecoveryStatus(projectId,runId);

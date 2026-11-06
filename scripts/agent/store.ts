@@ -177,6 +177,10 @@ export class AgentStore {
     return row ? { jobId: row.job_id, step: row.step, requestHash: row.request_hash, request: row.request_json == null ? null : JSON.parse(row.request_json), status: row.status as OperationStatus, response: row.response_json === null ? null : JSON.parse(row.response_json), createdAt: row.created_at, updatedAt: row.updated_at } : null;
   }
 
+  jobOperations(jobId:string):AgentOperation[]{
+    return (this.db.prepare('SELECT step FROM operations WHERE job_id=? ORDER BY step').all(jobId) as {step:string}[]).map(row=>this.getOperation(jobId,row.step)!);
+  }
+
   claimOperation(jobId: string, step: string, request: unknown): { claimed: boolean; operation: AgentOperation } {
     required(step, 'operation step');
     const hash = stableHash(request);
