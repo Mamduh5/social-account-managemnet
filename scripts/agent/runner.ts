@@ -1,3 +1,4 @@
+import {selectPageReviewContext,PageReviewContextLimit} from './page-reel-review-context.js';
 import {automaticPageBinding,pageMachineInstructions} from './page-reel-autonomy.js';
 import {pageReelSourceInstructions} from './page-reel-sources.js';
 import {randomUUID} from 'node:crypto';
@@ -113,6 +114,11 @@ export class AgentRunner {
     if(task.payload?.production?.editorialPolicy==='page-reel-editorial.v1')value.instructions=pageReelInstructions;
     if(task.payload?.creatorResearch?.version==='gemini-creator-research.v1')value.instructions=creatorResearchInstructions+' '+geminiLanguageInstructions+' Optional per-example languageObservation {spokenLanguage:string|null,textLanguages:[language-tags],audience:string|null,limitations:string}. Unheard speech is null, not inferred from captions or Page name.';
     if(task.payload?.pageContent?.version==='page-content.v1')value.instructions=pageContentInstructions;
+    if(task.kind==='review_video'&&task.payload?.pageReelReview?.version==='page-reel-machine-review.v1'){
+      const record=(admission:Record<string,any>)=>{const key='context-admission:'+task.id;if(JSON.stringify(this.store.runnerState(key))!==JSON.stringify(admission))this.store.setRunnerState(key,admission);};
+      try{const selected=selectPageReviewContext(value,config.maxContextBytes);record({...selected.admission,taskRevision:task.revision});return selected.text;}
+      catch(e){if(e instanceof PageReviewContextLimit)record({...e.admission,taskRevision:task.revision});throw e;}
+    }
     if(task.payload?.production?.version==='gemini-concept.v1'){
       const record=(admission:Record<string,any>)=>{const key='context-admission:'+task.id;if(JSON.stringify(this.store.runnerState(key))!==JSON.stringify(admission))this.store.setRunnerState(key,admission);};
       try{const selected=selectGeminiConceptContext(value,config.maxContextBytes);record({...selected.admission,taskRevision:task.revision});return selected.text;}
