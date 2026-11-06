@@ -101,10 +101,10 @@ export class SccAdapter {
   }
 
   /** Explicit portrait render for a reviewed Gemini production item; account defaults are untouched. */
-  async brandProduction(videoId:string,accountId:string,onIntent?:(intent:JsonObject)=>void):Promise<JsonObject> {
+  async brandProduction(videoId:string,accountId:string,onIntent?:(intent:JsonObject)=>void,mobilePage=false):Promise<JsonObject> {
     const context=await this.pageContext(accountId),media=await this.media(videoId);
     if(media.width*16!==media.height*9 || Math.abs(media.duration-10)>0.15 || !media.provenance.sha256)throw new Error('Expected verified ten-second portrait master');
-    const brandKit={mode:'moving',watermarkType:'moving_text',text:context.account.name,movementPreset:'corner_jump',intervalSeconds:3,fontSize:36,opacity:0.6,fontColor:'white',safeArea:{top:180,bottom:420,left:90,right:180}};
+    const brandKit={mode:'moving',watermarkType:'moving_text',text:context.account.name,movementPreset:'corner_jump',intervalSeconds:3,fontSize:mobilePage?54:36,opacity:mobilePage?0.9:0.6,fontColor:'white',safeArea:{top:180,bottom:420,left:90,right:180}};
     onIntent?.({videoId,accountId,graphId:context.account.graphId,sourceSha256:media.provenance.sha256,brandKit,presetName:'Gemini standalone portrait'});
     const result=await this.client.post<JsonObject>('/api/branding/render-preview',{videoId,brandKit,presetName:'Gemini standalone portrait'});
     if(!resourceId(result.variantId) || !/^[a-f0-9]{64}$/.test(result.sha256??''))throw new ApiError(200,'invalid_branding_response',true);

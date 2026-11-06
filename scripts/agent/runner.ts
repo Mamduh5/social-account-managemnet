@@ -11,7 +11,7 @@ import {parseCodexOutput,parsePageContentOutput,agentResultSchema,CommandExecuto
 import {creatorResearchInstructions} from './creator-research.js';
 import {pageContentInstructions} from './page-content.js';
 import {imageTaskEligible} from './page-content-images.js';
-import {pageReelInstructions,pageReelFacts} from './page-reel-editorial.js';
+import {pageReelInstructions,pageReelFacts,pageReelPageGuidance} from './page-reel-editorial.js';
 import {editorialPreparationEligible} from './page-editorial.js';
 import {standingImageActive,standingImageMatches} from './page-image-policy.js';
 import {geminiLanguageInstructions} from './gemini-language.js';
@@ -111,7 +111,7 @@ export class AgentRunner {
     if(task.payload?.production?.version==='gemini-concept.v1')value.instructions+=' The concept also requires the languageStrategy metadata described next; it is an additional object field, not a text field. For Gemini this owner policy supersedes inherited Thai-only or default language preferences; preserve all other Page rules. '+geminiLanguageInstructions;
     if(task.payload?.pageReelReview)value.instructions=pageMachineInstructions;
     if(task.payload?.pageReelResearch)value.instructions=pageReelSourceInstructions;
-    if(task.payload?.production?.editorialPolicy==='page-reel-editorial.v1')value.instructions=pageReelInstructions;
+    if(task.payload?.production?.editorialPolicy==='page-reel-editorial.v1')value.instructions=pageReelInstructions+' '+pageReelPageGuidance(task.payload.editorial);
     if(task.payload?.creatorResearch?.version==='gemini-creator-research.v1')value.instructions=creatorResearchInstructions+' '+geminiLanguageInstructions+' Optional per-example languageObservation {spokenLanguage:string|null,textLanguages:[language-tags],audience:string|null,limitations:string}. Unheard speech is null, not inferred from captions or Page name.';
     if(task.payload?.pageContent?.version==='page-content.v1')value.instructions=pageContentInstructions;
     if(task.kind==='review_video'&&task.payload?.pageReelReview?.version==='page-reel-machine-review.v1'){

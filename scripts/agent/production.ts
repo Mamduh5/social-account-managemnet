@@ -499,7 +499,7 @@ export class GeminiProduction {
         }
         if(!s.technicalQa.technicalPass)return result={state:'backlog_technical_hold',actions:0};
         if(!s.candidateVariantId){
-          const variant=await this.once(item.id,'production_candidate_brand',{videoId:s.videoId,accountId:concept.accountId,sha256:s.media.sha256},()=>this.scc.brandProduction(s.videoId,concept.accountId,intent=>this.store.setRunnerState('production.candidateBrandIntent:'+item.id,intent)));
+          const variant=await this.once(item.id,'production_candidate_brand',{videoId:s.videoId,accountId:concept.accountId,sha256:s.media.sha256},()=>this.scc.brandProduction(s.videoId,concept.accountId,intent=>this.store.setRunnerState('production.candidateBrandIntent:'+item.id,intent),concept.version==='gemini-page-concept.v1'));
           const updated=await this.scc.media(s.videoId),stored=updated.variants.find((v:Any)=>v.id===variant.variantId);
           if(!variant.sha256||stored?.sha256!==variant.sha256||updated.provenance.sha256!==s.media.sha256)throw new Error('candidate_variant_integrity_changed');
           this.save(item.id,{candidateVariantId:variant.variantId,candidateVariantSha256:variant.sha256,candidateVariantBytes:stored.file_size??0,publicationHold:'creative_and_listening_review_required'});
