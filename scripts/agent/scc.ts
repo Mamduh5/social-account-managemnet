@@ -124,7 +124,7 @@ export class SccAdapter {
     const [context,raw]=await Promise.all([this.pageContext(accountId),this.client.get<JsonObject>('/api/publishing/videos/'+encodeURIComponent(videoId))]);
     const v=raw.video?.branded_variants?.find((x:JsonObject)=>x.id===variantId);let kit:JsonObject;try{kit=typeof v?.brand_kit_json==='string'?JSON.parse(v.brand_kit_json):v?.brand_kit_json;}catch{throw new Error('Variant branding proof unavailable');}
     if(v?.video_id!==videoId||kit?.text!==context.account.name||kit?.mode!=='moving'||kit?.watermarkType!=='moving_text'||!['corner_jump','smooth_sine','diagonal_bounce'].includes(kit?.movementPreset)||kit?.safeArea?.top<120||kit?.safeArea?.bottom<280||kit?.safeArea?.right<120||!Number.isFinite(kit?.safeArea?.top)||!Number.isFinite(kit?.safeArea?.bottom)||!Number.isFinite(kit?.safeArea?.right)||v.width*16!==v.height*9||Math.abs(v.duration-10)>.15||!/^[a-f0-9]{64}$/.test(v.sha256??''))throw new Error('Choose a portrait moving-text variant with the exact Page name and required safe areas');
-    return {id:v.id,sha256:v.sha256,accountId,graphId:context.account.graphId};
+    return {id:v.id,sha256:v.sha256,accountId,graphId:context.account.graphId,brandKit:kit};
   }
 
   /** Reuse the Content Assistant voice and operator library; no model call. */

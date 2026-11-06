@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {stableHash} from './store.js';
 type Any=Record<string,any>;
 export class PageReviewContextLimit extends Error {constructor(readonly admission:Any){super('context_limit');}}
@@ -19,9 +20,10 @@ export function selectPageReviewContext(original:Any,limit:number){
   const suffix=suffixLength?rests[0].slice(-suffixLength).join(''):'';
   facts.forEach((f:Any,i:number)=>{f.evidence=rests[i].slice(0,rests[i].length-suffixLength).join('');});
   p.sourceFactsCommon=common;p.sourceEvidenceCommon={prefix,suffix};
-  references.sourceFacts='Each fact inherits sourceFactsCommon fields. Its FULL evidence is sourceEvidenceCommon.prefix + fact.evidence + sourceEvidenceCommon.suffix. Literal lossless shared text, not excerpts; verification and uncertainty are unchanged.';
+  references.sourceFacts='Facts inherit sourceFactsCommon; FULL evidence = sourceEvidenceCommon.prefix + fact.evidence + sourceEvidenceCommon.suffix. Literal shared text, not excerpts.';
   const reconstructed=facts.map((f:Any)=>({...common,...f,evidence:prefix+f.evidence+suffix}));if(stableHash(reconstructed)!==stableHash(original.task.payload.pageReelReview.sourceFacts))throw new Error('Source evidence reconstruction differs');
  }
+ if(p.images?.length===5&&path.isAbsolute(p.qaRoot)&&p.images.every((i:Any)=>path.isAbsolute(i.path)&&i.path.startsWith(p.qaRoot+path.sep))){const originalImages=structuredClone(p.images);for(const i of p.images)i.path=path.relative(p.qaRoot,i.path);p.imagePathsRelativeToQaRoot=true;if(stableHash(p.images.map((i:Any)=>({...i,path:path.join(p.qaRoot,i.path)})))!==stableHash(originalImages))throw Error('Review image paths differ');references.images='images[].path is relative to qaRoot.';}
  p.modelInputReferences=references;
  const selectedBytes=size(view);if(selectedBytes>limit)throw new PageReviewContextLimit(admission('mandatory_context_hold',selectedBytes));
  return {text:JSON.stringify(view),admission:admission('lossless_duplicate_factoring',selectedBytes)};

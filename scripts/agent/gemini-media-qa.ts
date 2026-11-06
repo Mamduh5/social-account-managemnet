@@ -20,6 +20,7 @@ export function pcmEvidence(bytes:Buffer){
 /** Gemini-only read-only media analysis. Branding remains SCC's existing service. */
 export class GeminiMediaQa {
   constructor(readonly directory:string,readonly process:ProcessRunner=runProcess,readonly fetcher:typeof fetch=fetch,readonly clock:()=>Date=()=>new Date()){}
+  async reviewEvidence(master:Record<string,any>,variant:Record<string,any>,branding:Record<string,any>){return (await import('./page-reel-review-evidence.js')).pageReviewEvidence(master,variant,branding,this.process);}
   async inspect(origin:string,media:Record<string,any>,maxBytes:number){
     return this.inspectFile(origin,media,maxBytes,false);
   }
