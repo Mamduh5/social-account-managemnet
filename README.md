@@ -136,3 +136,7 @@ Keep `.env*`, keys, `.data/` databases/WAL files/backups, tokens, profiles, MP4s
 ## Three-Page editorial routing and controlled publication — 6 November 2026
 
 See [the current editorial strategy](docs/content/THREE_PAGE_EDITORIAL_STRATEGY.md) and its durable configuration. The owner now authorizes separate text/image grants for the creative and Thai-interest Pages, and text only for the developer Page; exact draft approvals remain mandatory. The original included-Codex trial supports World and Rai under one unchanged expiry and combined allowance. This dated direction supersedes earlier pending-authority and Page-mapping notes; it changes no Reel grant, Gemini video quota, Flow behavior or spending constraint.
+
+## Three-Page Reel preparation ? 6 November 2026
+
+Video Review exposes exact three-Page production readiness and separate grants. World keeps its existing generation and five-Reels/rolling-day, three-hour publication policy. Rai and Developer receive disabled proposals only: initially one bounded generation within six hours after a future separate grant, and a separate proposed one-Reel/rolling-day, 24-hour publication policy. No new Page authority is activated. Sourced illustrative concepts require verified factual evidence and owner factual, visual and listening review. Shared provider reservations, account/global limits, combined backlog and original-only recovery remain in force. See [operating contracts](docs/content/MULTI_PAGE_REEL_PREPARATION.md). Flow remains unchanged.

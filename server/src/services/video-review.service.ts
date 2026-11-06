@@ -4,7 +4,7 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {dataDir} from '../db/database.js';
 
-const commands={list:'video-review-list',decide:'video-review-decide',edit:'video-review-edit',preview:'video-review-policy-preview',proposal:'video-review-policy-save',revoke:'video-review-policy-revoke',publicationStatus:'video-review-publication-status',publicationControl:'video-review-publication-control',pageContent:'page-content-operations-status',imagePolicyControl:'standing-image-control',generalProposal:'general-policy-proposal'} as const;
+const commands={reelPreparation:'reel-preparation-status',list:'video-review-list',decide:'video-review-decide',edit:'video-review-edit',preview:'video-review-policy-preview',proposal:'video-review-policy-save',revoke:'video-review-policy-revoke',publicationStatus:'video-review-publication-status',publicationControl:'video-review-publication-control',pageContent:'page-content-operations-status',imagePolicyControl:'standing-image-control',generalProposal:'general-policy-proposal'} as const;
 export type ReviewAction=keyof typeof commands;
 /** Fixed review-only bridge to the frozen agent. No arbitrary command/path,
  * generation, publication approval, scheduling or policy activation surface. */

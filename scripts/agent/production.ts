@@ -10,6 +10,8 @@ import {SccAdapter} from './scc.js';
 import {AgentWorkQueue} from './work-queue.js';
 import {CreatorResearch} from './creator-research.js';
 import {geminiLanguageSchema,geminiLanguagePolicyVersion,validateLanguageEvidence,geminiConceptIdea} from './gemini-language.js';
+import {editorialContext} from './page-editorial.js';
+import {pageReelConceptSchema,pageReelFacts,validatePageReelConcept,pageReelIdea} from './page-reel-editorial.js';
 import {GeminiMediaQa,candidateCopy} from './gemini-media-qa.js';
 
 const account=z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
@@ -26,7 +28,7 @@ export const productionConfigSchema=z.object({
   maxRecoveryChecks:z.number().int().min(0).max(5).default(2),
   publication:z.object({enabled:z.literal(false).default(false),minimumHoursBetweenPosts:z.number().min(1).max(720).default(24),maximumPerPagePerDay:z.number().int().min(1).max(10).default(1)}).default({enabled:false,minimumHoursBetweenPosts:24,maximumPerPagePerDay:1}),
 }).strict().superRefine((c,ctx)=>{if(c.reservationBytes>c.maxBacklogBytes)ctx.addIssue({code:'custom',message:'Reservation exceeds backlog byte capacity'});});
-export const productionConceptSchema=z.object({
+const legacyProductionConceptSchema=z.object({
   version:z.literal('gemini-concept.v1'),fictional:z.literal(true),
   accountId:account,title:z.string().trim().min(1).max(180),idea:z.string().trim().min(1).max(6000),
   hook:z.string().trim().min(1).max(800),development:z.string().trim().min(1).max(1200),payoff:z.string().trim().min(1).max(800),
@@ -34,9 +36,10 @@ export const productionConceptSchema=z.object({
   researchUse:z.object({findingIds:z.array(z.string()).max(3),principleIds:z.array(z.string()).max(6),originality:z.string().min(1).max(800)}).strict().optional(),
   languageStrategy:geminiLanguageSchema.optional(),
 }).strict();
+export const productionConceptSchema=z.union([legacyProductionConceptSchema,pageReelConceptSchema]);
 export const standingProductionSchema=z.object({version:z.literal('gemini-production-policy.v1'),id:z.string().regex(/^[A-Za-z0-9_-]{1,50}$/),geminiAccountId:account,pageAccountId:account,pageGraphId:z.string().regex(/^\d+$/),expiresAt:z.string().datetime().nullable(),targetPerWindow:z.number().int().min(3).max(5).default(3),planningWindowHours:z.number().min(1).max(168).default(5),maxPer24Hours:z.number().int().min(1).max(100).default(12),maxTotalSubmissions:z.number().int().min(1).max(100000).nullable().default(null)}).strict();
 const scopeSchema=z.object({id:z.string().regex(/^[A-Za-z0-9_-]{1,70}$/),geminiAccountId:account,pageAccountId:account,maxSubmissions:z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),expiresAt:z.string().datetime(),policyId:z.string().optional()}).strict();
-const reviewSchema=z.object({itemId:z.string().min(1).max(200),sha256:z.string().regex(/^[a-f0-9]{64}$/),decision:z.enum(['accepted','rejected']),visual:z.enum(['pass','fail']),audio:z.enum(['pass','fail']),source:z.literal('owner'),notes:z.string().min(1).max(2000),caption:z.string().min(1).max(6000),hashtags:z.string().max(1000).default('')}).strict();
+const reviewSchema=z.object({itemId:z.string().min(1).max(200),sha256:z.string().regex(/^[a-f0-9]{64}$/),decision:z.enum(['accepted','rejected']),visual:z.enum(['pass','fail']),audio:z.enum(['pass','fail']),source:z.literal('owner'),notes:z.string().min(1).max(2000),caption:z.string().min(1).max(6000),hashtags:z.string().max(1000).default(''),factsReviewed:z.boolean().optional()}).strict();
 type Config=z.infer<typeof productionConfigSchema>;
 type Scope=z.infer<typeof scopeSchema>;
 type Any=Record<string,any>;
@@ -55,9 +58,10 @@ export class GeminiProduction {
   readonly work:AgentWorkQueue;
   constructor(readonly store:AgentStore,readonly pipeline:PipelineAdapter,readonly scc:SccAdapter,
     readonly targets:{pipeline:string;scc:string},readonly directory:string,
-    readonly clock:()=>Date=()=>new Date(),readonly freeBytes:()=>number=()=>{const s=statfsSync(directory);return s.bavail*s.bsize;},readonly mediaQa:Pick<GeminiMediaQa,'inspect'>=new GeminiMediaQa(path.join(directory,'production-qa'))){this.work=new AgentWorkQueue(store,clock);}
-  config():Config{return productionConfigSchema.parse(this.store.runnerState('production.config')??{});}
-  policy(){const id=this.store.runnerState<string>('production.policy');return id?this.store.getJob(id):null;}
+    readonly clock:()=>Date=()=>new Date(),readonly freeBytes:()=>number=()=>{const s=statfsSync(directory);return s.bavail*s.bsize;},readonly mediaQa:Pick<GeminiMediaQa,'inspect'>=new GeminiMediaQa(path.join(directory,'production-qa')),readonly lane?:{accountId:string;graphId:string}){this.work=new AgentWorkQueue(store,clock);}
+  private key(name:string){return this.lane?'production.page:'+this.lane.accountId+':'+name:'production.'+name;}
+  config():Config{const local=this.store.runnerState(this.key('config')),base=this.store.runnerState('production.config')??{};return productionConfigSchema.parse(local??(this.lane?{...base,enabled:false}:base));}
+  policy(){const id=this.store.runnerState<string>(this.key('policy'));return id?this.store.getJob(id):null;}
   policyStatus(){const p=this.policy();return p?{id:p.id,policy:(p.input as Any).policy,targets:(p.input as Any).targets,authorizationExpiresAt:(p.input as Any).policy.expiresAt,state:p.state,budget:this.policyBudget(p)}:{enabled:false};}
   private policyBudget(job:AgentJob){const p=(job.input as Any).policy,now=this.clock().getTime(),issued=Date.parse(String(job.state.issuedAt)),windowMs=p.planningWindowHours*3600000,start=issued+Math.max(0,Math.floor((now-issued)/windowMs))*windowMs;
     const events=(job.state.dispatches??[]) as Any[],daily=events.filter(e=>Date.parse(e.at)>now-86400000),window=events.filter(e=>Date.parse(e.at)>=start);
@@ -65,7 +69,7 @@ export class GeminiProduction {
     const exhausted=p.maxTotalSubmissions!==null&&events.length>=p.maxTotalSubmissions;
     return {total:events.length,daily:daily.length,window:window.length,windowStartedAt:new Date(start).toISOString(),nextCheckAt:next>now?new Date(next).toISOString():null,exhausted,providerAllowance:null};
   }
-  async authorizePolicy(input:unknown,ownerAuthorized=false){if(!ownerAuthorized)throw new Error('Standing production needs recorded owner authorization');const p=standingProductionSchema.parse(input);
+  async authorizePolicy(input:unknown,ownerAuthorized=false){if(this.lane)throw new Error('New-Page initial admission requires its separate bounded pilot control');if(!ownerAuthorized)throw new Error('Standing production needs recorded owner authorization');const p=standingProductionSchema.parse(input);
     if(p.expiresAt&&Date.parse(p.expiresAt)<=this.clock().getTime())throw new Error('Policy already expired');
     const context=await this.scc.pageContext(p.pageAccountId);if(context.account.graphId!==p.pageGraphId)throw new Error('Standing policy Page identity differs');
     const id=prefix+'policy:'+p.id,existing=this.store.getJob(id);if(existing){if(stableHash((existing.input as Any).policy)!==stableHash(p)||existing.state.revokedAt)throw new Error('Policy IDs are immutable and revoked IDs cannot be rearmed');return this.policyStatus();}
@@ -73,10 +77,10 @@ export class GeminiProduction {
       const previous=this.policy();if(previous&&!previous.state.revokedAt)throw new Error('Revoke the previous standing policy before replacing it');
       this.store.createJob(id,{policy:p,targets:this.targets});this.save(id,{enabled:true,issuedAt:this.clock().toISOString(),dispatches:[],humanHold:null,nextCheckAt:null});
       this.start({id:'standing-'+stableHash(id).slice(0,32),geminiAccountId:p.geminiAccountId,pageAccountId:p.pageAccountId,maxSubmissions:p.maxTotalSubmissions??Number.MAX_SAFE_INTEGER,expiresAt:p.expiresAt??'9999-12-31T23:59:59.999Z',policyId:id},true,true);
-      this.store.setRunnerState('production.policy',id);this.store.recordKnowledge({id:id+':authorization',kind:'observation',accountId:p.pageAccountId,resourceId:id,source:'explicit_owner_standing_production_authorization',text:'Standing Gemini-only production authorization; publication is excluded.',evidence:{policy:p,targets:this.targets,contextFingerprint:context.contextFingerprint}});return this.policyStatus();
+      this.store.setRunnerState(this.key('policy'),id);this.store.recordKnowledge({id:id+':authorization',kind:'observation',accountId:p.pageAccountId,resourceId:id,source:'explicit_owner_standing_production_authorization',text:'Standing Gemini-only production authorization; publication is excluded.',evidence:{policy:p,targets:this.targets,contextFingerprint:context.contextFingerprint}});return this.policyStatus();
     });
   }
-  revokePolicy(){const p=this.policy();if(!p)return {enabled:false};if(p.state.revokedAt)return this.policyStatus();this.save(p.id,{enabled:false,revokedAt:this.clock().toISOString()});const id=this.store.runnerState<string>('production.active');if(id)this.save(id,{phase:'policy_revoked'});return this.policyStatus();}
+  revokePolicy(){const p=this.policy();if(!p)return {enabled:false};if(p.state.revokedAt)return this.policyStatus();this.save(p.id,{enabled:false,revokedAt:this.clock().toISOString()});const id=this.store.runnerState<string>(this.key('active'));if(id)this.save(id,{phase:'policy_revoked'});return this.policyStatus();}
   private policyFor(scope:Scope){if(!scope.policyId)return null;const p=this.store.getJob(scope.policyId);if(!p||stableHash((p.input as Any).targets)!==stableHash(this.targets))throw new Error('Original standing policy target changed');return p;}
   private policyAdmission(scope:Scope):Any|null {const job=this.policyFor(scope);if(!job)return null;const p=(job.input as Any).policy;
     if(!job.state.enabled||job.state.revokedAt)return {state:'policy_revoked'};if(p.expiresAt&&Date.parse(p.expiresAt)<=this.clock().getTime())return {state:'policy_expired'};
@@ -89,15 +93,15 @@ export class GeminiProduction {
     if(code==='account_application_cap'&&!value){const usage=n.accountUsage?.[scope.geminiAccountId];if(usage?.window_started_at&&hours)value=new Date(Date.parse(usage.window_started_at)+hours*3600000).toISOString();}
     const date=Date.parse(value??'');this.save(job.id,{nextCheckAt:Number.isFinite(date)&&date>now?value:new Date(now+this.config().refreshObservationHours*3600000).toISOString(),waitReason:code});
   }
-  configure(input:unknown){const value=productionConfigSchema.parse(input);if(value.enabled)throw new Error('Enable production only through an explicitly authorized bounded cycle');this.store.setRunnerState('production.config',value);return value;}
+  configure(input:unknown){const value=productionConfigSchema.parse(input);if(value.enabled)throw new Error('Enable production only through an explicitly authorized bounded cycle');this.store.setRunnerState(this.key('config'),value);return value;}
   private ids():string[]{return this.store.runnerState<string[]>('production.items')??[];}
   private items():AgentJob[]{return this.ids().map(id=>this.store.getJob(id)).filter((x):x is AgentJob=>!!x);}
   private item(id:string):AgentJob{const j=this.store.getJob(id);if(!j||!(j.input as Any).production||stableHash((j.input as Any).targets)!==stableHash(this.targets))throw new Error('Unknown production item or changed API targets');return j;}
   private save(id:string,value:Any){return this.store.patchState(id,value);}
-  private inventory(){const c=this.config();const items=this.items().filter(j=>j.state.phase!=='published'&&(j.state.phase!=='failed'||!!j.state.media));
+  private inventory(){const local=this.config(),global=productionConfigSchema.parse(this.store.runnerState('production.config')??{}),c=this.lane?{...local,maxBacklogItems:Math.min(local.maxBacklogItems,global.maxBacklogItems),maxBacklogBytes:Math.min(local.maxBacklogBytes,global.maxBacklogBytes)}:local;const items=this.items().filter(j=>j.state.phase!=='published'&&(j.state.phase!=='failed'||!!j.state.media));
     const bytes=items.reduce((n,j)=>n+Number((j.state.media as Any)?.bytes??(['queued','planning','generating','recovering'].includes(String(j.state.phase))?c.reservationBytes:0))+Number((j.state.technicalQa as Any)?.artifactBytes??0)+Number((j.state.ownerVariantQa as Any)?.artifactBytes??0)+Number(j.state.candidateVariantBytes??0),0);
     return {items:items.length,bytes,full:items.length>=c.maxBacklogItems||bytes+c.reservationBytes>c.maxBacklogBytes};}
-  status(){const active=this.store.runnerState<string>('production.active');const cycle=active?this.store.getJob(active):null;
+  status(){const active=this.store.runnerState<string>(this.key('active'));const cycle=active?this.store.getJob(active):null;
     const scope=(cycle?.input as Any)?.scope as Scope|undefined,hold=scope?this.policyAdmission(scope):null,lastSuccess=this.items().filter(j=>j.state.videoId&&(j.state.media as Any)?.technical).sort((a,b)=>Date.parse(String(b.state.lastCheckedAt))-Date.parse(String(a.state.lastCheckedAt)))[0];
     return {version:'gemini-production.v1',config:this.config(),standing:this.policyStatus(),inventory:this.inventory(),cycle:cycle?{id:cycle.id,scope:cycle.input,state:cycle.state}:null,
       operation:{state:!this.config().enabled?'disabled':hold?.state??String(cycle?.state.phase??'activation_required'),nextRecheckAt:hold?.nextCheckAt??this.policy()?.state.nextCheckAt??null,lastSuccessfulImport:lastSuccess?{itemId:lastSuccess.id,videoId:lastSuccess.state.videoId,original:lastSuccess.state.original,completionObservedAt:lastSuccess.state.lastCheckedAt}:null,lastError:cycle?.state.lastError??null,requiredHumanAction:hold&&/human|security/.test(hold.state)?'Open the dedicated Gemini account session and complete any displayed security/sign-in check, then use production-resume. Do not resubmit the turn.':hold&&/reconciliation|failure/.test(hold.state)?'Inspect the exact original operation; use supported recovery or original-receipt reconciliation only.':null},
@@ -169,10 +173,12 @@ export class GeminiProduction {
     const concept=productionConceptSchema.parse(input),id=prefix+'item:'+stableHash({concept,source:source??null}).slice(0,32);
     return this.store.transaction(()=>{
       if(this.store.getJob(id))return this.item(id);
+      if(this.lane&&(concept.version!=='gemini-page-concept.v1'||concept.accountId!==this.lane.accountId||concept.editorial.graphId!==this.lane.graphId))throw new Error('New-Page concept/lane identity differs');if(!this.lane&&concept.version==='gemini-page-concept.v1')throw new Error('Use the exact isolated Page production lane');
+      const editorialEvidence=concept.version==='gemini-page-concept.v1'?validatePageReelConcept(this.store,concept,this.clock().getTime()).evidence:null;
       if(concept.languageStrategy)validateLanguageEvidence(concept.languageStrategy,new CreatorResearch(this.store,this.clock).status(concept.accountId).findings,this.clock().getTime());
       if(this.inventory().full)throw new Error('Production backlog capacity reached');
       const ids=this.ids();if(ids.length>=1000)throw new Error('Production history index needs explicit maintenance; no history was deleted');
-      this.store.createJob(id,{production:true,title:concept.title,concept,source:source??null,targets:this.targets});
+      this.store.createJob(id,{production:true,title:concept.title,concept,source:source??null,targets:this.targets,...(editorialEvidence?{editorialEvidence}:{})});
       this.save(id,{phase:'queued',queuedAt:this.clock().toISOString()});this.store.setRunnerState('production.items',[...ids,id]);return this.item(id);
     });
   }
@@ -184,18 +190,19 @@ export class GeminiProduction {
     if(concept.researchUse&&(concept.researchUse.findingIds.some(id=>!supplied.some(f=>f.id===id))||concept.researchUse.principleIds.some(id=>!supplied.some(f=>f.principles?.some((p:Any)=>p.id===id)))))throw new Error('Concept cites unsupplied creator evidence');
     return this.enqueue(concept,{taskId:t.id,revision:t.revision});}
   start(input:unknown,ownerAuthorized=false,fromPolicy=false){if(ownerAuthorized!==true)throw new Error('An explicit bounded live-production scope is required');const scope=scopeSchema.parse(input),now=this.clock().getTime();
+    if(this.lane&&scope.pageAccountId!==this.lane.accountId)throw new Error('Bounded scope belongs to another Page');
     if(scope.policyId&&!fromPolicy)throw new Error('Use standing policy authorization');
     if((!scope.policyId&&(scope.maxSubmissions>5||Date.parse(scope.expiresAt)>now+7*86400000))||Date.parse(scope.expiresAt)<=now)throw new Error('Bounded scope requires at most five submissions and expiry in seven days');
-    return this.store.transaction(()=>{const old=this.store.runnerState<string>('production.active');if(old&&!['finished','expired','stopped'].includes(String(this.store.getJob(old)?.state.phase)))throw new Error('An existing production cycle still owns the scope');
+    return this.store.transaction(()=>{const old=this.store.runnerState<string>(this.key('active'));if(old&&!['finished','expired','stopped'].includes(String(this.store.getJob(old)?.state.phase)))throw new Error('An existing production cycle still owns the scope');
       if(old&&this.store.getJob(old)?.state.activeItem)throw new Error('Resolve the original active item before replacing a scope');
       const c=this.config(),id=prefix+'cycle:'+scope.id;this.store.createJob(id,{scope,configHash:stableHash({...c,enabled:true}),targets:this.targets});
       if(this.store.getJob(id)!.state.phase)throw new Error('A consumed cycle ID cannot be rearmed');
-      this.save(id,{phase:'active',attempts:[],createdProjects:0,activeItem:null,startedAt:this.clock().toISOString()});this.store.setRunnerState('production.config',{...c,enabled:true});this.store.setRunnerState('production.active',id);return this.status();});
+      this.save(id,{phase:'active',attempts:[],createdProjects:0,activeItem:null,startedAt:this.clock().toISOString()});this.store.setRunnerState(this.key('config'),{...c,enabled:true});this.store.setRunnerState(this.key('active'),id);return this.status();});
   }
-  stop(){this.revokePolicy();const id=this.store.runnerState<string>('production.active');if(id)this.save(id,{phase:'stopped',stoppedAt:this.clock().toISOString()});this.store.setRunnerState('production.config',{...this.config(),enabled:false});return this.status();}
+  stop(){this.revokePolicy();const id=this.store.runnerState<string>(this.key('active'));if(id)this.save(id,{phase:'stopped',stoppedAt:this.clock().toISOString()});this.store.setRunnerState(this.key('config'),{...this.config(),enabled:false});return this.status();}
   async close(ownerAuthorized=false){
     if(!ownerAuthorized)throw new Error('Closing a held cycle requires explicit owner review');
-    const id=this.store.runnerState<string>('production.active'),cycle=id?this.store.getJob(id):null;if(!cycle)throw new Error('No original cycle');
+    const id=this.store.runnerState<string>(this.key('active')),cycle=id?this.store.getJob(id):null;if(!cycle)throw new Error('No original cycle');
     if(stableHash((cycle.input as Any).targets)!==stableHash(this.targets))throw new Error('Original API targets changed');
     const n=await this.pipeline.productionStatus();if(n.activeRunId||n.observationLocked||n.unresolved||n.boundedRequests.some((r:Any)=>r.in_progress))throw new Error('Resolve the protected original operation first');
     if(cycle.state.activeItem){const item=this.item(String(cycle.state.activeItem));
@@ -210,13 +217,15 @@ export class GeminiProduction {
       this.store.releaseProvider('gemini_web:'+this.targets.pipeline,item.id);
     }
     this.save(cycle.id,{phase:'finished',activeItem:null,finishedAt:this.clock().toISOString(),closeReason:'authorized_close_after_verified_resolution'});
-    this.store.setRunnerState('production.config',{...this.config(),enabled:false});return this.status();
+    this.store.setRunnerState(this.key('config'),{...this.config(),enabled:false});return this.status();
   }
-  private cycle(){const id=this.store.runnerState<string>('production.active');const c=id?this.store.getJob(id):null;if(!c)return null;if(stableHash((c.input as Any).targets)!==stableHash(this.targets)||stableHash(this.config())!==(c.input as Any).configHash)throw new Error('Production configuration or targets changed; review a new authorization');return c;}
+  private cycle(){const id=this.store.runnerState<string>(this.key('active'));const c=id?this.store.getJob(id):null;if(!c)return null;if(stableHash((c.input as Any).targets)!==stableHash(this.targets)||stableHash(this.config())!==(c.input as Any).configHash)throw new Error('Production configuration or targets changed; review a new authorization');return c;}
   private async once(id:string,step:string,request:unknown,action:()=>Promise<any>,admit?:()=>void){const op=this.store.transaction(()=>{if(!this.store.getOperation(id,step))admit?.();return this.store.claimOperation(id,step,request);});if(!op.claimed){if(op.operation.status==='succeeded')return op.operation.response;throw new Error('reconciliation_required:'+step);}
     try{const result=await action();this.store.finishOperation(id,step,'succeeded',result);return result;}
     catch(e){this.store.finishOperation(id,step,e instanceof ApiError&&!e.uncertain?'rejected':'uncertain',{code:e instanceof ApiError?e.code:'operation_unconfirmed'});throw e;}}
   private async conceptTask(scope:Scope,cycle:AgentJob){
+    if(this.lane){const editorial=editorialContext(this.store,scope.pageAccountId,this.lane.graphId),facts=pageReelFacts(this.store,scope.pageAccountId,this.clock().getTime()).filter(f=>f.graphId===this.lane!.graphId).slice(0,3);if(!editorial||!facts.length)return {state:'factual_source_review_required',actions:0};const id='gemini-page-concept-'+scope.id+'-'+Number(cycle.state.createdProjects);if(!this.store.getWork(id)){const pageContext=await this.scc.pageContext(scope.pageAccountId);this.work.add({id,kind:'prepare_video',title:'Prepare one sourced ten-second Reel for '+editorial.name,priority:65,accountId:scope.pageAccountId,payload:{production:{version:'gemini-concept.v1',languagePolicy:geminiLanguagePolicyVersion,editorialPolicy:'page-reel-editorial.v1',laneAccountId:scope.pageAccountId,cycleId:cycle.id},pageContext,editorial,sourceFacts:facts.map(f=>({...f,evidence:f.evidence.slice(0,400),notice:'Bounded source attestation; actual final facts and audiovisual treatment need owner review.'})),brief:'One complete ten-second portrait text-only illustrative concept. Immediate hook, one idea, useful payoff. Native sound; no invented facts, copyrighted footage or fake screen recordings.'}});}return {state:'needs_concept',taskId:id};}
+
     if(scope.policyId&&new CreatorResearch(this.store,this.clock).status(scope.pageAccountId).researchNeeded&&this.store.workCandidates().some(t=>t.accountId===scope.pageAccountId&&t.payload?.creatorResearch?.version==='gemini-creator-research.v1'))return {state:'needs_creator_research',actions:0};
     const id='gemini-concept-'+scope.id+'-'+Number(cycle.state.createdProjects)+'-creators-v1';
     if(!this.store.getWork(id)){const context=await this.scc.pageContext(scope.pageAccountId);this.work.add({id,kind:'prepare_video',title:'Prepare one complete ten-second Gemini entertainment concept',priority:70,accountId:scope.pageAccountId,
@@ -278,6 +287,7 @@ export class GeminiProduction {
     if(!scope.policyId&&((cycle.state.attempts as string[]).length>=Math.min(scope.maxSubmissions,c.targetPerWindow)||Number(cycle.state.createdProjects)>=scope.maxSubmissions)){this.save(cycle.id,{phase:'finished',finishedAt:this.clock().toISOString()});return {state:'cycle_finished',actions:0};}
     const free=this.freeBytes();if(!Number.isFinite(free)||free<c.minimumFreeBytes+c.reservationBytes)return {state:'storage_hold',actions:0};
     const native=await this.eligibleNative(scope.geminiAccountId);if(native.block){this.capacityWait(scope,native.n,native.block);return {state:native.block,actions:0,providerAllowance:null,nextCheckAt:this.policyFor(scope)?.state.nextCheckAt??native.n.accountWaitNext};}
+    if(this.lane){const exact=this.store.getWork('gemini-page-concept-'+scope.id+'-'+Number(cycle.state.createdProjects));if(exact&&['prepared','done'].includes(exact.status))this.enqueuePrepared(exact.id);}
     for(const t of this.store.listWork(100)){if(t.kind==='prepare_video'&&['prepared','done'].includes(t.status)&&t.accountId===scope.pageAccountId&&t.payload?.production?.version==='gemini-concept.v1'){
       try{this.enqueuePrepared(t.id);}catch(e){if(!this.inventory().full)throw e;}
     }}
@@ -288,12 +298,13 @@ export class GeminiProduction {
   }
   private async advance(cycle:AgentJob,item:AgentJob,scope:Scope,c:Config):Promise<Any>{
     const concept=(item.input as Any).concept;
+    if(concept.version==='gemini-page-concept.v1'&&!this.store.getOperation(item.id,'production_submit')){try{validatePageReelConcept(this.store,concept,this.clock().getTime());}catch{return {state:'factual_source_review_required',actions:0};}}
     const providerScope='gemini_web:'+this.targets.pipeline;
     if(!item.state.projectId){
       if(cycle.state.phase!=='active')return {state:String(cycle.state.phase),actions:0};
       if(Date.parse(scope.expiresAt)<=this.clock().getTime())return {state:'scope_expired',actions:0};
       if(!this.store.reserveProvider(providerScope,item.id))return {state:'provider_claim_held',actions:0};
-      const idea=geminiConceptIdea(concept);
+      const idea=concept.version==='gemini-page-concept.v1'?pageReelIdea(concept)+'\n'+((item.input as Any).editorialEvidence??[]).map((f:Any)=>'Verified statement: '+f.claim+'; source: '+f.sourceUrl+'; source date: '+(f.sourceDate??'not exposed')).join('\n'):geminiConceptIdea(concept);
       const input={title:concept.title,idea,sceneCount:1,aspectRatio:'9:16'};
       const result=await this.once(item.id,'production_create',{input,accountId:scope.geminiAccountId},()=>this.pipeline.prepareProduction(input,scope.geminiAccountId),()=>this.authorized(cycle.id,item.id,scope));
       this.save(item.id,{projectId:result.projectId});return {state:'planning',itemId:item.id,projectId:result.projectId,actions:1};
@@ -405,8 +416,9 @@ export class GeminiProduction {
   }
   private authorized(cycleId:string,itemId:string,scope:Scope){
     const current=this.cycle();
+    if(this.lane){const control=this.store.runnerState<Any>('production.pageControl:'+this.lane.accountId);if(control?.paused||control?.revokedAt||control?.cycleId!==cycleId)throw new Error('Page production authorization changed before dispatch');}
     if(!this.config().enabled||!current||current.id!==cycleId||current.state.phase!=='active'||current.state.activeItem!==itemId||Date.parse(scope.expiresAt)<=this.clock().getTime())throw new Error('Production authorization changed before dispatch');
-    const policyHold=this.policyAdmission(scope);if(policyHold)throw new Error(policyHold.state);
+    const policyHold=this.policyAdmission(scope);if(policyHold)throw new Error(policyHold.state);const concept=(this.item(itemId).input as Any).concept;if(concept.version==='gemini-page-concept.v1')validatePageReelConcept(this.store,concept,this.clock().getTime());
     return current;
   }
   async reconcile(itemId:string,projectId:string){
@@ -528,7 +540,7 @@ export class GeminiProduction {
   async review(input:unknown,ownerAuthorized=false){if(!ownerAuthorized)throw new Error('Actual owner audiovisual review is required');const token=randomUUID(),now=this.clock().getTime(),locked=this.store.transaction(()=>{const old=this.store.runnerState<Any>('production.lease');if(old&&Date.parse(old.until)>now)return false;this.store.setRunnerState('production.lease',{token,until:new Date(now+900000).toISOString()});return true;});if(!locked)throw new Error('Production/candidate observation is busy');
     try{return await this.reviewOriginal(input);}finally{if(this.store.runnerState<Any>('production.lease')?.token===token)this.store.setRunnerState('production.lease',null);}
   }
-  private async reviewOriginal(input:unknown){const r=reviewSchema.parse(input),j=this.item(r.itemId),media=j.state.media as Any;
+  private async reviewOriginal(input:unknown){const r=reviewSchema.parse(input),j=this.item(r.itemId),media=j.state.media as Any;if((j.input as Any).concept.version==='gemini-page-concept.v1'&&r.decision==='accepted'&&r.factsReviewed!==true)throw new Error('Actual owner factual-source review is required');
     if(!['awaiting_qa','needs_review','branding','ready'].includes(String(j.state.phase))||media?.sha256!==r.sha256 || (j.state.qa&&stableHash(j.state.qa)!==stableHash(r)))throw new Error('Review must bind the unchanged original master and original QA decision');
     if(j.state.phase==='ready')return {state:'ready',draft:await this.scc.getDraft(String(j.state.draftId)),approved:false,queued:false};
     for(const step of ['production_candidate_brand','production_candidate_draft']){const op=this.store.getOperation(j.id,step);if(op&&(['pending','uncertain'].includes(op.status)||(step==='production_candidate_draft'&&!j.state.candidateDraftId)))throw new Error('Reconcile the original candidate operation before accepting it; no duplicate render/draft is permitted');}

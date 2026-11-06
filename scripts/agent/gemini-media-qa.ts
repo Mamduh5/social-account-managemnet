@@ -69,6 +69,7 @@ export class GeminiMediaQa {
 }
 
 export function candidateCopy(concept:Record<string,any>){
+  if(concept.version==='gemini-page-concept.v1')return {language:concept.languageStrategy.captionLanguages[0],caption:concept.caption,hashtags:concept.hashtags,basis:'sourced_Page_illustration_pending_actual_owner_review',notice:'Illustrative concept copy; not actual application/event footage. Owner factual/creative/listening approval is required.'};
   const language=concept.languageStrategy?.captionLanguages?.[0]??'en';
   const captions:Record<string,string>={en:'A small moment of imagination.\nAI-generated fiction.',th:'เรื่องเล็ก ๆ ในโลกจินตนาการ\nเรื่องสมมติสร้างด้วย AI',ja:'小さな空想のひととき。\nAIで制作したフィクションです。',es:'Un pequeño momento de imaginación.\nFicción creada con IA.',pt:'Um pequeno momento de imaginação.\nFicção criada com IA.',zh:'小小的想象时刻。\nAI创作的虚构故事。'};
   const traditional=language.split('-')[0]==='zh'&&(/(?:^|-)hant(?:-|$)/i.test(language)||/^zh-(TW|HK|MO)(?:-|$)/i.test(language));

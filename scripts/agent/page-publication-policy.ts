@@ -23,7 +23,8 @@ export class PagePublicationPolicies {
     if(!postId&&op){try{const r=op.request as Any,d=await this.scc.getDraft(r.draftId);if(d.revision===r.revision&&draftFingerprint(d)===r.payloadHash&&d.destinations?.length===1&&d.destinations[0].accountId===(j.input as Any).concept.accountId)postId=d.queuedPostId??null;}catch{/* Unknown original remains protected. */}}
     records.push({id:j.id,post_id:postId,status:op?.status==='uncertain'||!postId?'uncertain':'queued',error:s.publicationError??null});}return records;
   }
-  private async draftEligibility(j:AgentJob){const s=j.state as Any,qa=s.qa;if(!qa||qa.decision!=='accepted'||qa.visual!=='pass'||qa.audio!=='pass'||!s.media?.technical||qa.sha256!==s.media.sha256)return 'quality_hold';if(!s.variantReview||s.variantReview.visual!=='pass'||s.variantReview.sha256!==s.variantSha256||s.variantReview.masterAudioHash!==s.variantReview.variantAudioHash)return 'final_variant_review_required';
+  private async draftEligibility(j:AgentJob){
+    if((j.input as Any).concept.version==='gemini-page-concept.v1'&&(j.state.qa as Any)?.factsReviewed!==true&&(j.state.ownerReview as Any)?.factsReviewed!==true)return 'owner_factual_review_required';const s=j.state as Any,qa=s.qa;if(!qa||qa.decision!=='accepted'||qa.visual!=='pass'||qa.audio!=='pass'||!s.media?.technical||qa.sha256!==s.media.sha256)return 'quality_hold';if(!s.variantReview||s.variantReview.visual!=='pass'||s.variantReview.sha256!==s.variantSha256||s.variantReview.masterAudioHash!==s.variantReview.variantAudioHash)return 'final_variant_review_required';
     const d=await this.scc.getDraft(s.draftId),m=await this.scc.media(s.videoId),v=m.variants.find((v:Any)=>v.id===s.variantId);if(m.provenance.sha256!==qa.sha256||v?.sha256!==s.variantSha256)return 'review_media_changed';if(d.queuedPostId)return 'original_publication_exists';
     if(d.contentType!=='reel'||d.videoId!==s.videoId||d.scheduledAt!==null||d.destinations?.length!==1||d.destinations[0].accountId!==(j.input as Any).concept.accountId||d.destinations[0].selectedVariantId!==s.variantId||d.destinations[0].applyBranding!==false)return 'review_revision_changed';
     if(!publicationCopyMatches(s,d)&&(draftFingerprint(d)!==s.draftHash||d.destinations[0].caption!==qa.caption||d.destinations[0].hashtags!==(qa.hashtags??'')||s.ownerReview&&(s.ownerReview.decision!=='approve'||s.ownerReview.scope?.draftRevision!==d.revision||s.ownerReview.scope?.draftHash!==draftFingerprint(d))))return 'review_revision_changed';return null;
@@ -46,6 +47,7 @@ export class PagePublicationPolicies {
       else if(pending)reason='original_publication_reconciliation_required';
       else if(s.publicationPostId||s.publicationIntent)reason='original_publication_exists';
       else if(s.phase!=='ready'||s.qa?.decision!=='accepted'||s.qa.visual!=='pass'||s.qa.audio!=='pass'||s.qa.sha256!==s.media?.sha256)reason='owner_quality_review_required';
+      else if((j.input as Any).concept.version==='gemini-page-concept.v1'&&s.qa?.factsReviewed!==true&&s.ownerReview?.factsReviewed!==true)reason='owner_factual_review_required';
       else if(!s.variantReview||s.variantReview.sha256!==s.variantSha256||s.variantReview.masterAudioHash!==s.variantReview.variantAudioHash)reason='final_variant_review_required';
       else{try{const [d,m]=await Promise.all([this.scc.getDraft(s.draftId),this.scc.media(s.videoId)]),v=m.variants.find((x:Any)=>x.id===s.variantId);
         if(d.queuedPostId)reason='original_publication_exists';
