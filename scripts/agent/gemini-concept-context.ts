@@ -19,6 +19,24 @@ export function selectGeminiConceptContext(original:Any,limit:number){
   const result=(profile:string)=>{const text=JSON.stringify(view);return {text,admission:{version,profile,sourcePayloadHash,rawBytes,selectedBytes:Buffer.byteLength(text),limit,duplicateKnowledgeRemoved,status:'ready'}};};
   if(bytes(view)<=limit)return result('deduplicated_feedback');
 
+  if(payload.production.editorialPolicy==='page-reel-editorial.v1'){
+    // Sourced concepts need Page identity/rules/voice, not account registration
+    // aliases or renderer settings. Full administrative originals stay saved.
+    const context=payload.pageContext;if(context){for(const key of ['brandKit','contextFingerprint','notice'])delete context[key];if(context.account)context.account=Object.fromEntries(['id','name','graphId','identityVerifiedAt'].filter(k=>context.account[k]!==undefined).map(k=>[k,context.account[k]]));}
+    const facts=payload.sourceFacts;
+    if(Array.isArray(facts)&&facts.length>1&&facts.every((f:Any)=>typeof f.evidence==='string')){
+      const common:Any={};for(const key of ['accountId','graphId','sourceUrl','sourceDate','observedAt','validUntil','method','independentlyVerified','notice'])if(facts[0][key]!==undefined&&facts.every((f:Any)=>JSON.stringify(f[key])===JSON.stringify(facts[0][key]))){common[key]=facts[0][key];for(const f of facts)delete f[key];}
+      const strings=facts.map((f:Any)=>Array.from(f.evidence) as string[]);let prefixLength=0;while(prefixLength<strings[0].length&&strings.every((s:string[])=>s[prefixLength]===strings[0][prefixLength]))prefixLength++;
+      const prefix=strings[0].slice(0,prefixLength).join(''),rests=strings.map((s:string[])=>s.slice(prefixLength));let suffixLength=0;while(suffixLength<rests[0].length&&rests.every((s:string[])=>s[s.length-1-suffixLength]===rests[0][rests[0].length-1-suffixLength]))suffixLength++;
+      const suffix=suffixLength?rests[0].slice(-suffixLength).join(''):'';facts.forEach((f:Any,i:number)=>{f.evidence=rests[i].slice(0,rests[i].length-suffixLength).join('');});
+      payload.sourceFactsCommon=common;payload.sourceEvidenceCommon={prefix,suffix};
+      const restored=facts.map((f:Any)=>({...common,...f,evidence:prefix+f.evidence+suffix}));if(restored.some((f:Any,i:number)=>Object.keys(original.task.payload.sourceFacts[i]).some(k=>JSON.stringify(f[k])!==JSON.stringify(original.task.payload.sourceFacts[i][k]))))throw Error('Concept source reconstruction differs');
+    }
+    payload.pageContextSelection={notice:'Page identity, rules, voice and editorial constraints retained. Registration aliases and renderer metadata omitted; full originals remain in the saved task. Facts inherit sourceFactsCommon; exact FULL evidence = sourceEvidenceCommon.prefix + fact.evidence + sourceEvidenceCommon.suffix. No source claims or provenance are omitted.'};
+    if(bytes(view)>limit&&Array.isArray(payload.previous))payload.previous=payload.previous.map((x:Any)=>typeof x.idea==='string'?{...x,idea:excerpt(x.idea,256)}:x);
+    if(bytes(view)<=limit)return result('page_sources_and_identity');
+  }
+
   // Long-running histories are selected by section, not truncated as raw JSON.
   // Exact identity, Page rules/voice, requirements and all model instructions
   // stay intact. Recent titles remain an originality fence even at tight limits.
