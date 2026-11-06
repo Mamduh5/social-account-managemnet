@@ -2,26 +2,28 @@ import path from 'node:path';
 import {z} from 'zod';
 import {AgentStore,stableHash} from './store.js';
 import type {PageContent} from './page-content.js';
+import {standingImageAdmission,standingImageActive} from './page-image-policy.js';
 type Any=Record<string,any>;
 const text=(n:number)=>z.string().trim().min(1).max(n);
 export const imagePlan=z.object({version:z.literal('codex-content-images.v1'),taskId:text(160),expiresAt:z.string().datetime(),continuity:text(2000),images:z.array(z.object({prompt:text(4000),altText:text(1000),aspectRatio:z.enum(['1:1','4:5','3:4','9:16','16:9']),purpose:text(600)}).strict()).min(1).max(10)}).strict();
 export function imageTaskEligible(store:AgentStore,task:Any,now=Date.now()){
   const p=task.payload?.codexImage;if(p?.version!=='codex-content-image.v1')return false;
   const job=store.getJob(p.scopeId),parent=job&&store.getWork((job.input as Any).plan.taskId);
-  return !!job&&job.state.enabled===true&&Date.parse((job.input as Any).plan.expiresAt)>now&&!!parent&&stableHash(parent.result)===(job.input as Any).resultHash&&task.id===job.state.activeTaskId&&p.planHash===job.inputHash;
+  return !!job&&job.state.enabled===true&&Date.parse((job.input as Any).plan.expiresAt)>now&&!!parent&&stableHash(parent.result)===(job.input as Any).resultHash&&task.id===job.state.activeTaskId&&p.planHash===job.inputHash&&standingImageAdmission(store,p,now,task.id);
 }
 /** Exact-concept bounded grants; no timer, recurring activation or publication authority. */
 export class PageContentImages {
   constructor(readonly page:PageContent,readonly stateFile:string,readonly clock:()=>Date=()=>new Date()){}
   get store(){return this.page.store;}
   ids(){return this.store.runnerState<string[]>('page-image.scopes')??[];}
-  status(){return {enabledScopes:this.ids().map(id=>this.store.getJob(id)).filter(j=>j?.state.enabled),recurringEnabled:false,scopeRequired:true,maximumPendingItems:6};}
-  async authorize(raw:unknown,authorized=false){
+  status(){return {enabledScopes:this.ids().map(id=>this.store.getJob(id)).filter(j=>j?.state.enabled),recurringEnabled:!!this.store.runnerState<string>('page-image.policy')&&standingImageActive(this.store,this.store.runnerState<string>('page-image.policy')!,this.clock().getTime()),scopeRequired:true,maximumPendingItems:6};}
+  async authorize(raw:unknown,authorized=false,standingPolicyId?:string){
     if(!authorized)throw new Error('Exact bounded image scope requires owner authorization');
     const plan=imagePlan.parse(raw),v=this.page.validate(plan.taskId),id='page-images:'+plan.taskId;
     if(v.payload.format!=='image')throw new Error('Image concept required');
     if(v.result.imageBrief?.frames&&v.result.imageBrief.frames.length!==plan.images.length)throw new Error('Image count differs from the concept sequence');
-    const input={plan,resultHash:stableHash(v.task.result),origin:this.page.scc.client.origin,accountId:v.task.accountId,graphId:v.payload.request.graphId};
+    if(standingPolicyId){const grant=this.store.getJob(standingPolicyId),policy=(grant?.input as Any)?.policy;if(!standingImageActive(this.store,standingPolicyId,this.clock().getTime())||policy.accountId!==v.task.accountId||policy.graphId!==v.payload.request.graphId||Date.parse(plan.expiresAt)>Date.parse(policy.expiresAt))throw new Error('Standing image authority is inactive or differs from scope');}
+    const input={plan,resultHash:stableHash(v.task.result),origin:this.page.scc.client.origin,accountId:v.task.accountId,graphId:v.payload.request.graphId,...(standingPolicyId?{standingPolicyId}:{})};
     const old=this.store.getJob(id);if(old){if(old.inputHash!==stableHash(input))throw new Error('Original image scope cannot be replaced');return old;}
     if(Date.parse(plan.expiresAt)<=this.clock().getTime())throw new Error('Image scope expired');
     const state=this.store.runnerState<Any>('page-content.state:'+plan.taskId);
@@ -56,11 +58,12 @@ export class PageContentImages {
         this.store.patchState(id,{phase:'needs_owner_review',enabled:false,draftId:saved.draftId,collection});return {state:'image_draft_needs_owner_review',actions:1,draftId:saved.draftId};
       }
       if(!state.enabled||Date.parse(plan.expiresAt)<=this.clock().getTime())continue;
+      if(!standingImageAdmission(this.store,input,this.clock().getTime()))return {state:'standing_image_admission_wait',actions:0};
       this.pendingBound();const v=this.page.validate(plan.taskId);if(stableHash(v.task.result)!==input.resultHash)throw new Error('Concept changed after image scope');
       const context=await this.page.scc.preparationContext(v.task.accountId!);if(context.contextFingerprint!==v.payload.contextFingerprint||context.account.graphId!==input.graphId)throw new Error('Page context changed');
       const index=(state.completed??[]).length,requestId='page-image-'+stableHash({scope:id,planHash:job.inputHash,index}).slice(0,40),directory=path.join(path.dirname(path.resolve(this.stateFile)),'content-images',requestId);
       const references=index>0?[{file:state.completed[0].file,sha256:state.completed[0].qa.sha256}]:[];
-      const payload={codexImage:{version:'codex-content-image.v1',scopeId:id,planHash:job.inputHash,stateFile:path.resolve(this.stateFile),directory,index,prompt:plan.images[index].prompt,aspectRatio:plan.images[index].aspectRatio,continuity:plan.continuity,references,origin:input.origin}};
+      const payload={codexImage:{version:'codex-content-image.v1',scopeId:id,planHash:job.inputHash,stateFile:path.resolve(this.stateFile),directory,index,prompt:plan.images[index].prompt,aspectRatio:plan.images[index].aspectRatio,continuity:plan.continuity,references,origin:input.origin,...(input.standingPolicyId?{standingPolicyId:input.standingPolicyId}:{})}};
       this.store.transaction(()=>{const latest=this.store.getJob(id)!;if(!latest.state.enabled||latest.state.activeTaskId)throw new Error('Image grant changed');this.page.content.work.add({id:requestId,kind:'opening_image',accountId:v.task.accountId,title:plan.images[index].purpose,priority:95,payload});this.store.patchState(id,{activeTaskId:requestId,phase:'queued'});});return {state:'image_request_queued',actions:1,taskId:requestId};
     }
     return {state:'image_scopes_idle',actions:0};

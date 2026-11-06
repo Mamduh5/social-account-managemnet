@@ -10,6 +10,7 @@ import {AgentRunner} from './agent/runner.js';
 import {configureRunner} from './agent/runner-config.js';
 import {manageSchedule} from './agent/runner-schedule.js';
 import {PageContentImages} from './agent/page-content-images.js';
+import {StandingPageImages} from './agent/page-image-policy.js';
 import {AgentContent} from './agent/content.js';
 import {AgentResearch} from './agent/research.js';
 import {CreatorResearch} from './agent/creator-research.js';
@@ -24,7 +25,11 @@ const version = 'agent-workflow.v1';
 const commands = {
   'page-content-status':'Read bounded text/image preparation and awaiting-imagery evidence; no publication.',
   'page-image-scope':'Record one exact bounded concept/image plan with --input and --owner-authorized; no generation.',
-  'page-image-status':'Read bounded image scopes; recurring production is disabled.',
+  'page-image-status':'Read bounded image scopes and recorded standing-trial admission.',
+  'standing-image-policy':'Read or record the explicit seven-day included image trial with --input and --owner-authorized.',
+  'standing-image-control':'Pause/resume/revoke the existing image trial through a durable --input command; no generation.',
+  'page-content-operations-status':'Read image trial and independent text/image publication readiness; no dispatch.',
+  'general-policy-proposal':'Save an explicitly disabled text/image publication proposal only.',
   'page-image-recover':'Recover the original saved image/import for --task only; never regenerates.',
   'page-content-config':'Configure bounded preparation only with --input and --owner-authorized; never a publication grant.',
   'page-content-enqueue':'Prepare an exact original text/image research task from --input; no model invocation.',
@@ -202,6 +207,10 @@ async function main() {
       case 'page-content-attach-images':data=await pageContent().attachImages(task(),input,flags['owner-authorized']===true);break;
       case 'page-image-scope':data=await pageImages().authorize(input,flags['owner-authorized']===true);break;
       case 'page-image-status':data=pageImages().status();break;
+      case 'standing-image-policy':{const policy=new StandingPageImages(pageContent(),statePath);data=flags.input?await policy.authorize(input,flags['owner-authorized']===true):policy.status();break;}
+      case 'standing-image-control':data=new StandingPageImages(pageContent(),statePath).control(input,flags['owner-authorized']===true);break;
+      case 'page-content-operations-status':{const status=pageContent().status(),accounts=[...new Set((status.config as any).entries?.map((e:any)=>e.accountId)??[])];const streams=[];for(const id of accounts)streams.push(...(await publication().streams(String(id))).filter(s=>s.contentType!=='reel'));data={...status,publicationStreams:streams};break;}
+      case 'general-policy-proposal':if(flags['owner-authorized']!==true)throw new Error('Owner disabled proposal action required');data=await publication().streamProposal(input);break;
       case 'page-image-recover':data=await pageImages().recover(task());break;
       case 'video-review-list':data=await videoReviews().list();break;
       case 'video-review-policy-preview':data=await videoReviews().publicationProposal(input);break;
