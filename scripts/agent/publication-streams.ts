@@ -7,7 +7,7 @@ export function publicationTime(value:unknown){if(typeof value!=='string')return
 export function publicationCadence(rows:Any[],policy:Any,now:number){
   const dates=rows.filter(r=>r.status==='published').map(r=>publicationTime(r.published_at)),confirmed24h=dates.filter(d=>d>now-86400000).length;
   const latest=dates.length?Math.max(...dates):null;
-  let next=latest===null?now:latest+policy.minimumHours*3600000;
+  let next=latest===null?now:latest+Math.max(policy.minimumHours,policy.preferredHours??0)*3600000;
   if(confirmed24h>=policy.maxPer24Hours)next=Math.max(next,dates.filter(d=>d>now-86400000).sort((a,b)=>a-b)[confirmed24h-policy.maxPer24Hours]+86400000);
   return {confirmed24h,lastConfirmedAt:latest!==null&&Number.isFinite(latest)?new Date(latest).toISOString():null,nextEligibleAt:Number.isFinite(next)?new Date(Math.max(now,next)).toISOString():null,unknownDate:dates.some(d=>!Number.isFinite(d)),waiting:next>now};
 }

@@ -63,6 +63,7 @@ const commands = {
   'reel-preparation-status':'Read three-Page video readiness and separate grants; never submits.',
   'reel-preparation-proposals':'Save disabled new-Page generation and Reel publication proposals with owner scope.',
   'reel-fact-review':'Record an exact bounded verified-source attestation; no generation or quality approval.',
+  'reel-standing-authorize':'Record an explicitly owner-authorized two-per-day new-Page standing generation grant; publication remains separate.',
   'reel-pilot-authorize':'Activate a separately owner-authorized one-video new-Page scope; protected originals/facts must pass.',
   'reel-pilot-recover':'Import-only recovery of the exact submitted new-Page original after confirmed manual security completion.',
   'reel-pilot-control':'Pause/resume/revoke an existing new-Page pilot, preserving originals.',
@@ -241,6 +242,7 @@ async function main() {
       case 'reel-preparation-status':data=await new PageReelPreparation(local(),pipeline,scc,{pipeline:pipelineClient.origin,scc:scc.client.origin},path.dirname(statePath)).status();break;
       case 'reel-preparation-proposals':data=await new PageReelPreparation(local(),pipeline,scc,{pipeline:pipelineClient.origin,scc:scc.client.origin},path.dirname(statePath)).saveProposals(flags['owner-authorized']===true);break;
       case 'reel-fact-review':data=savePageReelFact(local(),input,flags['owner-authorized']===true);break;
+      case 'reel-standing-authorize':data=await new PageReelPreparation(local(),pipeline,scc,{pipeline:pipelineClient.origin,scc:scc.client.origin},path.dirname(statePath)).authorizeStanding(input,flags['owner-authorized']===true);break;
       case 'reel-pilot-authorize':data=await new PageReelPreparation(local(),pipeline,scc,{pipeline:pipelineClient.origin,scc:scc.client.origin},path.dirname(statePath)).activatePilot(input,flags['owner-authorized']===true);break;
       case 'reel-pilot-recover':if(Object.keys(input).some(k=>k!=='accountId')||typeof input.accountId!=='string')throw new Error('Exact Page account required');data=await new PageReelPreparation(local(),pipeline,scc,{pipeline:pipelineClient.origin,scc:scc.client.origin},path.dirname(statePath)).recoverPilot(input.accountId,flags['owner-authorized']===true);break;
       case 'reel-pilot-control':data=new PageReelPreparation(local(),pipeline,scc,{pipeline:pipelineClient.origin,scc:scc.client.origin},path.dirname(statePath)).control(input,flags['owner-authorized']===true);break;

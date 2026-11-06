@@ -1,5 +1,6 @@
+import {createHash} from 'node:crypto';
 import {spawn} from 'node:child_process';
-import {statSync,readFileSync,existsSync,mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {statSync,realpathSync,readFileSync,existsSync,mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -140,19 +141,21 @@ export function parseCodexOutput(stdout:string,structured=false,live=false):Omit
 }
 
 export class CommandExecutors {
-  constructor(readonly probeDirectory:string,readonly processRunner:ProcessRunner=runProcess){}
+  constructor(readonly probeDirectory:string,readonly processRunner:ProcessRunner=runProcess,readonly includedCheck:(directory:string)=>Promise<any>=async directory=>createRequire(path.join(__dirname,'executors.ts'))('./codex-image-once.cjs').preflight(directory)){}
   async detect(config:ExecutorConfig):Promise<ExecutorCapability>{
     const resolved=resolveExecutor(config.command,config.adapter);
     if(!resolved)return {id:config.id,adapter:config.adapter,available:false,reason:'not_installed'};
     mkdirSync(this.probeDirectory,{recursive:true});
     const fingerprint=JSON.stringify({config,resolved,mtime:statSync(resolved.args[0]??resolved.command).mtimeMs});
+    const scoped=config.id==='codex_page_reels';
+    if(scoped){try{await this.includedCheck(this.probeDirectory);}catch{return {id:config.id,adapter:config.adapter,available:false,reason:'included_subscription_or_usage_unavailable'};}}
     const cache=path.join(this.probeDirectory,config.id+'-capability.json');
     try{const saved=JSON.parse(readFileSync(cache,'utf8'));if(saved.fingerprint===fingerprint&&Date.now()-saved.at<3600000)return saved.capability;}catch{}
     try {
       const args=config.adapter==='codex'?['exec','--help']:config.adapter==='gemini'?['--help']:[...config.args,'--help'];
       const probe=await this.processRunner(resolved.command,[...resolved.args,...args],{cwd:this.probeDirectory,timeoutMs:10000,maxBytes:64000});
       const required=config.adapter==='codex'?['--json','--sandbox','--ephemeral','--ignore-user-config','--output-schema']:config.adapter==='gemini'?['--prompt','--output-format','--extensions']:['agent-result.v1'];
-      if(probe.code!==0||required.some(flag=>!probe.stdout.includes(flag)))return {id:config.id,adapter:config.adapter,available:false,reason:'unsupported_noninteractive_contract'};
+      if(probe.code!==0||[...required,...(scoped?['--image']:[])].some(flag=>!probe.stdout.includes(flag)))return {id:config.id,adapter:config.adapter,available:false,reason:'unsupported_noninteractive_contract'};
       let liveResearch=false,authentication='not_probed';
       if(config.liveResearch&&config.adapter==='codex'){
         const help=await this.processRunner(resolved.command,[...resolved.args,'--help'],{cwd:this.probeDirectory,timeoutMs:10000,maxBytes:64000});
@@ -177,12 +180,17 @@ export class CommandExecutors {
     const structured=task.payload?.content?.responseContract==='agent-content-result.v1';
     const creator=task.payload?.creatorResearch?.version==='gemini-creator-research.v1';
     const pageContent=task.payload?.pageContent?.version==='page-content.v1';
-    const live=(structured&&task.payload.content.requiresLiveResearch===true)||creator||(pageContent&&task.payload.pageContent.requiresLiveResearch===true);
+    const pageScoped=task.payload?.pageReelReview||task.payload?.pageReelResearch;
+    if(pageScoped&&(config.adapter!=='codex'||config.id!=='codex_page_reels'))throw new ExecutionError('included_codex_page_scope_required',true);
+    if(pageScoped){try{await this.includedCheck(directory);}catch{throw new ExecutionError('included_subscription_or_usage_unavailable',true);}}
+    const reviewImages=task.payload?.pageReelReview?.images??[];if(task.payload?.pageReelReview&&(reviewImages.length!==2||reviewImages.some((i:any)=>!path.isAbsolute(i.path)||realpathSync(i.path)!==path.resolve(i.path)||!i.path.endsWith(path.sep+'contact.jpg')||!realpathSync(i.path).startsWith(realpathSync(task.payload.pageReelReview.qaRoot)+path.sep)||statSync(i.path).size>3*1024**2||createHash('sha256').update(readFileSync(i.path)).digest('hex')!==i.sha256)))throw new ExecutionError('review_images_changed_or_outside_qa_scope',true);
+    const live=!!task.payload?.pageReelResearch||(structured&&task.payload.content.requiresLiveResearch===true)||creator||(pageContent&&task.payload.pageContent.requiresLiveResearch===true);
     if(live&&(!config.liveResearch||!capability.capabilities?.liveResearch))throw new ExecutionError('live_research_capability_unavailable',true);
     writeFileSync(schemaPath,JSON.stringify(structured?contentOutputSchema():z.toJSONSchema(agentResultSchema)),{flag:'wx'});
     let args:string[],env=safeEnvironment();
     if(config.adapter==='codex')args=['exec','--ignore-user-config','--ephemeral','--skip-git-repo-check','--sandbox','read-only','--json',
       '-c','approval_policy="never"','-c','features.shell_tool=false','-c','features.apps=false','-c','features.hooks=false','-c','features.multi_agent=false','-c','features.skill_search=false','-c',live?'web_search="live"':'web_search="disabled"',
+      ...(pageScoped?['-c','features.image_generation=false',...reviewImages.flatMap((i:any)=>['--image',i.path])]:[]),
       ...(structured?['-c','model_instructions_file='+JSON.stringify(path.resolve(__dirname,'content-instructions.txt')),'-c','model_reasoning_effort="low"']:[]),
       '--output-schema',schemaPath,'-'];
     else if(config.adapter==='gemini'){
@@ -196,6 +204,7 @@ export class CommandExecutors {
     let output:ProcessOutput;
     try{output=await executeProcess(capability.command,[...(capability.args??[]),...args],{...options,diagnosticsDirectory:path.join(directory,'process'),cwd:executionDirectory,stdin:context,env});}
     finally{rmSync(executionDirectory,{recursive:true,force:true});}
+    if(reviewImages.some((i:any)=>createHash('sha256').update(readFileSync(i.path)).digest('hex')!==i.sha256))throw new ExecutionError('review_images_changed_during_execution',false,output.diagnostics);
     if(output.code!==0)throw new ExecutionError('executor_exit_nonzero',false,output.diagnostics);
     let value:unknown,usage:ExecutionResult['usage']=null,researchAudit:ExecutionResult['researchAudit'];
     try {
