@@ -211,7 +211,7 @@ export class CommandExecutors {
           if(parsed.usage&&typeof parsed.usage==='object'&&Number.isSafeInteger(parsed.usage.tokens))usage=parsed.usage;
           if(parsed.researchAudit&&typeof parsed.researchAudit==='object')researchAudit=parsed.researchAudit;
           if(structured&&'result' in parsed)value=typeof parsed.result==='string'?JSON.parse(parsed.result):parsed.result;
-          else if(pageContent){const result=parsePageContentOutput(output.stdout);value=result.result;usage=result.usage;}
+          else if(pageContent||task.payload?.codexImage?.version==='codex-content-image.v1'){const result=parsePageContentOutput(output.stdout);value=result.result;usage=result.usage;}
           else if(creator||task.payload?.production?.version==='gemini-concept.v1'){const {usage:_usage,researchAudit:_audit,...result}=parsed;value=result;}
           else value=parsed;
         }else value=parsed;

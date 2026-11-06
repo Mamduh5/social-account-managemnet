@@ -88,10 +88,12 @@ function probePng(file) {
   execFileSync('ffmpeg',['-v','error','-xerror','-i',file,'-frames:v','1','-f','null','-'],{timeout:15000,windowsHide:true});
   return {sha256:sha(bytes),bytes:bytes.length,format:'png',width:s.width,height:s.height,fullDecode:true};
 }
-async function generate(prompt, directory) {
+async function generate(prompt, directory, references=[]) {
   const cwd=path.join(directory,'sandbox');fs.mkdirSync(cwd,{recursive:true});
   const args=[CLI,'exec','--ignore-user-config','--ephemeral','--skip-git-repo-check','--sandbox','read-only','--json','-c','approval_policy="never"','-c','features.image_generation=true','-c','features.shell_tool=false','-c','features.unified_exec=false','-c','features.apps=false','-c','features.hooks=false','-c','features.multi_agent=false','-c','features.skill_search=false','-c','web_search="disabled"','-'];
-  const intent={startedAt:new Date().toISOString(),method:'codex exec built-in image_generation feature; ChatGPT included authentication only',command:process.execPath,args,prompt,promptSha256:sha(Buffer.from(prompt)),maximumImages:1,apiKeysPassed:false};save(directory,'generation-intent.json',intent);
+  const referenceEvidence=references.map(file=>({file:fs.realpathSync(file),...probePng(file)}));
+  for(const reference of referenceEvidence)args.splice(args.length-1,0,'--image',reference.file);
+  const intent={startedAt:new Date().toISOString(),method:'codex exec built-in image_generation feature; ChatGPT included authentication only',command:process.execPath,args,prompt,promptSha256:sha(Buffer.from(prompt)),maximumImages:1,apiKeysPassed:false,...(referenceEvidence.length?{references:referenceEvidence}:{})};save(directory,'generation-intent.json',intent);
   return new Promise((resolve,reject)=>{
     const child=spawn(process.execPath,args,{cwd,env:safeEnv(),windowsHide:true,shell:false,stdio:['pipe','pipe','pipe']});
     let output='',error='',buffer='',failure=null,threadId=null;const startedAt=new Date().toISOString(),seen=new Set();
@@ -164,4 +166,4 @@ if(require.main===module) {
   if(process.argv.includes('--help'))console.log('agent-result.v1 structured_output noninteractive; isolated one-time Codex image validation only');
   else main().catch(e=>{const result={at:new Date().toISOString(),status:'blocked',reason:e.message,retryAuthorized:false,publication:false};try{save(DIRECTORY,'blocked-'+Date.now()+'.json',result);}catch{}console.log(JSON.stringify({version:'agent-result.v1',status:'blocked',result:JSON.stringify(result),lessons:[]}));});
 }
-module.exports={validateAdmission,imageEvents,selectArtifact,probePng,safeEnv,preflight,importImage,finishOriginal,sha};
+module.exports={validateAdmission,imageEvents,selectArtifact,probePng,safeEnv,preflight,generate,importImage,finishOriginal,sha};

@@ -9,6 +9,7 @@ import {compactWork} from './agent/work-queue.js';
 import {AgentRunner} from './agent/runner.js';
 import {configureRunner} from './agent/runner-config.js';
 import {manageSchedule} from './agent/runner-schedule.js';
+import {PageContentImages} from './agent/page-content-images.js';
 import {AgentContent} from './agent/content.js';
 import {AgentResearch} from './agent/research.js';
 import {CreatorResearch} from './agent/creator-research.js';
@@ -22,6 +23,9 @@ import {validateContentResult,contentOutputSchema} from './agent/content-contrac
 const version = 'agent-workflow.v1';
 const commands = {
   'page-content-status':'Read bounded text/image preparation and awaiting-imagery evidence; no publication.',
+  'page-image-scope':'Record one exact bounded concept/image plan with --input and --owner-authorized; no generation.',
+  'page-image-status':'Read bounded image scopes; recurring production is disabled.',
+  'page-image-recover':'Recover the original saved image/import for --task only; never regenerates.',
   'page-content-config':'Configure bounded preparation only with --input and --owner-authorized; never a publication grant.',
   'page-content-enqueue':'Prepare an exact original text/image research task from --input; no model invocation.',
   'page-content-persist':'Save completed --task as an unapproved draft or awaiting-imagery concept.',
@@ -163,7 +167,8 @@ async function main() {
     const local = () => store ||= new AgentStore(statePath);
     const contentScc=new SccAdapter(new JsonClient(sccClient.origin,{timeoutMs:10_000}));
     const content=()=>new AgentContent(local(),contentScc);
-    const pageContent=()=>new PageContent(local(),contentScc);
+    const pageContent=()=>new PageContent(local(),contentScc,undefined,statePath);
+    const pageImages=()=>new PageContentImages(pageContent(),statePath);
     const production=()=>new GeminiProduction(local(),new PipelineAdapter(new JsonClient(pipelineClient.origin,{timeoutMs:90_000})),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath));
     const publication=()=>new PagePublicationPolicies(local(),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin});
     const videoReviews=()=>new OwnerVideoReviews(local(),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath));
@@ -195,6 +200,9 @@ async function main() {
       case 'page-content-persist':data=await pageContent().persist(task());break;
       case 'page-content-reconcile':data=await pageContent().reconcile(task(),input.draftId);break;
       case 'page-content-attach-images':data=await pageContent().attachImages(task(),input,flags['owner-authorized']===true);break;
+      case 'page-image-scope':data=await pageImages().authorize(input,flags['owner-authorized']===true);break;
+      case 'page-image-status':data=pageImages().status();break;
+      case 'page-image-recover':data=await pageImages().recover(task());break;
       case 'video-review-list':data=await videoReviews().list();break;
       case 'video-review-policy-preview':data=await videoReviews().publicationProposal(input);break;
       case 'video-review-policy-save':data=await videoReviews().publicationProposal(input,true,flags['owner-authorized']===true);break;

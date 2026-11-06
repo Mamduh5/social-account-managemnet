@@ -7,6 +7,7 @@ import {configureRunner,getRunnerConfig,runnerAuthorized,type RunnerConfig} from
 import {parseCodexOutput,parsePageContentOutput,agentResultSchema,CommandExecutors,ExecutionError,type ExecutorCapability,type ExecutionResult} from './executors.js';
 import {creatorResearchInstructions} from './creator-research.js';
 import {pageContentInstructions} from './page-content.js';
+import {imageTaskEligible} from './page-content-images.js';
 import {geminiLanguageInstructions} from './gemini-language.js';
 import {selectGeminiConceptContext,GeminiContextLimit} from './gemini-concept-context.js';
 
@@ -79,6 +80,7 @@ export class AgentRunner {
   }
   private eligible(c:RunnerConfig){
     return this.store.workCandidates().filter(task=>task.status==='ready'&&this.work.available(task)).filter(task=>{
+      if(task.payload?.codexImage&&!imageTaskEligible(this.store,task,this.clock().getTime()))return false;
       if(task.payload?.pageContent?.version==='page-content.v1'){const p=this.store.runnerState<Session>('page-content.config');if(p&&(!p.enabled||p.expiresAt&&Date.parse(p.expiresAt)<=this.clock().getTime()||!p.entries.some((e:Session)=>e.accountId===task.accountId&&e.graphId===task.payload.pageContent.request.graphId&&e.formats.includes(task.payload.pageContent.format))))return false;}
       const policyId=task.payload?.production?.policyId??task.payload?.creatorResearch?.policyId;if(policyId){const policy=this.store.getJob(policyId),grant=policy?.input as Session;if(!policy?.state.enabled||policy.state.revokedAt||(grant?.policy?.expiresAt&&Date.parse(grant.policy.expiresAt)<=this.clock().getTime()))return false;}
       const prior=this.store.runnerSessions({taskId:task.id});
@@ -187,7 +189,7 @@ export class AgentRunner {
         if(config.saveContentDrafts&&task.payload?.content?.version==='agent-content.v1'&&!this.savePrepared){lastState='preparation_adapter_unavailable';continue;}
         let context:string;
         try{context=this.context(task,config);}catch{lastState='context_limit';continue;}
-        for(const executor of config.executors.filter(e=>e.kinds.includes(task.kind))){
+        for(const executor of config.executors.filter(e=>e.kinds.includes(task.kind)&&(task.payload?.codexImage?e.id==='codex_included_images':e.id!=='codex_included_images'))){
           if(!capabilities.has(executor.id))capabilities.set(executor.id,await this.executors.detect(executor));
           const capability=capabilities.get(executor.id)!;
           if((task.payload?.content?.requiresLiveResearch||task.payload?.creatorResearch||task.payload?.pageContent?.requiresLiveResearch)&&!capability.capabilities?.liveResearch){lastState='live_research_capability_unavailable';continue;}
