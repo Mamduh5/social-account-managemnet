@@ -11,6 +11,7 @@ import {configureRunner} from './agent/runner-config.js';
 import {manageSchedule} from './agent/runner-schedule.js';
 import {PageContentImages} from './agent/page-content-images.js';
 import {StandingPageImages} from './agent/page-image-policy.js';
+import {PageEditorial} from './agent/page-editorial.js';
 import {AgentContent} from './agent/content.js';
 import {AgentResearch} from './agent/research.js';
 import {CreatorResearch} from './agent/creator-research.js';
@@ -26,6 +27,10 @@ const commands = {
   'page-content-status':'Read bounded text/image preparation and awaiting-imagery evidence; no publication.',
   'page-image-scope':'Record one exact bounded concept/image plan with --input and --owner-authorized; no generation.',
   'page-image-status':'Read bounded image scopes and recorded standing-trial admission.',
+  'page-editorial':'Read/configure explicit editorial identities; no approval.',
+  'page-editorial-review':'Record exact original editorial classification without creative approval.',
+  'page-editorial-supersede':'Hold an old draft under explicit owner routing direction; never retarget or approve.',
+  'standing-image-transition':'Audit additional targets under the original shared expiry and image budget.',
   'standing-image-policy':'Read or record the explicit seven-day included image trial with --input and --owner-authorized.',
   'standing-image-control':'Pause/resume/revoke the existing image trial through a durable --input command; no generation.',
   'page-content-operations-status':'Read image trial and independent text/image publication readiness; no dispatch.',
@@ -207,6 +212,10 @@ async function main() {
       case 'page-content-attach-images':data=await pageContent().attachImages(task(),input,flags['owner-authorized']===true);break;
       case 'page-image-scope':data=await pageImages().authorize(input,flags['owner-authorized']===true);break;
       case 'page-image-status':data=pageImages().status();break;
+      case 'page-editorial':{const editorial=new PageEditorial(store!,scc);data=flags.input?await editorial.configure(input,flags['owner-authorized']===true):editorial.status();break;}
+      case 'page-editorial-review':data=new PageEditorial(store!,scc).review(input,flags['owner-authorized']===true);break;
+      case 'page-editorial-supersede':data=await new PageEditorial(store!,scc).supersede(input,flags['owner-authorized']===true);break;
+      case 'standing-image-transition':data=await new StandingPageImages(pageContent(),statePath).transition(input,flags['owner-authorized']===true);break;
       case 'standing-image-policy':{const policy=new StandingPageImages(pageContent(),statePath);data=flags.input?await policy.authorize(input,flags['owner-authorized']===true):policy.status();break;}
       case 'standing-image-control':data=new StandingPageImages(pageContent(),statePath).control(input,flags['owner-authorized']===true);break;
       case 'page-content-operations-status':{const status=pageContent().status(),accounts=[...new Set((status.config as any).entries?.map((e:any)=>e.accountId)??[])];const streams=[];for(const id of accounts)streams.push(...(await publication().streams(String(id))).filter(s=>s.contentType!=='reel'));data={...status,publicationStreams:streams};break;}

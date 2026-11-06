@@ -8,7 +8,8 @@ import {parseCodexOutput,parsePageContentOutput,agentResultSchema,CommandExecuto
 import {creatorResearchInstructions} from './creator-research.js';
 import {pageContentInstructions} from './page-content.js';
 import {imageTaskEligible} from './page-content-images.js';
-import {standingImageActive} from './page-image-policy.js';
+import {editorialPreparationEligible} from './page-editorial.js';
+import {standingImageActive,standingImageMatches} from './page-image-policy.js';
 import {geminiLanguageInstructions} from './gemini-language.js';
 import {selectGeminiConceptContext,GeminiContextLimit} from './gemini-concept-context.js';
 
@@ -82,7 +83,7 @@ export class AgentRunner {
   private eligible(c:RunnerConfig){
     return this.store.workCandidates().filter(task=>task.status==='ready'&&this.work.available(task)).filter(task=>{
       if(task.payload?.codexImage&&!imageTaskEligible(this.store,task,this.clock().getTime()))return false;
-      if(task.payload?.pageContent?.version==='page-content.v1'){const own=task.payload.pageContent.standingImagePolicyId;if(own){const grant=this.store.getJob(own),policy=(grant?.input as Session)?.policy;if(!standingImageActive(this.store,own,this.clock().getTime())||policy.accountId!==task.accountId||policy.graphId!==task.payload.pageContent.request.graphId)return false;}else{const p=this.store.runnerState<Session>('page-content.config');if(p&&(!p.enabled||p.expiresAt&&Date.parse(p.expiresAt)<=this.clock().getTime()||!p.entries.some((e:Session)=>e.accountId===task.accountId&&e.graphId===task.payload.pageContent.request.graphId&&e.formats.includes(task.payload.pageContent.format))))return false;}}
+      if(task.payload?.pageContent?.version==='page-content.v1'){if(!editorialPreparationEligible(this.store,task))return false;const own=task.payload.pageContent.standingImagePolicyId;if(own){const grant=this.store.getJob(own),policy=(grant?.input as Session)?.policy;if(!standingImageActive(this.store,own,this.clock().getTime())||!standingImageMatches(this.store,own,task.accountId!,task.payload.pageContent.request.graphId))return false;}else{const p=this.store.runnerState<Session>('page-content.config');if(p&&(!p.enabled||p.expiresAt&&Date.parse(p.expiresAt)<=this.clock().getTime()||!p.entries.some((e:Session)=>e.accountId===task.accountId&&e.graphId===task.payload.pageContent.request.graphId&&e.formats.includes(task.payload.pageContent.format))))return false;}}
       const policyId=task.payload?.production?.policyId??task.payload?.creatorResearch?.policyId;if(policyId){const policy=this.store.getJob(policyId),grant=policy?.input as Session;if(!policy?.state.enabled||policy.state.revokedAt||(grant?.policy?.expiresAt&&Date.parse(grant.policy.expiresAt)<=this.clock().getTime()))return false;}
       const prior=this.store.runnerSessions({taskId:task.id});
       return !prior.some(s=>['reserved','running','recovery_required'].includes(s.status))&&prior.length<c.maxAttempts;

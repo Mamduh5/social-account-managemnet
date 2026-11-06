@@ -132,3 +132,7 @@ npm run build:client              # Client types and production bundle
 The full suite covers OAuth and relay isolation, token encryption/rotation and failure recovery, missing statistics, Display API metrics and rate limiting, content-posting capability gates, Facebook Reels, independent destinations and scheduling. See the dated V1.9 report for current counts; fixtures are separate from live acceptance.
 
 Keep `.env*`, keys, `.data/` databases/WAL files/backups, tokens, profiles, MP4s, thumbnails, logs, test artifacts, dependencies and `client/dist/` out of Git.
+
+## Three-Page editorial routing and controlled publication — 6 November 2026
+
+See [the current editorial strategy](docs/content/THREE_PAGE_EDITORIAL_STRATEGY.md) and its durable configuration. The owner now authorizes separate text/image grants for the creative and Thai-interest Pages, and text only for the developer Page; exact draft approvals remain mandatory. The original included-Codex trial supports World and Rai under one unchanged expiry and combined allowance. This dated direction supersedes earlier pending-authority and Page-mapping notes; it changes no Reel grant, Gemini video quota, Flow behavior or spending constraint.

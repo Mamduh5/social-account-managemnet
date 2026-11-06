@@ -2,13 +2,14 @@ import path from 'node:path';
 import {z} from 'zod';
 import {AgentStore,stableHash} from './store.js';
 import type {PageContent} from './page-content.js';
-import {standingImageAdmission,standingImageActive} from './page-image-policy.js';
+import {editorialAdmission} from './page-editorial.js';
+import {standingImageAdmission,standingImageActive,standingImageMatches} from './page-image-policy.js';
 type Any=Record<string,any>;
 const text=(n:number)=>z.string().trim().min(1).max(n);
 export const imagePlan=z.object({version:z.literal('codex-content-images.v1'),taskId:text(160),expiresAt:z.string().datetime(),continuity:text(2000),images:z.array(z.object({prompt:text(4000),altText:text(1000),aspectRatio:z.enum(['1:1','4:5','3:4','9:16','16:9']),purpose:text(600)}).strict()).min(1).max(10)}).strict();
 export function imageTaskEligible(store:AgentStore,task:Any,now=Date.now()){
   const p=task.payload?.codexImage;if(p?.version!=='codex-content-image.v1')return false;
-  const job=store.getJob(p.scopeId),parent=job&&store.getWork((job.input as Any).plan.taskId);
+  const job=store.getJob(p.scopeId),parent=job&&store.getWork((job.input as Any).plan.taskId);if(parent){try{if(editorialAdmission(store,parent,typeof parent.result==='string'?JSON.parse(parent.result):parent.result))return false;}catch{return false;}}
   return !!job&&job.state.enabled===true&&Date.parse((job.input as Any).plan.expiresAt)>now&&!!parent&&stableHash(parent.result)===(job.input as Any).resultHash&&task.id===job.state.activeTaskId&&p.planHash===job.inputHash&&standingImageAdmission(store,p,now,task.id);
 }
 /** Exact-concept bounded grants; no timer, recurring activation or publication authority. */
@@ -22,7 +23,7 @@ export class PageContentImages {
     const plan=imagePlan.parse(raw),v=this.page.validate(plan.taskId),id='page-images:'+plan.taskId;
     if(v.payload.format!=='image')throw new Error('Image concept required');
     if(v.result.imageBrief?.frames&&v.result.imageBrief.frames.length!==plan.images.length)throw new Error('Image count differs from the concept sequence');
-    if(standingPolicyId){const grant=this.store.getJob(standingPolicyId),policy=(grant?.input as Any)?.policy;if(!standingImageActive(this.store,standingPolicyId,this.clock().getTime())||policy.accountId!==v.task.accountId||policy.graphId!==v.payload.request.graphId||Date.parse(plan.expiresAt)>Date.parse(policy.expiresAt))throw new Error('Standing image authority is inactive or differs from scope');}
+    if(standingPolicyId){const grant=this.store.getJob(standingPolicyId),policy=(grant?.input as Any)?.policy;if(!standingImageActive(this.store,standingPolicyId,this.clock().getTime())||!standingImageMatches(this.store,standingPolicyId,v.task.accountId!,v.payload.request.graphId)||Date.parse(plan.expiresAt)>Date.parse(policy.expiresAt))throw new Error('Standing image authority is inactive or differs from scope');}
     const input={plan,resultHash:stableHash(v.task.result),origin:this.page.scc.client.origin,accountId:v.task.accountId,graphId:v.payload.request.graphId,...(standingPolicyId?{standingPolicyId}:{})};
     const old=this.store.getJob(id);if(old){if(old.inputHash!==stableHash(input))throw new Error('Original image scope cannot be replaced');return old;}
     if(Date.parse(plan.expiresAt)<=this.clock().getTime())throw new Error('Image scope expired');
@@ -33,7 +34,7 @@ export class PageContentImages {
     return this.store.transaction(()=>{const job=this.store.createJob(id,input);this.store.patchState(id,{enabled:true,phase:'pending',completed:[],activeTaskId:null});this.store.setRunnerState('page-image.scopes',[...this.ids(),id]);return this.store.getJob(job.id);});
   }
   revoke(id:string){const job=this.store.getJob(id);if(!job)throw new Error('Unknown image scope');return this.store.patchState(id,{enabled:false,revokedAt:this.clock().toISOString()});}
-  private pendingBound(){const c=this.store.runnerState<Any>('page-content.config'),limit=Math.min(6,c?.maxPendingItems??6),n=this.page.ids().filter(id=>this.store.getJob(this.page.job(id))?.state.phase!=='published').length;if(n>limit)throw new Error('Six-item content preparation bound exceeded');}
+  private pendingBound(){const c=this.store.runnerState<Any>('page-content.config'),limit=Math.min(6,c?.maxPendingItems??6),n=this.page.pendingCount();if(n>limit)throw new Error('Six-item content preparation bound exceeded');}
   async advance(){
     // Shared preparation lease is held by PageContent.advance, including these deterministic steps.
     for(const id of this.ids()){
