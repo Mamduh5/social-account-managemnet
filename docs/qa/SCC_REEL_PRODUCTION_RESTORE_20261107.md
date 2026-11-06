@@ -1,6 +1,6 @@
 # Gemini admission and future Page Reel safeguards — 7 November 2026
 
-The native reconciliation fix and future Rai/Developer presentation safeguards are locally active. A fresh supported check at **01:06 Bangkok** returned `human_action_required`; Gemini admission therefore remains held. This is fresh security evidence, not a claim of quota exhaustion or a successful live reconciliation. No refresh, CAPTCHA interaction, diagnostic generation, publication, accounting reset or Git push was performed.
+The native reconciliation fix and future Rai/Developer presentation safeguards are locally active. **After owner-completed Google verification, the supported 01:25 Bangkok check returned `video_available`, recorded the audited stale-generic reconciliation and cleared the native blocker. Supported SCC resume then restored the existing cycle to active.** The earlier 01:06 security hold and activation evidence are preserved below. No agent refresh, CAPTCHA interaction, diagnostic generation, publication, accounting reset or Git push was performed.
 
 ## Cause and native correction
 
@@ -11,6 +11,14 @@ The first live check on that strict implementation returned available but safely
 The final executable is `bin/video-studio-api-bound-readiness-20261107.exe`, SHA256 `02ae4b25936a28ae04922ac453ded654368330dc7f543c2e4a9991d64b0ba991`, source `465794e`, PID **26720**, `--gemini-only`, on port 8080. It was started at 00:48:45 Bangkok after an idle-boundary check and native backup. Its explicit launch configuration preserves the existing Flow HTTP visibility while disabling native Flow generation, as before.
 
 The final one-shot supported `availability_check` completed at approximately 01:06:10 Bangkok. Its capability observation at 01:06:08 returned **`human_action_required`**. The original generic blocker remained; no reconciliation-success audit was invented. No active or unresolved original submission was present. Manual Google verification is still required before fresh authoritative availability can be established. No further automatic check or refresh was forced by this task.
+
+## Owner-completed security verification — 01:25–01:27 Bangkok
+
+The owner subsequently reported completing the bot check. A new bounded supported check first verified no active/uncertain original, then observed fresh `video_available` capability at **01:25:32.915 Bangkok**, with `same_as_previous_observation` account consistency. Native audit **`be8bc970-7dbd-4c75-9711-c8aafcd3963a`** records `availability_check` / `stale_generic_failure_reconciled`, original failure `unknown_failure`, the exact observation claim, submissions preserved and its session reservation released. This is actual live success of the idle-account reconciliation fix, not fixture-only acceptance. The native global scheduler remains disabled.
+
+A WAL-safe integrity-checked AgentStore backup preceded the existing frozen CLI `production-resume --owner-authorized --state .data/agent/agent.db`. That supported operation performs its own fresh readiness check; it returned success and cycle `active`, clearing World's stale `unknown_failure` capacity wait without manually dispatching generation. At **01:27:31 Bangkok**, the runner was enabled/unpaused/authorized with no active model invocation or unresolved provider original. Rai and Developer retained their original 05:55/06:50 Bangkok pacing waits; the twelve-call UTC-day model budget was not reset. All eleven grants, full Flow snapshot, protected 26 operation rows, original failed candidates and four owner reviews matched their baselines. There was no new submission, import, queue operation or publication in this recovery. The normal scheduler may subsequently perform eligible standing work; this is a timestamped recovery result, not a promise that autonomous state stays static.
+
+Exact check intent/result, native audit, owner statement, pre-resume policy snapshot, backup, frozen resume receipt and read-only preservation are saved in `.data/agent/reel-production-restore-20261107/owner-security-completed-0125/`. No new source implementation or service restart was needed.
 
 ## Future sourced Page presentation
 
