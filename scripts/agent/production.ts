@@ -66,10 +66,13 @@ export class GeminiProduction {
   policyStatus(){const p=this.policy();return p?{id:p.id,policy:(p.input as Any).policy,targets:(p.input as Any).targets,authorizationExpiresAt:(p.input as Any).policy.expiresAt,state:p.state,budget:this.policyBudget(p)}:{enabled:false};}
   private policyBudget(job:AgentJob){const p=(job.input as Any).policy,now=this.clock().getTime(),issued=Date.parse(String(job.state.issuedAt)),windowMs=p.planningWindowHours*3600000,start=issued+Math.max(0,Math.floor((now-issued)/windowMs))*windowMs;
     const events=(job.state.dispatches??[]) as Any[],daily=events.filter(e=>Date.parse(e.at)>now-86400000),window=events.filter(e=>Date.parse(e.at)>=start);
-    let next=now;if(window.length>=p.targetPerWindow)next=Math.max(next,start+windowMs);if(daily.length>=p.maxPer24Hours)next=Math.max(next,Date.parse(daily[daily.length-p.maxPer24Hours].at)+86400000);
-    if(p.version==='gemini-page-standing.v1'&&events.length){const latest=Math.max(...events.map((e:Any)=>Date.parse(e.at)));next=Math.max(next,latest+p.preferredHours*3600000);}
+    // Sourced Page generation may queue ahead. Historical 12-hour fields remain
+    // immutable metadata; only the rolling dispatch ceiling gates these lanes.
+    // World's estimated provider-planning windows retain their existing rules.
+    const queuedAhead=p.version==='gemini-page-standing.v1';
+    let next=now;if(!queuedAhead&&window.length>=p.targetPerWindow)next=Math.max(next,start+windowMs);if(daily.length>=p.maxPer24Hours)next=Math.max(next,Date.parse(daily[daily.length-p.maxPer24Hours].at)+86400000);
     const exhausted=p.maxTotalSubmissions!==null&&events.length>=p.maxTotalSubmissions;
-    return {total:events.length,daily:daily.length,window:window.length,windowStartedAt:new Date(start).toISOString(),nextCheckAt:next>now?new Date(next).toISOString():null,exhausted,providerAllowance:null};
+    return {total:events.length,daily:daily.length,window:window.length,windowStartedAt:new Date(start).toISOString(),nextCheckAt:next>now?new Date(next).toISOString():null,exhausted,providerAllowance:null,...(queuedAhead?{generationTiming:'rolling_24h_only',remaining24h:Math.max(0,p.maxPer24Hours-daily.length)}:{})};
   }
   async authorizePolicy(input:unknown,ownerAuthorized=false){if(!ownerAuthorized)throw new Error('Standing production needs recorded owner authorization');const p=this.lane?pageStandingSchema.parse(input):standingProductionSchema.parse(input);if(this.lane&&(p.pageAccountId!==this.lane.accountId||p.pageGraphId!==this.lane.graphId||editorialContext(this.store,p.pageAccountId,p.pageGraphId)?.categories.includes('game_concept')))throw new Error('Standing new-Page identity differs');
     if(p.expiresAt&&Date.parse(p.expiresAt)<=this.clock().getTime())throw new Error('Policy already expired');

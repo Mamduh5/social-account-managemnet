@@ -45,6 +45,14 @@ test('idle check launches no probes, model, generation poll, or synthetic work',
   const f=setup(t);assert.deepEqual(await f.runner.tick(),{state:'idle',launched:0});
   assert.equal(f.fake.probes.length,0);assert.equal(f.store.workCount(),0);assert.equal(f.store.runnerSessions().length,0);
 });
+
+test('authorized shared budget increase retains all twelve charged calls, survives restart and stops at eighteen',async t=>{
+ const f=setup(t,{maxInvocationsPerDay:12});
+ for(let i=0;i<12;i++){const id='charged-'+i;f.add(id);const claim=f.runner.work.claim(id,{owner:'fixture',commandId:'claim-'+id}).task;f.runner.work.save({id,owner:claim.owner!,claimToken:claim.claimToken!,revision:claim.revision,commandId:'save-'+id,status:'prepared',result:'Original completed fixture work'});f.store.saveRunnerSession({id:'session-'+id,taskId:id,adapter:'codex',status:'completed',startedAt:f.clock().toISOString(),finishedAt:f.clock().toISOString(),deadlineAt:f.clock().toISOString(),reservedTokens:0,usage:{tokens:10,source:'fixture'}});}
+ const original=JSON.stringify(f.store.runnerSessions({limit:100}));f.add('remaining-0');assert.equal((await f.runner.tick()).state,'daily_invocation_limit');assert.equal(f.fake.probes.length,0);assert.throws(()=>configureRunner(f.store,{...f.runner.config(),maxInvocationsPerDay:18}),/authorization/);
+ configureRunner(f.store,{...f.runner.config(),maxInvocationsPerDay:18},true);assert.equal(JSON.stringify(f.store.runnerSessions({limit:100})),original);let runner=f.restart();assert.equal(runner.status().budget.invocations,12);
+ for(let i=0;i<6;i++){if(i)runner.work.add({id:'remaining-'+i,kind:'story_plan',title:'Independent bounded preparation'});assert.equal((await runner.tick()).launched,1);f.advance();}assert.equal(runner.status().budget.invocations,18);assert.equal(f.fake.calls.length,6);runner.work.add({id:'held-after-eighteen',kind:'story_plan',title:'Must wait for ordinary budget'});const probes=f.fake.probes.length;assert.equal((await runner.tick()).state,'daily_invocation_limit');assert.equal((await runner.tick()).state,'daily_invocation_limit');assert.equal(f.fake.probes.length,probes);assert.equal(runner.status().budget.actualTokens,150);
+});
 test('priority selection, results, assumption lessons, and later-session handoff',async t=>{
   const f=setup(t);f.add('low',{priority:1});f.add('high',{priority:90});
   assert.equal((await f.runner.tick()).launched,1);assert.equal(f.fake.calls[0].context.task.id,'high');
