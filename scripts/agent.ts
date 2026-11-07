@@ -140,7 +140,7 @@ const commands = {
   'runner-detect': 'Probe installed executor help only; never starts a model session.',
   'runner-tick': 'One bounded eligibility check; --schedule ID consumes an armed one-time trigger exactly once.',
   'runner-control': '--input action enable/disable/pause/resume/stop/wake; enable requires owner authorization.',
-  'runner-result-reconcile': 'Validate the exact stopped executor trace and finish its held draft without another model; --run and --owner-authorized.',
+  'runner-result-reconcile': 'Validate the exact stopped executor trace and recover its held preparation without another model; --run and --owner-authorized.',
   'runner-recover': 'Explicit review and release of a held invocation; requires --owner-authorized.',
   'runner-schedule': '--input action export/install/remove/status, optional schedule mode once/date/time/timeZone. OS registration requires --owner-authorized.',
 };

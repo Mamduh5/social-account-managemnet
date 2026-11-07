@@ -2,7 +2,7 @@ import {selectPageReviewContext,PageReviewContextLimit} from './page-reel-review
 import {automaticPageBinding,pageMachineInstructions} from './page-reel-autonomy.js';
 import {pageReelSourceInstructions} from './page-reel-sources.js';
 import {randomUUID} from 'node:crypto';
-import {readFileSync} from 'node:fs';
+import {readFileSync,realpathSync,statSync} from 'node:fs';
 import path from 'node:path';
 import {AgentStore,stableHash} from './store.js';
 import {AgentWorkQueue,compactWork} from './work-queue.js';
@@ -11,7 +11,7 @@ import {parseCodexOutput,parsePageContentOutput,agentResultSchema,CommandExecuto
 import {creatorResearchInstructions} from './creator-research.js';
 import {pageContentInstructions} from './page-content.js';
 import {imageTaskEligible} from './page-content-images.js';
-import {pageReelInstructions,pageReelFacts,pageReelPageGuidance} from './page-reel-editorial.js';
+import {pageReelInstructions,pageReelFacts,pageReelPageGuidance,pageReelConceptSchema} from './page-reel-editorial.js';
 import {editorialPreparationEligible} from './page-editorial.js';
 import {standingImageActive,standingImageMatches} from './page-image-policy.js';
 import {geminiLanguageInstructions} from './gemini-language.js';
@@ -280,6 +280,25 @@ export class AgentRunner {
     if(!ownerAuthorized)throw new Error('Saved result reconciliation requires owner authorization');
     const session=this.store.runnerSession(id);
     const pageTask=session&&this.store.getWork(session.taskId);
+    if(session?.adapter==='json'&&pageTask?.kind==='prepare_video'&&pageTask.payload?.production?.editorialPolicy==='page-reel-editorial.v1'){
+      // A stopped JSON concept may have completed before the handoff failed.
+      // Recover only its exact saved invocation/output; never release for retry.
+      if(!/^[a-f0-9-]{36}$/.test(id)||session.status!=='recovery_required'||session.mayBeRunning||pageTask.status!=='blocked'||pageTask.result?.invocationId!==id||session.claim?.id!==pageTask.id||session.claim.accountId!==pageTask.accountId||stableHash(session.claim.payload)!==stableHash(pageTask.payload))throw new Error('Exact held original Page concept required');
+      const expected=path.resolve(this.directory,'sessions',id,'process'),receiptFile=path.join(expected,'process.json'),stdoutFile=path.join(expected,'stdout.log');
+      for(const file of [expected,receiptFile,stdoutFile])if(realpathSync(file)!==file)throw new Error('Original concept receipt path differs');
+      if(!statSync(receiptFile).isFile()||!statSync(stdoutFile).isFile()||statSync(receiptFile).size>16000||statSync(stdoutFile).size>this.config().maxOutputBytes||![session.startedAt,session.finishedAt,session.deadlineAt].every(t=>Number.isFinite(Date.parse(t))))throw new Error('Bounded original concept files and lifetime required');
+      const receipt=JSON.parse(readFileSync(receiptFile,'utf8')),started=Date.parse(receipt.startedAt),finished=Date.parse(receipt.finishedAt),stdout=readFileSync(stdoutFile);
+      if(path.resolve(receipt.directory)!==expected||receipt.exitCode!==0||receipt.signal!==null||receipt.failure!==null||!Number.isFinite(started)||!Number.isFinite(finished)||started<Date.parse(session.startedAt)||finished<started||finished>Date.parse(session.deadlineAt)+5000||finished>Date.parse(session.finishedAt)||stdout.length!==receipt.stdoutBytes||stdout.length>this.config().maxOutputBytes||statSync(receiptFile).size>16000)throw new Error('Successful bounded original concept receipt required');
+      for(const pid of [session.pid,receipt.pid]){if(!Number.isSafeInteger(pid)||pid<=0)throw new Error('Original process identity missing');try{process.kill(pid,0);throw new Error('Original concept process may still be running');}catch(error){if((error as NodeJS.ErrnoException).code!=='ESRCH')throw error;}}
+      const output=parsePageContentOutput(stdout.toString('utf8'));if(!output.usage||!['prepared','done'].includes(output.result.status))throw new Error('Original concept completion and reported usage required');
+      const concept=pageReelConceptSchema.parse(JSON.parse(output.result.result));if(concept.accountId!==pageTask.accountId||concept.editorial.entryHash!==pageTask.payload.editorial?.entryHash||concept.editorial.graphId!==pageTask.payload.editorial?.graphId)throw new Error('Original concept Page binding differs');
+      if((this.store.runnerState<string[]>('production.items')??[]).some(item=>(this.store.getJob(item)?.input as Session)?.source?.taskId===pageTask.id))throw new Error('Original concept already has a production intent');
+      this.store.transaction(()=>{const task=this.store.getWork(pageTask.id)!,current=this.store.runnerSession(id)!;if(task.revision!==pageTask.revision||current.status!=='recovery_required'||!readFileSync(stdoutFile).equals(stdout))throw new Error('Original concept read-back changed');
+        this.store.recordKnowledge({id:'runner-saved-concept:'+id,kind:'observation',accountId:task.accountId,resourceId:task.id,source:'exact_stopped_concept_result_readback',text:'Original successful JSON concept and reported usage adopted; no model retry or provider request. Factual/originality/generation admission remain mandatory.',evidence:{invocationId:id,previousError:current.error,receipt,payloadHash:stableHash(task.payload),resultHash:stableHash(output.result),usage:output.usage}});
+        this.store.saveWork({...task,status:output.result.status,result:output.result.result,owner:null,claimToken:null,leaseUntil:null,revision:task.revision+1,updatedAt:this.clock().toISOString()});
+        this.store.saveRunnerSession({...current,...output,diagnostics:receipt,status:'completed',previousError:current.error,error:null,mayBeRunning:false,reconciledFromSavedTrace:true,reconciledAt:this.clock().toISOString()});
+      });return {id,taskId:pageTask.id,invokedModel:false,pendingConceptAdmission:true,usage:output.usage};
+    }
     if(session?.adapter==='json'&&pageTask?.payload?.pageContent?.version==='page-content.v1'){
       const expected=path.resolve(this.directory,'sessions',id,'process');
       if(session.status!=='recovery_required'||session.mayBeRunning||session.diagnostics?.exitCode!==0||path.resolve(session.diagnostics.directory)!==expected||pageTask.status!=='blocked'||pageTask.result?.invocationId!==id||this.store.getOperation('page-content:'+pageTask.id,'prepare'))throw new Error('Only the stopped original Page preparation without a draft intent can be reconciled');
