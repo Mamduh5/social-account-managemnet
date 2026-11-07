@@ -19,6 +19,7 @@ import {AgentContent} from './agent/content.js';
 import {AgentResearch} from './agent/research.js';
 import {CreatorResearch} from './agent/creator-research.js';
 import {GeminiProduction} from './agent/production.js';
+import {GenerationDispatchControls} from './agent/generation-controls.js';
 import {PagePublicationPolicies} from './agent/page-publication-policy.js';
 import {OwnerVideoReviews} from './agent/video-review.js';
 import {PageContent} from './agent/page-content.js';
@@ -53,6 +54,9 @@ const commands = {
   'video-review-decide':'Save explicit exact-media owner QA from --input; publication excluded.',
   'video-review-edit':'Revise the exact existing unqueued candidate caption/variant from --input.',
   'production-policy':'Read or authorize a standing production policy with --input and --owner-authorized; publication is excluded.',
+  'generation-dispatch-controls':'Read one-use supplement and scoped World admission controls.',
+  'generation-supplement-authorize':'Authorize exactly one additional dispatch per two exact Page grants, expires within two hours; --owner-authorized.',
+  'world-generation-control':'Pause/resume only new World generation through an audited --input command; --owner-authorized.',
   'production-policy-revoke':'Revoke standing production immediately; original results remain recoverable.',
   'page-publication-policy':'Read standing Page grants or authorize --input with separate --owner-authorized. Production approval is insufficient.',
   'publication-streams':'Read independent Reel/text/image queues and rate accounting for --account; --input saves disabled text/image limits only.',
@@ -192,8 +196,10 @@ async function main() {
     const pageImages=()=>new PageContentImages(pageContent(),statePath);
     const production=()=>new GeminiProduction(local(),new PipelineAdapter(new JsonClient(pipelineClient.origin,{timeoutMs:90_000})),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath));
     const publication=()=>new PagePublicationPolicies(local(),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin});
+    const generationControls=()=>new GenerationDispatchControls(local(),production().pipeline,scc,{scc:sccClient.origin,pipeline:pipelineClient.origin});
     const videoReviews=()=>new OwnerVideoReviews(local(),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath));
     const runner=()=>new AgentRunner(local(),path.join(path.dirname(statePath),'runner'),undefined,undefined,async id=>{const before=contentScc.client.requestCount;const result=await content().persist(id);return {...result,httpRequests:contentScc.client.requestCount-before};},async()=>{
+      generationControls().expire();
       let result:Record<string,any>;try{result=await production().tick();}catch{result={state:'production_reconciliation_required',actions:0};}
       if(!result.actions){try{local().setRunnerState('production.pageLastTick',{...await new PageReelPreparation(local(),pipeline,scc,{pipeline:pipelineClient.origin,scc:scc.client.origin},path.dirname(statePath)).tickExtras(),at:new Date().toISOString()});}catch{local().setRunnerState('production.pageLastTick',{state:'new_page_original_requires_review',at:new Date().toISOString()});}}
       try{const backlog=await production().processBacklog();if(!backlog.actions)await new PageReelPreparation(local(),pipeline,scc,{pipeline:pipelineClient.origin,scc:scc.client.origin},path.dirname(statePath)).processBacklog();}catch{local().setRunnerState('production.backlogLastTick',{state:'backlog_review_required',observedAt:new Date().toISOString()});}
@@ -250,6 +256,9 @@ async function main() {
       case 'reel-pilot-recover':if(Object.keys(input).some(k=>k!=='accountId')||typeof input.accountId!=='string')throw new Error('Exact Page account required');data=await new PageReelPreparation(local(),production().pipeline,scc,{pipeline:pipelineClient.origin,scc:scc.client.origin},path.dirname(statePath)).recoverPilot(input.accountId,flags['owner-authorized']===true);break;
       case 'reel-pilot-control':data=new PageReelPreparation(local(),pipeline,scc,{pipeline:pipelineClient.origin,scc:scc.client.origin},path.dirname(statePath)).control(input,flags['owner-authorized']===true);break;
       case 'production-policy':data=flags.input?await production().authorizePolicy(input,flags['owner-authorized']===true):production().policyStatus();break;
+      case 'generation-dispatch-controls':data=generationControls().status();break;
+      case 'generation-supplement-authorize':data=await generationControls().authorize(input,flags['owner-authorized']===true);break;
+      case 'world-generation-control':data=await generationControls().controlWorld(input,flags['owner-authorized']===true);break;
       case 'production-inspect':data=await production().inspectStatus();break;
       case 'production-import-reconcile':if(Object.keys(input).some(k=>k!=='videoId')||typeof input.videoId!=='string')throw new Error('Supply exact original videoId');data=await production().reconcileImport(run(),input.videoId);break;
       case 'production-backlog-tick':data=await production().processBacklog();break;

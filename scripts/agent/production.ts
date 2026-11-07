@@ -4,6 +4,7 @@ import {randomUUID,createHash} from 'node:crypto';
 import {z} from 'zod';
 import {OwnerVideoReviews} from './video-review.js';
 import {productionInventory} from './production-inventory.js';
+import {activeGenerationSupplement,consumeGenerationSupplement,worldNewGenerationPaused} from './generation-controls.js';
 import {AgentStore,stableHash,type AgentJob} from './store.js';
 import {ApiError} from './http.js';
 import {PipelineAdapter} from './pipeline.js';
@@ -71,9 +72,10 @@ export class GeminiProduction {
     // immutable metadata; only the rolling dispatch ceiling gates these lanes.
     // World's estimated provider-planning windows retain their existing rules.
     const queuedAhead=p.version==='gemini-page-standing.v1';
-    let next=now;if(!queuedAhead&&window.length>=p.targetPerWindow)next=Math.max(next,start+windowMs);if(daily.length>=p.maxPer24Hours)next=Math.max(next,Date.parse(daily[daily.length-p.maxPer24Hours].at)+86400000);
+    const supplement=queuedAhead?activeGenerationSupplement(this.store,job,now):null,effectiveMaximum=p.maxPer24Hours+(supplement?1:0);
+    let next=now;if(!queuedAhead&&window.length>=p.targetPerWindow)next=Math.max(next,start+windowMs);if(daily.length>=effectiveMaximum)next=Math.max(next,Date.parse(daily[daily.length-effectiveMaximum].at)+86400000);
     const exhausted=p.maxTotalSubmissions!==null&&events.length>=p.maxTotalSubmissions;
-    return {total:events.length,daily:daily.length,window:window.length,windowStartedAt:new Date(start).toISOString(),nextCheckAt:next>now?new Date(next).toISOString():null,exhausted,providerAllowance:null,...(queuedAhead?{generationTiming:'rolling_24h_only',remaining24h:Math.max(0,p.maxPer24Hours-daily.length)}:{})};
+    return {total:events.length,daily:daily.length,window:window.length,windowStartedAt:new Date(start).toISOString(),nextCheckAt:next>now?new Date(next).toISOString():null,exhausted,providerAllowance:null,...(queuedAhead?{generationTiming:'rolling_24h_only',remaining24h:Math.max(0,effectiveMaximum-daily.length),normalMaximum:p.maxPer24Hours,effectiveMaximum,supplement}:{} )};
   }
   async authorizePolicy(input:unknown,ownerAuthorized=false){if(!ownerAuthorized)throw new Error('Standing production needs recorded owner authorization');const p=this.lane?pageStandingSchema.parse(input):standingProductionSchema.parse(input);if(this.lane&&(p.pageAccountId!==this.lane.accountId||p.pageGraphId!==this.lane.graphId||editorialContext(this.store,p.pageAccountId,p.pageGraphId)?.categories.includes('game_concept')))throw new Error('Standing new-Page identity differs');
     if(p.expiresAt&&Date.parse(p.expiresAt)<=this.clock().getTime())throw new Error('Policy already expired');
@@ -108,7 +110,7 @@ export class GeminiProduction {
   status(){const active=this.store.runnerState<string>(this.key('active'));const cycle=active?this.store.getJob(active):null;
     const scope=(cycle?.input as Any)?.scope as Scope|undefined,hold=scope?this.policyAdmission(scope):null,lastSuccess=this.items().filter(j=>j.state.videoId&&(j.state.media as Any)?.technical).sort((a,b)=>Date.parse(String(b.state.lastCheckedAt))-Date.parse(String(a.state.lastCheckedAt)))[0];
     return {version:'gemini-production.v1',config:this.config(),standing:this.policyStatus(),inventory:this.inventory(),cycle:cycle?{id:cycle.id,scope:cycle.input,state:cycle.state}:null,
-      operation:{state:!this.config().enabled?'disabled':hold?.state??String(cycle?.state.phase??'activation_required'),nextRecheckAt:hold?.nextCheckAt??this.policy()?.state.nextCheckAt??null,lastSuccessfulImport:lastSuccess?{itemId:lastSuccess.id,videoId:lastSuccess.state.videoId,original:lastSuccess.state.original,completionObservedAt:lastSuccess.state.lastCheckedAt}:null,lastError:cycle?.state.lastError??null,requiredHumanAction:hold&&/human|security/.test(hold.state)?'Open the dedicated Gemini account session and complete any displayed security/sign-in check, then use production-resume. Do not resubmit the turn.':hold&&/reconciliation|failure/.test(hold.state)?'Inspect the exact original operation; use supported recovery or original-receipt reconciliation only.':null},
+      operation:{state:!this.config().enabled?'disabled':!this.lane&&worldNewGenerationPaused(this.store)&&!cycle?.state.activeItem?'world_new_generation_paused':hold?.state??String(cycle?.state.phase??'activation_required'),nextRecheckAt:hold?.nextCheckAt??this.policy()?.state.nextCheckAt??null,lastSuccessfulImport:lastSuccess?{itemId:lastSuccess.id,videoId:lastSuccess.state.videoId,original:lastSuccess.state.original,completionObservedAt:lastSuccess.state.lastCheckedAt}:null,lastError:cycle?.state.lastError??null,requiredHumanAction:hold&&/human|security/.test(hold.state)?'Open the dedicated Gemini account session and complete any displayed security/sign-in check, then use production-resume. Do not resubmit the turn.':hold&&/reconciliation|failure/.test(hold.state)?'Inspect the exact original operation; use supported recovery or original-receipt reconciliation only.':null},
       nativeObservation:this.store.runnerState('production.nativeObservation')??null,backlogProcessing:this.store.runnerState('production.backlogLastTick')??null,
       backlog:this.items().map(j=>({id:j.id,title:(j.input as Any).concept.title,accountId:(j.input as Any).concept.accountId,...((j.input as Any).concept.languageStrategy?{languageStrategy:(j.input as Any).concept.languageStrategy}:{}),...j.state})),
       providerAllowance:null,refreshObservationHours:this.config().refreshObservationHours,planningAssumption:'Five-hour observations and 3–5 possible videos are not guaranteed allowances. Native admission remains authoritative. Observation timing never resets a counter.',
@@ -274,6 +276,7 @@ export class GeminiProduction {
   }
   private async step(cycle:AgentJob,c:Config):Promise<Any>{
     const scope=(cycle.input as Any).scope as Scope;
+    if(!this.lane&&worldNewGenerationPaused(this.store)&&!cycle.state.activeItem)return {state:'world_new_generation_paused',actions:0};
     // Preparation is independent of provider waits and local Page analytics.
     const researchPolicy=this.policyFor(scope);
     if(!this.lane&&scope.policyId&&researchPolicy?.state.enabled&&!researchPolicy.state.revokedAt&&Date.parse(scope.expiresAt)>this.clock().getTime())new CreatorResearch(this.store,this.clock).maintain(scope.pageAccountId,scope.policyId);
@@ -310,6 +313,7 @@ export class GeminiProduction {
     if(concept.version==='gemini-page-concept.v1'&&!this.store.getOperation(item.id,'production_submit')){try{validatePageReelConcept(this.store,concept,this.clock().getTime());}catch{return {state:'factual_source_review_required',actions:0};}}
     const providerScope='gemini_web:'+this.targets.pipeline;
     if(!item.state.projectId){
+      if(!this.lane&&worldNewGenerationPaused(this.store))return {state:'world_new_generation_paused',actions:0};
       if(cycle.state.phase!=='active')return {state:String(cycle.state.phase),actions:0};
       if(Date.parse(scope.expiresAt)<=this.clock().getTime())return {state:'scope_expired',actions:0};
       if(!this.store.reserveProvider(providerScope,item.id))return {state:'provider_claim_held',actions:0};
@@ -370,6 +374,7 @@ export class GeminiProduction {
       this.save(item.id,{phase:'generating',original:e.original});return {state:'generating',actions:0};
     }
     if(!ignoredResolved&&e.project.state==='failed'){this.save(item.id,{phase:'failed',failure:e.failure});this.save(cycle.id,{phase:'planning_failure_hold'});return {state:'planning_failure_hold',actions:0};}
+    if(!this.lane&&worldNewGenerationPaused(this.store))return {state:'world_new_generation_paused',actions:0};
     if(e.plannedScenes!==1||(e.project.state!=='awaiting_external_generation'&&!ignoredResolved))return {state:'planning',actions:0};
     if(Date.parse(scope.expiresAt)<=this.clock().getTime())return {state:'scope_expired',actions:0};
     if(cycle.state.phase!=='active')return {state:String(cycle.state.phase),actions:0};
@@ -420,13 +425,14 @@ export class GeminiProduction {
     if(!scope.policyId&&(cycle.state.attempts as string[]).length>=Math.min(scope.maxSubmissions,c.targetPerWindow))return {state:'cycle_budget',actions:0};
     await this.once(item.id,submitStep,{projectId,requestId,scope:scope.id},()=>this.pipeline.submitProduction(projectId,requestId),()=>{
       const current=this.authorized(cycle.id,item.id,scope),attempts=current.state.attempts as string[];
-      const policy=this.policyFor(scope);if(policy){const hold=this.policyAdmission(scope);if(hold)throw new Error(hold.state);const events=(policy.state.dispatches??[]) as Any[];this.save(policy.id,{dispatches:[...events,{requestId,itemId:item.id,at:this.clock().toISOString()}],nextCheckAt:null});}
+      const policy=this.policyFor(scope);if(policy){const hold=this.policyAdmission(scope);if(hold)throw new Error(hold.state);const events=(policy.state.dispatches??[]) as Any[],at=this.clock().toISOString(),supplementId=consumeGenerationSupplement(this.store,policy,requestId,item.id,at);this.save(policy.id,{dispatches:[...events,{requestId,itemId:item.id,at,...(supplementId?{supplementId}:{})}],nextCheckAt:null});}
       if(!scope.policyId&&attempts.length>=Math.min(scope.maxSubmissions,c.targetPerWindow))throw new Error('Bounded cycle budget reached');
       this.save(cycle.id,{attempts:[...attempts,requestId]});this.save(item.id,{requestId,phase:'generating',windowObservedAt:ready.n.windowStartedAt??null});
     });
     return {state:'bounded_request_queued',actions:1,itemId:item.id,projectId,requestId,providerAllowance:null};
   }
   private authorized(cycleId:string,itemId:string,scope:Scope){
+    if(!this.lane&&worldNewGenerationPaused(this.store))throw new Error('New World generation is paused');
     const current=this.cycle();
     if(this.lane){const control=this.store.runnerState<Any>('production.pageControl:'+this.lane.accountId);if(control?.paused||control?.revokedAt||control?.cycleId!==cycleId)throw new Error('Page production authorization changed before dispatch');}
     if(!this.config().enabled||!current||current.id!==cycleId||current.state.phase!=='active'||current.state.activeItem!==itemId||Date.parse(scope.expiresAt)<=this.clock().getTime())throw new Error('Production authorization changed before dispatch');
