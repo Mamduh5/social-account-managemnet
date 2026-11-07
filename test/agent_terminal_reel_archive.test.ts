@@ -67,3 +67,9 @@ test('ordinary accepted publication still advances beside an archived hold; even
  assert.equal(f.history.length,1);assert.equal(f.store.getOperation(j.id,'standing_publication_queue'),null);assert.equal(f.store.getJob(next.id)!.state.phase,'published');
  assert.equal((await pub.streams(dev.accountId)).find(s=>s.contentType==='reel')!.confirmed24h,1);
 });
+
+test('replaying an archived historical prepared concept is read-only and cannot starve the next Page item',async t=>{
+ const f=await fixture(t);await grant(f,dev);new AgentWorkQueue(f.store,f.clock).add({id:'old-prepared-concept',kind:'prepare_video',accountId:dev.accountId,title:'Historical exact prepared concept',payload:{production:{version:'gemini-concept.v1'}}});finish(f,'old-prepared-concept',f.concept(dev,'older-prepared'));const j=f.lane(dev).enqueuePrepared('old-prepared-concept');await f.lane(dev).tick();f.advance();await f.lane(dev).tick();f.complete(String(f.store.getJob(j.id)!.state.projectId));f.advance();await f.lane(dev).tick();for(let n=0;n<3;n++)await f.lane(dev).processBacklog();await accept(f,j,{decision:'hold',conceptMatch:false,issues:['Held original payoff']});await reviews(f).archiveTerminalHolds(f.pipeline);
+ const before=stableHash(f.store.getJob(j.id)!.state),charges=structuredClone(f.lane(dev).policy()!.state.dispatches);assert.equal(f.lane(dev).enqueuePrepared('old-prepared-concept').id,j.id);assert.equal(stableHash(f.store.getJob(j.id)!.state),before);assert.deepEqual(f.lane(dev).policy()!.state.dispatches,charges);
+ const next=f.lane(dev).enqueue(f.concept(dev,'next-independent'));assert.notEqual(next.id,j.id);const result=await f.lane(dev).tick();assert.notEqual(result.state,'reconciliation_required');assert.equal(f.store.getJob(next.id)!.state.phase,'planning');assert.equal(f.lane(dev).policy()!.state.humanHold,null);assert.equal(stableHash(f.store.getJob(j.id)!.state),before);
+});

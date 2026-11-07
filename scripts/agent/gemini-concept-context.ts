@@ -59,6 +59,14 @@ export function selectGeminiConceptContext(original:Any,limit:number){
   if(bytes(view)<=limit)return result('principles_and_originality');
   payload.avoidRepeating=recent.map((x:Any)=>({title:x.title}));
   if(bytes(view)<=limit)return result('recent_titles_and_principles');
+  if(payload.production.editorialPolicy==='page-reel-editorial.v1'&&Array.isArray(payload.previous)){
+    // Optional older action/payoff prose can grow in Thai UTF-8 even with few
+    // records. Keep every title; source facts, Page rules and instructions stay exact.
+    payload.previous=payload.previous.map((x:Any)=>({...x,idea:excerpt(x.idea,160),payoff:excerpt(x.payoff,128)}));
+    if(bytes(view)<=limit)return result('page_recent_action_excerpts');
+    payload.previous=payload.previous.map((x:Any)=>({title:x.title}));
+    if(bytes(view)<=limit)return result('page_recent_titles');
+  }
   // Mandatory or irreducible source context is held, not silently weakened.
   throw new GeminiContextLimit({version,profile:'mandatory_context_hold',sourcePayloadHash,rawBytes,selectedBytes:bytes(view),limit,duplicateKnowledgeRemoved,status:'context_limit'});
 }

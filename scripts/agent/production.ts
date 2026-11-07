@@ -178,7 +178,13 @@ export class GeminiProduction {
   enqueue(input:unknown,source?:{taskId:string;revision:number}){
     const concept=productionConceptSchema.parse(input),id=prefix+'item:'+stableHash({concept,source:source??null}).slice(0,32);
     return this.store.transaction(()=>{
-      if(this.store.getJob(id))return this.item(id);
+      const existing=this.store.getJob(id);
+      if(existing?.state.terminalArchive||existing?.state.phase==='archived'){
+        if(!(existing.input as Any).production||stableHash((existing.input as Any).targets)!==stableHash(this.targets)||stableHash((existing.input as Any).concept)!==stableHash(concept))throw new Error('Archived replay identity differs');
+        // Historical preparation replay is a read, never an unarchive/mutation.
+        return existing;
+      }
+      if(existing)return this.item(id);
       if(this.lane&&(concept.version!=='gemini-page-concept.v1'||concept.accountId!==this.lane.accountId||concept.editorial.graphId!==this.lane.graphId))throw new Error('New-Page concept/lane identity differs');if(!this.lane&&concept.version==='gemini-page-concept.v1')throw new Error('Use the exact isolated Page production lane');
       if(concept.version==='gemini-page-concept.v1'&&this.items().some(j=>(j.input as Any).concept.idea?.normalize('NFKC').trim()===concept.idea.normalize('NFKC').trim()))throw new Error('Repeated Page Reel concept requires review');
       const editorialEvidence=concept.version==='gemini-page-concept.v1'?validatePageReelConcept(this.store,concept,this.clock().getTime()).evidence:null;
@@ -190,7 +196,7 @@ export class GeminiProduction {
     });
   }
   enqueuePrepared(taskId:string){const t=this.store.getWork(taskId);if(!t||t.kind!=='prepare_video'||!['prepared','done'].includes(t.status)||t.payload?.production?.version!=='gemini-concept.v1')throw new Error('Use an exact prepared Gemini production concept task');let value=t.result;if(typeof value==='string'){try{value=JSON.parse(value);}catch{throw new Error('Prepared concept must contain valid serialized gemini-concept.v1 JSON');}}const concept=productionConceptSchema.parse(value);if(concept.accountId!==t.accountId)throw new Error('Prepared concept Page identity changed');
-    const original=this.items().find(j=>(j.input as Any).source?.taskId===t.id&&(j.input as Any).source?.revision===t.revision&&stableHash((j.input as Any).concept)===stableHash(concept));if(original)return this.item(original.id);
+    const original=this.items().find(j=>(j.input as Any).source?.taskId===t.id&&(j.input as Any).source?.revision===t.revision&&stableHash((j.input as Any).concept)===stableHash(concept));if(original){if(stableHash((original.input as Any).targets)!==stableHash(this.targets))throw new Error('Original replay targets differ');return original.state.terminalArchive||original.state.phase==='archived'?original:this.item(original.id);}
     const supplied=[...(t.payload?.creatorLearning?.external??[]),...(t.payload?.creatorLearning?.historicalHypotheses??[])];
     if(t.payload.production.languagePolicy===geminiLanguagePolicyVersion&&!concept.languageStrategy)throw new Error('New multilingual Gemini preparation requires language and audience metadata');
     if(concept.languageStrategy)validateLanguageEvidence(concept.languageStrategy,supplied,this.clock().getTime());
