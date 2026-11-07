@@ -15,6 +15,7 @@ export function automaticPageBinding(store:AgentStore,accountId:string,now=Date.
 export function machineScope(item:Any,draft:any,variant:any,binding:any){return {...binding,itemId:item.id,videoId:item.state.videoId,sha256:item.state.media.sha256,variantId:variant.id,variantSha256:variant.sha256,draftId:draft.id,draftRevision:draft.revision,draftHash:draftFingerprint(draft),factualEvidenceHash:stableHash(item.input.editorialEvidence??[]),conceptHash:stableHash(item.input.concept),ownerReviewVersion:item.state.ownerReviewVersion??0};}
 export function machineHold(store:AgentStore,item:Any,now=Date.now()):string|null{
  const c=item.input.concept,s=item.state;if(c?.version!=='gemini-page-concept.v1')return 'outside_machine_review_scope';
+ if(s.terminalArchive||s.phase==='archived')return 'terminal_candidate_archived';
  if(s.ownerReview||s.qa?.source==='owner'||s.backlogHold||s.ownerReviewError)return 'owner_or_quality_hold';
  if(c.languageStrategy?.spokenLanguage!=='none'||c.languageStrategy.dialogue)return 'spoken_audio_requires_review';
  const binding=automaticPageBinding(store,c.accountId,now);if(!binding)return 'automatic_page_policy_inactive';

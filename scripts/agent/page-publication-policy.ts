@@ -25,6 +25,7 @@ export class PagePublicationPolicies {
     records.push({id:j.id,post_id:postId,status:op?.status==='uncertain'||!postId?'uncertain':'queued',error:s.publicationError??null});}return records;
   }
   private async draftEligibility(j:AgentJob){
+    if(j.state.terminalArchive||j.state.phase==='archived')return 'terminal_candidate_archived';
     if((j.input as Any).concept.version==='gemini-page-concept.v1'&&(j.state.qa as Any)?.factsReviewed!==true&&(j.state.ownerReview as Any)?.factsReviewed!==true&&(j.state.qa as Any)?.source!=='machine')return 'owner_factual_review_required';const s=j.state as Any,qa=s.qa;if(!qa||!acceptedReelQuality(qa)||!s.media?.technical||qa.sha256!==s.media.sha256)return 'quality_hold';if(!s.variantReview||s.variantReview.visual!=='pass'||s.variantReview.sha256!==s.variantSha256||s.variantReview.masterAudioHash!==s.variantReview.variantAudioHash)return 'final_variant_review_required';
     const d=await this.scc.getDraft(s.draftId),m=await this.scc.media(s.videoId),v=m.variants.find((v:Any)=>v.id===s.variantId);if(s.qa.source==='machine'&&!currentMachineAcceptance(this.store,j,d,v,this.clock().getTime()))return 'machine_acceptance_changed_or_policy_held';if(m.provenance.sha256!==qa.sha256||v?.sha256!==s.variantSha256)return 'review_media_changed';if(d.queuedPostId)return 'original_publication_exists';
     if(d.contentType!=='reel'||d.videoId!==s.videoId||d.scheduledAt!==null||d.destinations?.length!==1||d.destinations[0].accountId!==(j.input as Any).concept.accountId||d.destinations[0].selectedVariantId!==s.variantId||d.destinations[0].applyBranding!==false)return 'review_revision_changed';
@@ -43,7 +44,8 @@ export class PagePublicationPolicies {
     if(p.contentType!=='reel'){const inventory=await new GeneralPublication(this.store,this.scc,this.clock).inventory(p),accounting=publicationAccounting(rows,p,now,!history.hasMore,new GeneralPublication(this.store,this.scc,this.clock).protected(p));return {enabled:false,previewOnly:true,simulation:true,page:{id:p.accountId,name:page.account.name,graphId:p.graphId},proposal:p,...inventory,cadence:accounting,items:[...inventory.ready.map((r:Any)=>({...r,eligible:(!p.expiresAt||Date.parse(p.expiresAt)>now)&&accounting.historyComplete&&!accounting.protectedSlots&&!!accounting.remaining24h&&Date.parse(accounting.nextEligibleAt??'')<=now,reason:p.expiresAt&&Date.parse(p.expiresAt)<=now?'policy_expired':!accounting.historyComplete?'publication_history_incomplete':accounting.protectedSlots?'original_publication_reconciliation_required':!accounting.remaining24h||Date.parse(accounting.nextEligibleAt??'')>now?'publication_cadence_wait':'eligible'})),...inventory.readyHolds.map((r:Any)=>({...r,eligible:false}))]};}
     const jobs=(this.store.runnerState<string[]>('production.items')??[]).map(id=>this.store.getJob(id)!).filter(j=>j&&(j.input as Any).concept?.accountId===p.accountId),items=[];
     for(const j of jobs.filter(j=>j.state.videoId)){const s=j.state as Any;let reason='eligible';
-      if(p.expiresAt&&Date.parse(p.expiresAt)<=now)reason='policy_expired';
+      if(s.terminalArchive||s.phase==='archived')reason='terminal_candidate_archived';
+      else if(p.expiresAt&&Date.parse(p.expiresAt)<=now)reason='policy_expired';
       else if(history.hasMore||dates.some((d:number)=>!Number.isFinite(d)))reason='publication_history_incomplete';
       else if(pending)reason='original_publication_reconciliation_required';
       else if(s.publicationPostId||s.publicationIntent)reason='original_publication_exists';

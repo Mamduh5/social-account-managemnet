@@ -3,6 +3,7 @@ import path from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
 import {z} from 'zod';
 import {OwnerVideoReviews} from './video-review.js';
+import {productionInventory} from './production-inventory.js';
 import {AgentStore,stableHash,type AgentJob} from './store.js';
 import {ApiError} from './http.js';
 import {PipelineAdapter} from './pipeline.js';
@@ -101,11 +102,9 @@ export class GeminiProduction {
   configure(input:unknown){const value=productionConfigSchema.parse(input);if(value.enabled)throw new Error('Enable production only through an explicitly authorized bounded cycle');this.store.setRunnerState(this.key('config'),value);return value;}
   private ids():string[]{return this.store.runnerState<string[]>('production.items')??[];}
   private items():AgentJob[]{return this.ids().map(id=>this.store.getJob(id)).filter((x):x is AgentJob=>!!x);}
-  private item(id:string):AgentJob{const j=this.store.getJob(id);if(!j||!(j.input as Any).production||stableHash((j.input as Any).targets)!==stableHash(this.targets))throw new Error('Unknown production item or changed API targets');return j;}
+  private item(id:string):AgentJob{const j=this.store.getJob(id);if(!j||!(j.input as Any).production||stableHash((j.input as Any).targets)!==stableHash(this.targets))throw new Error('Unknown production item or changed API targets');if(j.state.terminalArchive||j.state.phase==='archived')throw new Error('Archived terminal candidate is read-only');return j;}
   private save(id:string,value:Any){return this.store.patchState(id,value);}
-  private inventory(){const local=this.config(),global=productionConfigSchema.parse(this.store.runnerState('production.config')??{}),c=this.lane?{...local,maxBacklogItems:Math.min(local.maxBacklogItems,global.maxBacklogItems),maxBacklogBytes:Math.min(local.maxBacklogBytes,global.maxBacklogBytes)}:local;const items=this.items().filter(j=>j.state.phase!=='published'&&(j.state.phase!=='failed'||!!j.state.media));
-    const bytes=items.reduce((n,j)=>n+Number((j.state.media as Any)?.bytes??(['queued','planning','generating','recovering'].includes(String(j.state.phase))?c.reservationBytes:0))+Number((j.state.technicalQa as Any)?.artifactBytes??0)+Number((j.state.ownerVariantQa as Any)?.artifactBytes??0)+Number(j.state.candidateVariantBytes??0),0);
-    return {items:items.length,bytes,full:items.length>=c.maxBacklogItems||bytes+c.reservationBytes>c.maxBacklogBytes};}
+  private inventory(){const local=this.config(),global=productionConfigSchema.parse(this.store.runnerState('production.config')??{}),c=this.lane?{...local,maxBacklogItems:Math.min(local.maxBacklogItems,global.maxBacklogItems),maxBacklogBytes:Math.min(local.maxBacklogBytes,global.maxBacklogBytes)}:local;return productionInventory(this.items(),c);}
   status(){const active=this.store.runnerState<string>(this.key('active'));const cycle=active?this.store.getJob(active):null;
     const scope=(cycle?.input as Any)?.scope as Scope|undefined,hold=scope?this.policyAdmission(scope):null,lastSuccess=this.items().filter(j=>j.state.videoId&&(j.state.media as Any)?.technical).sort((a,b)=>Date.parse(String(b.state.lastCheckedAt))-Date.parse(String(a.state.lastCheckedAt)))[0];
     return {version:'gemini-production.v1',config:this.config(),standing:this.policyStatus(),inventory:this.inventory(),cycle:cycle?{id:cycle.id,scope:cycle.input,state:cycle.state}:null,
