@@ -516,6 +516,17 @@ export class GeminiProduction {
     if(cycle.state.activeItem){const item=this.item(String(cycle.state.activeItem));if(item.state.projectId){let e=await this.pipeline.inspect(String(item.state.projectId));
       if(e.session.active)throw new Error('Original generation is still active');
       if(e.session.unresolved&&e.original.runId){const count=Number(item.state.manualRecoveryChecks??0);if(count>=this.config().maxRecoveryChecks)throw new Error('Original recovery check limit reached');this.save(item.id,{manualRecoveryChecks:count+1});await this.once(item.id,'owner_security_recovery_'+count,{projectId:item.state.projectId,runId:e.original.runId},()=>this.pipeline.recoverProduction(String(item.state.projectId),e.original.runId));e=await this.pipeline.inspect(String(item.state.projectId));}
+      const pendingRecovery=this.store.jobOperations(item.id).filter(op=>/^owner_security_recovery_\d+$/.test(op.step)&&['pending','uncertain'].includes(op.status));
+      if(pendingRecovery.length){
+        if(e.session.unresolved||!e.original.runId||e.project.state!=='completed'||!e.project.media.videoUrl)throw new Error('Original recovery outcome remains uncertain');
+        const receipt=await this.pipeline.originalRecoveryStatus(String(item.state.projectId),e.original.runId),provenance=receipt.provenance;
+        if(receipt.run_id!==e.original.runId||receipt.state!=='completed'||receipt.busy||provenance?.original_run_id!==e.original.runId||provenance.source!=='provider_correlated_original'||!/^[a-f0-9]{64}$/.test(provenance.clip_sha256??''))throw new Error('Original completed recovery receipt does not match');
+        this.store.transaction(()=>{for(const op of pendingRecovery){
+          const request=op.request as Any;if(request.projectId!==item.state.projectId||request.runId!==e.original.runId)throw new Error('Original recovery request identity differs');
+          this.store.recordKnowledge({id:'owner-recovery-readback:'+item.id+':'+op.step,kind:'observation',resourceId:item.id,source:'exact_native_completed_recovery_read_back',text:'Reconciled an interrupted original recovery from its completed native receipt without replaying its POST.',evidence:{previousOperation:op,receipt}});
+          this.store.finishOperation(item.id,op.step,'succeeded',{reconciled:true,recovery:receipt});
+        }});
+      }
       if(e.project.state==='completed'&&!e.session.unresolved)await this.advance(cycle,this.item(item.id),scope,this.config());
       else if(e.session.unresolved)throw new Error('Original result remains unresolved; no fresh submission is permitted');
     }}
