@@ -2,6 +2,44 @@
 
 Self-hosted multi-account Page and video publishing preparation, video distribution, moving-watermark branding, engagement triage and provenance-aware analytics for Facebook Pages and TikTok accounts.
 
+**Groups V1, 9 November:** the separately approved first World share is [published, observed in Facebook's native UI](https://www.facebook.com/groups/2214946398974915/posts/2568461086956776/) and its receipt is saved in SCC with native-browser provenance. Original Group discussion drafting and bounded local text scheduling now reuse the existing workspace/agent store. Automatic unattended Group submission remains unavailable; see [capabilities and runtime limit](docs/qa/FACEBOOK_GROUPS_ORIGINAL_TEXT_V1_20261109.md). Existing three-Page production continues; Autonomous Items 1–4 remain closed.
+
+**Later Groups execution update:** agents now share a dedicated persistent SCC Chrome and native `group-text-execute` CLI, with browser/composer readiness before a charged claim. After owner-confirmed recovery and fresh bounded timing authority, [the original World discussion was published](https://www.facebook.com/groups/2214946398974915/posts/2568574890278729/), retaining its existing grant and one charge. Read-only reconciliation saved the native receipt without another Post click. No unattended polling task was added. See [shared execution and audit](docs/qa/SCC_GROUPS_AGENT_INDEPENDENT_20261109.md).
+
+**Groups multi-account correction:** World retains port 9235; Developer uses a separate authenticated persistent profile on 9236. The shared CLI now selects by authorized account, discovers membership through Facebook's native Your Groups list and verifies selected destinations before registration. Gemini inside Antigravity independently passed Developer's empty-composer check; no Developer post or grant was created. See [browser isolation and recheck results](docs/qa/SCC_GROUPS_MULTI_ACCOUNT_20261109.md).
+
+## Permanent engineering constraint — No additional spending
+
+Owner direction, 5 November 2026: SCC must operate without additional spending beyond the owner's existing **ChatGPT Business** and **Google AI Pro** subscriptions. Routine implementation, installation, testing, local activation or autonomous-operation authorization is **not financial authorization**.
+
+Before proposing a provider, MCP server, skill, model or service:
+
+- Inspect existing installed capabilities, accounts, configuration and entitlements first, without exposing credentials.
+- Verify whether the specific interface and intended automation are included in an existing subscription. A subscription, signed-in browser or API key does not establish entitlement to a separately billed API. Development aids such as MCP servers and skills do not create runtime entitlement.
+- Prefer supported, legitimate workflows included in existing subscriptions. Consider free local alternatives only when their hardware requirements, quality and maintenance make them practical and worthwhile.
+- Do not activate billing, purchase credits, add a subscription or introduce a paid fallback. Do not bypass provider quotas, CAPTCHA, security checks or access controls.
+- If no suitable no-extra-cost option is verified, retain the blocked workflow, original concepts and evidence. State the blocker honestly; keep image concepts `awaiting_imagery` rather than substituting placeholders or claiming generation succeeded.
+
+The canceled paid Google image API implementation must **not** be resumed under existing authorization. This rule grants no new generation or publication authority and changes no existing Reel policy, Gemini limit or Flow behavior. See [agent operating guidance](docs/AGENT_WORKFLOW.md#permanent-no-additional-spending-rule).
+
+## Current phase — 9 November 2026
+
+**Autonomous implementation: CLOSED — CONDITIONALLY ACCEPTED by owner.** Items 1–3 remain live-accepted. Item 4's source, approval, quota and verification holds are operational constraints; they do not reopen development. Existing three-Page production continues under its unchanged grants. **Facebook Groups distribution is the new priority.** Follow the [closure/transition record](docs/qa/SCC_AUTONOMOUS_CLOSURE_GROUPS_TRANSITION_20261109.md), [weekly seven-day planning contract](docs/content/WEEKLY_CONTENT_OPERATING_CONTRACT.md) and [smallest Groups V1 scope](docs/content/FACEBOOK_GROUPS_V1_SCOPE.md). Earlier milestone restrictions/statuses below remain historical where superseded by dated owner decisions.
+
+## Included image generation — browser safety and video priority
+
+The existing signed-in Gemini Apps image workspace produced the three The Rules candidates without a separately billed API. **Recurring image generation remains disabled.** The personal Chrome session used for that bounded experiment is not an unattended production browser.
+
+A fresh persistent image-only Chrome profile is prepared at `.data/browser_sessions/scc-gemini-images`, with loopback debugging port **9232**. It is separate from personal Chrome and the Pipeline video profile/port **9224**. No profile, cookie or credential was copied, and the new profile is not registered in Pipeline's video account pool. The owner must sign in normally to the intended existing Google account and complete any security checks manually. Native automation could not verify the new window's URL, so authenticated operation and safe browser control are **not verified**. Do not fall back to personal Chrome.
+
+**Videos take priority.** An active, reserved or unresolved video blocks images. A separate profile does not imply separate account quota. Google exposes compute-based current/weekly usage; an independent numerical image allowance or safe concurrent image/video capacity is not established. Never derive provider allowance from SCC's application cap or a past displayed reset time.
+
+Before any recurring image activation, verify isolated browser control/account entitlement and a supported atomic reservation handoff that fences images against the existing video worker. A read-only idle check is insufficient. Reuse AgentRunner and durable original identities; add no scheduler. At quota limits, retain pending work and use spaced supported rechecks; at security/uncertain outcomes, hold for manual verification or exact-original recovery. Never blindly resubmit, rotate accounts, reset accounting or bypass security.
+
+OpenAI documents built-in Codex image generation as using included Codex limits, without requiring the separately billed API. It is a verified documented interactive alternative, **not an admitted callable provider in SCC's scheduled Antigravity host**. No diagnostic generation or API activation was used to test it. Full-resolution downloads must use Gemini's normal **Download full size** control, not authenticated network inspection. Existing 765×1024 candidate exports and their unapproved draft remain intact.
+
+See [image browser setup, evidence and remaining activation gates](docs/qa/SCC_INCLUDED_IMAGE_SAFETY_20261105.md). No new subscription, paid credits, billing, image schedule or publication is authorized by this setup.
+
 Agents can use the [API-first workflow CLI](docs/AGENT_WORKFLOW.md) for Gemini generation, source-aware video import, draft preparation, exact approval/scheduling, analytics and durable handoff. Start with `npm --silent run agent -- help`. Implementation validation uses isolated fixtures; no owner release activation is implied.
 
 [Non-blocking agent work](docs/AGENT_NONBLOCKING_WORK.md) adds durable independent tasks and cached generation/recovery handoff. Submit once, use `work-next` for useful preparation, and refresh results in a later invocation.

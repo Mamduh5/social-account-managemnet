@@ -2,7 +2,14 @@ import {authorizeTechnicalPolicy} from './agent/reel-technical-policy.js';
 import {adoptPageSources} from './agent/page-reel-sources.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import {randomUUID} from 'node:crypto';
 import {AgentStore, type KnowledgeInput} from './agent/store.js';
+import {GroupTextPublication} from './agent/group-text-publication.js';
+import {GroupBrowser} from './agent/group-browser.js';
+import {groupBrowserLease} from './agent/group-browser-binding.js';
+import {FacebookGroupTextUI} from './agent/group-native-ui.js';
+import {GroupTextExecution,DedicatedGroupDriver} from './agent/group-text-execution.js';
+import {GroupMemberships} from './agent/group-memberships.js';
 import {JsonClient, ApiError} from './agent/http.js';
 import {PipelineAdapter} from './agent/pipeline.js';
 import {SccAdapter} from './agent/scc.js';
@@ -131,6 +138,25 @@ const commands = {
   'content-status': 'Read compact saved content-preparation receipt for --task; zero HTTP.',
   'content-reconcile': 'Read back a known --input {id} after uncertain content save for --task; no repeated write.',
   groups: 'Read compact stored Group context; optional --account or --input {id}. No membership or provider changes.',
+  'group-text-status':'Read independent Group text destinations, grants, due times and native-executor holds; no Facebook calls.',
+  'group-text-register':'Bind an existing joined Group/Page to a dated native text/rules observation; --input and --owner-authorized.',
+  'group-text-authorize':'Record separate exact-post or bounded seven-day Group text authority; --input and --owner-authorized. No submission.',
+  'group-text-schedule':'Schedule an existing exact original-text Group handoff under its matching grant; --input. No Page queue or Facebook schedule.',
+  'group-text-claim':'Disabled standalone charging. Use group-text-execute; dedicated native composer preflight must precede a claim.',
+  'group-browser-start':'Start/reuse an account-isolated persistent SCC Chrome; --input {accountId} or {registryId}. Existing account ports are preserved; sign in normally once.',
+  'group-browser-list':'List durable account/profile/port bindings; no browser navigation.',
+  'group-browser-groups':'Inspect native Your Groups membership under the exact account Page; --input {accountId} or --account. Not history or posting authority.',
+  'group-browser-register':'Verify one native-discovered Group identity/composer/About and reuse SCC registry; --input {accountId,discoveryId,groupUrl} and --owner-authorized. No post/grant.',
+  'group-browser-status':'Inspect dedicated SCC browser process/profile/loopback binding. No Facebook authority inferred.',
+  'group-browser-check':'Verify exact joined Page and empty Group composer in dedicated Chrome through --input {registryId}; no text or Post.',
+  'group-text-next':'Inspect the next eligible existing due Group text destination; no new schedule or claim.',
+  'group-text-preflight':'Check an eligible exact destination and dedicated native composer through --input {destinationId}; no charged claim or Post.',
+  'group-text-execute':'Shared exact authorized Group text execution after managed browser/composer readiness; --input {destinationId}; one fenced Post attempt.',
+  'group-text-reconcile-visible':'Read the existing dedicated tab for the original native dispatch receipt; --input {destinationId}. Never navigates, prepares or clicks Post.',
+  'group-text-reconcile-before-dispatch':'Record an explicit owner-backed proven pre-dispatch conclusion; --input and --owner-authorized. Preserve charge, original intent and duplicate fence; no replay.',
+  'group-text-authorize-continuation':'Record explicit new <=30-minute timing authority for the same proven non-dispatched original under its unchanged exact grant and retained one charge; --input and --owner-authorized.',
+  'group-text-record':'Append actual Group text publication/moderation/uncertainty evidence for the started original; --input. Never retries.',
+  'group-text-control':'Pause/resume/revoke an exact Group registry/grant/destination through --input and --owner-authorized.',
   'group-package': 'Read existing manual handoff using --input {id}; never opens Facebook.',
   'research-save': 'Store dated compact findings and source URLs from supported agent tools; --input, optional --account.',
   'creator-research-save':'Save bounded dated public creator evidence for a Gemini Page; --account, --input.',
@@ -343,6 +369,41 @@ async function main() {
         if(Object.keys(input).some(k=>k!=='id')||input.id!==undefined&&typeof input.id!=='string')throw new Error('Supply only an optional id');
         if(command==='group-package'&&!input.id)throw new Error('Supply the prepared handoff id');
         data=command==='group-package'?await contentScc.groupPackage(input.id):input.id?{group:await contentScc.group(input.id)}:{groups:await contentScc.groups(account)};break;
+      case 'group-text-status':data=new GroupTextPublication(local(),contentScc).status();break;
+      case 'group-text-register':data=await new GroupTextPublication(local(),contentScc).register(input,flags['owner-authorized']===true);break;
+      case 'group-text-authorize':data=await new GroupTextPublication(local(),contentScc).authorize(input,flags['owner-authorized']===true);break;
+      case 'group-text-schedule':data=await new GroupTextPublication(local(),contentScc).schedule(input);break;
+      case 'group-text-claim':throw new Error('Standalone group-text-claim is disabled: use group-text-execute so dedicated-browser and exact composer readiness precede charging.');
+      case 'group-browser-list':data={browsers:new GroupBrowser(path.resolve(__dirname,'../.data'),local()).inventory()};break;
+      case 'group-browser-groups':case 'group-browser-register':{
+        if(statePath!==path.resolve(__dirname,'../.data/agent/agent.db')||contentScc.client.origin!=='http://localhost:3001')throw new Error('Native owner browser requires the original SCC store and owner origin');
+        const memberships=new GroupMemberships(local(),contentScc,new GroupBrowser(path.resolve(__dirname,'../.data'),local()));
+        if(command==='group-browser-groups'){if(!(input.accountId??account))throw new Error('Supply exact accountId');data=await memberships.discover(input.accountId??account);}else data=await memberships.register(input,flags['owner-authorized']===true);break;
+      }
+      case 'group-browser-start':case 'group-browser-check':case 'group-browser-status':{
+        const browser=new GroupBrowser(path.resolve(__dirname,'../.data'),local()),accountId=input.accountId??account;
+        if(command==='group-browser-status'){data={...await browser.status(accountId),lastNativeCheck:local().runnerState(accountId?'group-browser.last-check:'+accountId:'group-browser.last-check')??null};break;}
+        if(statePath!==path.resolve(__dirname,'../.data/agent/agent.db')||contentScc.client.origin!=='http://localhost:3001')throw new Error('Native owner browser requires the original SCC agent store and owner loopback origin; isolated/custom stores cannot dispatch into it');
+        const target=input.registryId?await new GroupTextPublication(local(),contentScc).browserTarget(input.registryId):null;
+        const selectedAccount=target?.accountId??accountId;if(!selectedAccount)throw new Error('Supply an exact accountId or registered Group registryId');if(accountId&&target?.accountId&&target.accountId!==accountId)throw new Error('Requested account differs from the registered Group Page');await contentScc.pageContext(selectedAccount);
+        if(command==='group-browser-check'&&!target)throw new Error('Group composer check requires a registered registryId; use account Groups discovery before registration');
+        const lease=groupBrowserLease(selectedAccount),leaseId='group-browser-admin:'+randomUUID();
+        local().createJob(leaseId,{command,registryId:input.registryId});
+        if(local().providerOwner('scc:facebook-group-browser')||!local().reserveProvider(lease,leaseId))throw new Error('Dedicated account browser is busy or requires original execution reconciliation');
+        try{data=command==='group-browser-start'?await browser.start(selectedAccount,target?.groupUrl??'https://www.facebook.com/groups/feed/'):await browser.withPage(selectedAccount,page=>new FacebookGroupTextUI().check(page,target!));local().patchState(leaseId,{phase:'completed',result:data});if(command==='group-browser-check')local().setRunnerState('group-browser.last-check:'+selectedAccount,data);}catch(e){local().patchState(leaseId,{phase:'held',reason:(e as Error).message});throw e;}finally{local().releaseProvider(lease,leaseId);}break;
+      }
+      case 'group-text-next':{const destinations=new GroupTextPublication(local(),contentScc).status().destinations;data={destination:destinations.filter((d:any)=>(!account||d.accountId===account)&&['due_requires_authorized_native_executor','charged_original_continuation_requires_native_executor'].includes(d.admission)).sort((a:any,b:any)=>Date.parse(a.scheduledAt)-Date.parse(b.scheduledAt))[0]??null,notice:'Existing eligible destinations only; no catch-up, claim or auto-submission.'};break;}
+      case 'group-text-preflight':case 'group-text-execute':case 'group-text-reconcile-visible':{
+        if(typeof input.destinationId!=='string')throw new Error('Supply the original destinationId');
+        const expectedAccount=input.accountId??account,savedDestination=local().getJob(input.destinationId);if(expectedAccount&&(!savedDestination||(savedDestination.input as any).accountId!==expectedAccount))throw new Error('Requested account differs from the exact authorized destination; no alternate Page or browser will be used');
+        if(statePath!==path.resolve(__dirname,'../.data/agent/agent.db')||contentScc.client.origin!=='http://localhost:3001')throw new Error('Native owner browser requires the original SCC agent store and owner loopback origin; isolated/custom stores cannot dispatch into it');
+        const lane=new GroupTextPublication(local(),contentScc),browser=new GroupBrowser(path.resolve(__dirname,'../.data'),local());
+        const execution=new GroupTextExecution(local(),lane,new DedicatedGroupDriver(browser),async(preparedId,url)=>contentScc.client.post('/api/groups/prepared/'+encodeURIComponent(preparedId)+'/receipt',{url,confirmOwnerEntered:true,note:'Authorized SCC managed native browser observation; unverified receipt wrapper, not owner-firsthand or Groups API verification. See the original agent execution ledger.'}));data=command==='group-text-reconcile-visible'?await execution.reconcileVisible(input.destinationId):await execution.run(input.destinationId,command==='group-text-execute');break;
+      }
+      case 'group-text-reconcile-before-dispatch':data=new GroupTextPublication(local(),contentScc).reconcileBeforeDispatch(input,flags['owner-authorized']===true);break;
+      case 'group-text-authorize-continuation':data=await new GroupTextPublication(local(),contentScc).authorizeContinuation(input,flags['owner-authorized']===true);break;
+      case 'group-text-record':data=new GroupTextPublication(local(),contentScc).record(input);break;
+      case 'group-text-control':data=new GroupTextPublication(local(),contentScc).control(input,flags['owner-authorized']===true);break;
       case 'research-save': data=new AgentResearch(local()).save(input,account);break;
       case 'creator-research-save':if(!account)throw new Error('Supply --account');data=new CreatorResearch(local()).save(input,account);break;
       case 'creator-research-status':if(!account)throw new Error('Supply --account');data=new CreatorResearch(local()).status(account);break;

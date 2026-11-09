@@ -4,6 +4,20 @@
 
 ---
 
+## Permanent owner constraint — No additional spending (5 November 2026)
+
+Read the [README spending constraint](README.md#permanent-engineering-constraint--no-additional-spending) and [agent operating rule](docs/AGENT_WORKFLOW.md#permanent-no-additional-spending-rule) before proposing any provider, MCP, skill, model or service. Inspect existing capabilities and verify exact entitlements first. The owner currently pays for ChatGPT Business and Google AI Pro; do not assume those subscriptions include separately metered APIs or unattended access through another interface.
+
+Do not activate billing, purchase credits, subscribe to another service or introduce paid fallbacks. Routine engineering/autonomy permission does not authorize spending. Prefer supported existing-subscription workflows; assess free local options only when practical and worthwhile. Never bypass quotas or security checks. If a suitable no-extra-cost path is unavailable or unverified, preserve the blocked workflow and its evidence. Do not fabricate readiness or replace missing imagery with placeholders.
+
+**Do not resume the canceled paid Google image API implementation.** This permanent constraint takes precedence over historical setup examples that could imply additional spending. Existing generation, recovery, publication approvals, Reel policies and Flow contracts remain unchanged.
+
+## Current owner priority — 9 November 2026
+
+**Autonomous implementation is CLOSED — CONDITIONALLY ACCEPTED.** Items 1–3 remain live-accepted; Item 4's remaining qualifications are operational constraints. Do not reopen implementation indefinitely. Keep existing three-Page production operating under its original grants and approval rules. The new priority is **Facebook Groups distribution**. No Item 3, creative-scoring, Windows-startup or Deep Analysis rework, extra spending or Git push.
+
+Use the [weekly seven-day operating contract](docs/content/WEEKLY_CONTENT_OPERATING_CONTRACT.md), [Groups V1 assessment](docs/content/FACEBOOK_GROUPS_V1_SCOPE.md) and [closure/transition record](docs/qa/SCC_AUTONOMOUS_CLOSURE_GROUPS_TRANSITION_20261109.md). Weekly image preparation needs a fresh explicit bounded authorization; never renew the existing trial silently or override exact-revision publication approvals. The three failed Antigravity sessions remain immutable recovery evidence. Argon's exhaustion does not imply exhaustion of Gemini or Claude/GPT; use only verified included pools through supported configuration, with unchanged validation/accounting and no blind replay.
+
 ## First Live Creative Publication & Permanent Creative Playbook (27 October 2026)
 
 The first owner-approved multi-image Facebook post was successfully published to Page A (**แก้บัคยาวๆๆ**, Graph ID `409347032254077`) via Social Command Center's official Meta Graph API:
