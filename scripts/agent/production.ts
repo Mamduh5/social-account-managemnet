@@ -2,6 +2,7 @@ import {statfsSync} from 'node:fs';
 import path from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
 import {z} from 'zod';
+import {technicalPolicy} from './reel-technical-policy.js';
 import {OwnerVideoReviews} from './video-review.js';
 import {productionInventory} from './production-inventory.js';
 import {activeGenerationSupplement,consumeGenerationSupplement,worldNewGenerationPaused} from './generation-controls.js';
@@ -344,7 +345,7 @@ export class GeminiProduction {
       if(native.recoveryHold&&!native.unresolved&&!native.activeRunId&&!native.observationLocked&&!native.boundedRequests.some((r:Any)=>r.in_progress))await this.once(item.id,'production_reconcile_recovery',{projectId,sha256:facts.sha256},()=>this.pipeline.reconcileProductionRecovery());
       this.save(item.id,{phase:technical?'awaiting_qa':'qa_failed',videoId:imported.videoId,media:{sha256:facts.sha256,bytes:facts.bytes,technical,metadata:media},original:e.original});
       this.store.releaseProvider(providerScope,item.id);this.save(cycle.id,{activeItem:null});
-      const policy=this.policyFor(scope);if(policy&&policy.state.humanHold==='reconciliation_required')this.save(policy.id,{humanHold:null});
+      const policy=this.policyFor(scope);if(policy&&(policy.state.humanHold==='reconciliation_required'||this.lane&&technicalPolicy(this.store,concept.accountId)&&policy.state.humanHold==='human_action_required')){this.save(policy.id,{humanHold:null});if(this.lane&&technicalPolicy(this.store,concept.accountId))this.save(cycle.id,{phase:'active',lastError:null});}
       return {state:technical?'awaiting_qa':'qa_failed',actions:1,itemId:item.id,publication:false};
     }
     const code=String(e.failure?.code??e.session.nativeBlock??'');

@@ -1,3 +1,4 @@
+import {authorizeTechnicalPolicy} from './agent/reel-technical-policy.js';
 import {adoptPageSources} from './agent/page-reel-sources.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -65,6 +66,7 @@ const commands = {
   'page-publication-tick':'One independent existing-queue publication step; disabled without a Page grant.',
   'page-publication-reconcile':'Read back the original queue receipt for --run production item; never uploads again.',
   'production-variant-review':'Record actual final visual QA and decoded-audio identity using --input and --owner-authorized.',
+  'reel-technical-policy':'Authorize prospective no-creative-review Reels for an existing exact Page grant; --input and --owner-authorized.',
   'reel-preparation-status':'Read three-Page video readiness and separate grants; never submits.',
   'reel-preparation-proposals':'Save disabled new-Page generation and Reel publication proposals with owner scope.',
   'reel-fact-review':'Record an exact bounded verified-source attestation; no generation or quality approval.',
@@ -247,6 +249,7 @@ async function main() {
       case 'video-review-publication-control':data=await videoReviews().controlPublication(input,flags['owner-authorized']===true);break;
       case 'video-review-decide':{const result=await videoReviews().decide(input,flags['owner-authorized']===true);data=input.decision==='approve'?{...result,progress:await videoReviews().advance(result.itemId)}:result;break;}
       case 'video-review-edit':data=await videoReviews().edit(input,flags['owner-authorized']===true);break;
+      case 'reel-technical-policy':data=await authorizeTechnicalPolicy(local(),scc,{pipeline:pipelineClient.origin,scc:scc.client.origin},input,flags['owner-authorized']===true);break;
       case 'reel-preparation-status':data=await new PageReelPreparation(local(),pipeline,scc,{pipeline:pipelineClient.origin,scc:scc.client.origin},path.dirname(statePath)).status();break;
       case 'reel-preparation-proposals':data=await new PageReelPreparation(local(),pipeline,scc,{pipeline:pipelineClient.origin,scc:scc.client.origin},path.dirname(statePath)).saveProposals(flags['owner-authorized']===true);break;
       case 'reel-fact-review':data=savePageReelFact(local(),input,flags['owner-authorized']===true);break;
