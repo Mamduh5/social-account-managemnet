@@ -1,0 +1,54 @@
+# Research-first weekly content V1.1 — independent review and bounded improvements
+
+10 November 2026, Asia/Bangkok. Baseline: `a29bf640c1bd2de915062ab35329dd27b2b9ad93`. Owner-authorized source improvements and local commit only; no new real weekly/image grant, provider generation, publication, push, queue reset or unrelated service restart.
+
+## Findings and corrections
+
+- **Seven-day implementation confirmed.** `weekWindow()` represents `[start 00:00 Bangkok, start + 7 calendar days 00:00 Bangkok)`. For 10 November the included dates are 10–16 November, with 17 November excluded. For 29 December the included dates end on 4 January; 5 January is the exclusive end. Tests cover all seven days, the eighth-day rejection, leap-year and year boundaries. The independent UX report's UTC endpoint `2027-01-04T17:00Z` is **5 January 00:00 Bangkok**, not a distinct eighth included day. The saved-plan selector now explicitly displays the last included day.
+- **Unsupported ETDA attribution is not verified research.** The supplied acceptance report cites only `https://www.etda.or.th/th/...`, not an identifiable publication, table, survey method or page supporting “78% notification fatigue” or “less than 15% focus-mode adoption.” Those percentages were not established by the retained committed fixtures or identifiable primary evidence. Searches and inspection of [ETDA's actual 2023 Digital Wellbeing focus-group page](https://www.etda.or.th/th/pr-news/Focus-Group.aspx) did not verify the claimed figures. This is an **unverified acceptance/fixture assertion**, not proof that no such survey could exist. No replacement percentage was invented. Placeholder citations are rejected; owner-attested claims remain visibly distinct from independently verified facts. Historical Teamwork reports are preserved; this correction supersedes their stronger factual claim.
+- **Acceptance scope qualified.** The earlier challenge used isolated test adapters. It establishes deterministic contract/safety behavior, not live AI quality, real ETDA verification, provider capacity or hosted-model prompt-injection resistance. Its 10–14 action estimate was not an instrumented measurement.
+- **Actual V1 gaps corrected:** separate prepare/import/campaign approval actions, no durable bounded weekly continuation, no reusable exact-concept weekly image budget, and Reel story output without a supported production-admission handoff.
+
+## Practical owner workflow and measured interactions
+
+After selecting/saving the week's ideas, formats and dates, use **Research-first weekly content → Authorize this selected week**:
+
+1. **Review selected week**: inspect exact destinations, times, current ready captions/media and image briefs where available.
+2. If publishing current ready content, select its explicit publication confirmation. Newly generated or materially changed final content is excluded.
+3. Confirm the bounded selected week and click **Authorize bounded week**.
+
+The browser fixture measured **4 interactions** for the ready-content authorization phase: review button, exact-publication checkbox, bounded-week checkbox, authorize button. An image week measured **7**, adding the image-authority checkbox and total/daily budget entries. These counts begin with a saved plan; research, topic/schedule editing, optional Group registry/grant entry, expiry changes and genuinely new final-media/content review are additional. They are not a promise that every complete week takes four clicks.
+
+The immutable grant binds selected slot/idea/evidence hashes, exact destinations and Page context fingerprints, expiry, permitted operations, existing Group scopes and the precise current campaign review hashes. Repeated requests reuse the original grant. Telemetry/status updates alone do not invalidate the content review. Material edits and expired authority never gain approval silently.
+
+Existing exact campaign approval/queue code handles all selected ready Page campaigns in the batch, without a second unchanged approval per Page. Newly prepared drafts remain unapproved. **World's final media review and current text/image final-content approval remain mandatory.** This assignment does not authorize changing those policies; avoiding that genuine later review would require a separate owner policy decision.
+
+## Continuation, images, Reels and Groups
+
+- The **existing AgentRunner trigger** calls the fixed weekly continuation endpoint. There is no new timer or scheduler. Durable leases/intents progress bounded preparation, original-result import, existing Group scheduling and saved outcomes; they do not tick a provider themselves. Unrelated eligible lanes continue through a failed/held lane. Restart and duplicate requests retain original identities. Future final outputs do not inherit publication approval.
+- **Weekly images:** explicitly select prepared, reviewed concepts and enter total images, rolling-24-hour limit and expiry. One active image and at most six pending selected concepts remain bounded. Each grant is immutable; a later week needs a new explicit grant and fresh exact concepts. It creates existing `PageContentImages` scopes, not another generator. Historical reservations/failed/uncertain attempts remain charged; rolling accounting spans earlier weeks. Changed concepts hold; expired unstarted/failed originals remain preserved without blocking a separately eligible new week. Existing model usage accounting, included-interface quota checks, durable claims and no-paid-fallback behavior remain authoritative. A subscription never establishes available capacity. This engineering assignment issued **no real image grant**.
+- **Reels:** the selected topic/evidence now prepares an existing typed production concept rather than requiring manual re-entry of a story. Admission calls `GeminiProduction.enqueuePrepared`, retaining its language, independently verified factual-source, Page-lane, capacity and duplicate checks. The existing production controller retains actual scope, availability, reservation, uncertainty, media/factual/creative review and publication checks. Invalid historical free-text stories remain held; they are not silently regenerated. The offline test used the real local production queue, with all provider calls blocked.
+- **Groups:** selected text packages reuse the actual registered Group and supplied existing exact/weekly grant. Preparation and local scheduling can advance under that recorded scope. Posting still requires the **existing shared dedicated-browser executor and fresh native preflight**; no new unattended Group posting capability or grant is inferred. Exact-post grants still bind exact content/time. Moderation/uncertain outcomes retain their established charge and reconciliation behavior.
+
+## Runtime and existing owner data
+
+Read-only owner inspection confirmed running revision `bfba4690a39bafae0c7ec8403efd8a0373dd9dbb`, managed backend/proxy ready, normal synchronization/startup enabled, health HTTP 200, three connected real Pages, two registered Groups, 15 published destinations and no pending publication state in that observation. No weekly plan/grant was inserted into the owner database (`weekly_plan_saved` count was zero).
+
+The reviewed UI was additionally run against a **WAL-safe private copy of the existing owner database**. It displayed all three actual Page identities and registered Groups; writes returned 403 and provider/external fetches were blocked. Evidence: `.data/weekly-v11-validation/owner-copy-1794323149711/result.json` and screenshot. This is owner-data compatibility evidence, not production activation or live publishing acceptance.
+
+**Runtime activation remains withheld by the supported clean-source release guard.** `inspectReleaseSource()` in `scripts/lib/owner-release-prepare.ts` requires application inputs to be clean and match the selected committed SHA. The pre-existing unrelated change in `scripts/agent/antigravity-wrapper.cjs` is an application input. It was not overwritten, reset, stashed or silently added to this commit. The final supported updater preflight receipt is retained under `.data/weekly-v11-validation/`; no guard bypass or forced restart is permitted. Resolving that unrelated work and rerunning the existing release controls is the activation dependency. The working client build alone does not activate the pinned application or scheduled host.
+
+## Verification
+
+- Full isolated `npm test`: **1,108 passed; 0 failed; all 107 suites passed**. Log: `.data/weekly-v11-validation/npm-test.log`.
+- Final focused weekly tests after the last image failure/expiry/changed-concept guards: **41/41 passed** (22 service/domain + 19 AgentStore/production/image tests). Log: `.data/weekly-v11-validation/focused-final.log`.
+- One realistic seven-day test covers Developer, Rai, World and a registered Group together; a quota-held Rai lane does not block Developer draft/campaign handoff, World production admission or the exact Group schedule. Restarts and repeated advancement do not duplicate them. Future final content remains unapproved.
+- Backend `npx tsc --noEmit`, agent `npm run typecheck:agent`, and client production build: passed. Existing Vite chunk-size advisory remains nonblocking.
+- Browser fixtures: **8 checks each**, ready-content and image-budget scenarios, including measured 4/7 interactions, exact authorization payloads, preserved edits, uncertain-intent locks, Bangkok boundaries, existing Group scopes, desktop dark/mobile light and no browser exceptions/overflow. Evidence directories: `.data/test-runs/weekly-content-browser/1794322672770/` and `1794322679695/`.
+- Owner-copy read-only browser inspection: passed; original runtime/data unchanged by the test. No provider generation or public test content was used.
+
+## Scoped files
+
+`server/src/domain/weekly-content.ts`, `server/src/services/weekly-content.service.ts`, `server/src/services/weekly-batch.service.ts`, `server/src/services/weekly-agent-bridge.ts`, `server/src/routes/weekly-content.routes.ts`; `scripts/agent.ts`, `scripts/agent/weekly-content.ts`, `scripts/agent/weekly-image-policy.ts`, `scripts/agent/page-content-images.ts`, `scripts/agent/runner.ts`; `client/src/api/weekly-content.ts`, `client/src/components/content/WeeklyContentPlanner.tsx`, `client/src/components/content/WeeklyBatchAuthorization.tsx`; `test/weekly_content.test.ts`, `test/agent_weekly_content.test.ts`, `test/e2e/weekly_content_fixture_acceptance.ts`, `test/e2e/weekly_owner_readonly.ts`; this report.
+
+Remaining constraints are deliberate final-content policies, safe release activation, actual provider quota/authentication, factual-source availability and existing Group native-session availability. No new metered service, generation fallback, alternate scheduler or publication-policy relaxation was introduced.

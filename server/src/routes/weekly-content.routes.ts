@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { weeklyContentService as service } from '../services/weekly-content.service.js';
+import {weeklyBatchService as batches} from '../services/weekly-batch.service.js';
 
 export const weeklyContentRouter = Router();
 const wrap = (fn: (req: any) => unknown) => (req: any, res: any) => Promise.resolve().then(() => fn(req)).then(plan => res.json({ plan })).catch(error => res.status(error.message?.includes('migration') ? 503 : 400).json({ error: error.message || 'Weekly workflow held' }));
@@ -16,3 +17,6 @@ weeklyContentRouter.post('/plans/:id/prepare', wrap(req => service.prepare(req.p
 weeklyContentRouter.post('/plans/:id/materialize', wrap(req => service.materialize(req.params.id, req.body)));
 weeklyContentRouter.post('/plans/:id/schedule-group', wrap(req => service.scheduleGroup(req.params.id, req.body)));
 weeklyContentRouter.post('/plans/:id/outcomes', wrap(req => service.outcomes(req.params.id, req.body)));
+weeklyContentRouter.post('/plans/:id/batch-review', (req,res,next)=>{batches.review(req.params.id as string,req.body).then(review=>res.json({review})).catch(next);});
+weeklyContentRouter.post('/plans/:id/authorize-week', wrap(req=>batches.authorize(req.params.id,req.body)));
+weeklyContentRouter.post('/advance', (_req,res,next)=>{batches.advance().then(result=>res.json(result)).catch(next);});

@@ -26,6 +26,8 @@ async function main() {
   const commands: { url: string; body: any }[] = [];
   const checks: string[] = [];
   const pageErrors: string[] = [];
+  const withImages=process.argv.includes('--batch-with-images');
+  const ownerActions:string[]=[];
   const server = createServer(async (request, response) => {
     const url = new URL(request.url || '/', 'http://127.0.0.1');
     if (url.pathname.startsWith('/api/')) { response.writeHead(500); response.end('API traffic must be intercepted'); return; }
@@ -55,6 +57,7 @@ async function main() {
         if (request.method() === 'GET') return json({ plan });
         const body = request.postDataJSON(); commands.push({ url: url.pathname, body });
         assert.equal(body.revision, plan.revision);
+        if(url.pathname.endsWith('/batch-review'))return json({review:{hash:'fixture-exact-week-hash',policy:'Only exact displayed current content; future material requires review.',slotIds:body.slotIds,slots:plan.slots.filter(s=>body.slotIds.includes(s.id)).map(s=>({...s,idea:plan.ideas.find(i=>i.id===s.ideaId),hold:null})),imageHold:null,images:{reviewHash:'fixture-exact-images',concepts:withImages?[{slotId:'fixture-reviewed-image',taskId:'fixture-image-task',count:1,continuity:'Same original subject',frames:[{description:'An original comparison diagram',purpose:'Explain isolation',aspectRatio:'4:5'}]}]:[]},campaigns:[{campaign:{id:'fixture-exact-campaign',name:'Exact selected ready content'},account:{name:target.name},items:[{id:'fixture-exact-item',title:'Exact final fixture text',caption:'Reviewed original fixture text, no invented statistics.',hashtags:'',scheduledAt:plan.slots[0].scheduledAt,media:[]}]}]}});
         if (request.method() === 'PUT') {
           for (const slot of body.slots || []) assert.deepEqual(Object.keys(slot).sort(), ['format', 'id', 'ideaId', 'scheduledAt']);
           if (body.slots) plan.slots = body.slots.map((slot: any) => ({ ...plan.slots.find(item => item.id === slot.id), ...slot }));
@@ -65,6 +68,7 @@ async function main() {
           if (body.evidence.kind === 'verified_fact') assert.ok(body.evidence.verificationNote.trim());
           plan.evidence.push({ ...body.evidence, id: 'evidence-added', provenance: 'owner_entered', independentlyVerified: false });
         } else if (url.pathname.endsWith('/approve-planning')) plan.planningApproval = { revision: plan.revision + 1, at: new Date().toISOString() };
+        else if(url.pathname.endsWith('/authorize-week')){assert.equal(body.expectedHash,'fixture-exact-week-hash');assert.equal(body.confirm,true);assert.deepEqual(body.operations,{prepare:true,materialize:true,publishExact:true});if(withImages)assert.deepEqual(body.imageBudget,{maxTotalImages:1,maxImagesPer24Hours:1,maxPendingItems:1});else assert.equal(body.imageBudget,undefined);plan.authorizations=[{id:'fixture-bounded-week',slotIds:body.slotIds,expiresAt:body.expiresAt,state:{phase:'authorized'}}];}
         else if (url.pathname.endsWith('/schedule-group')) {
           assert.equal(body.slotId, 'slot-group'); assert.equal(body.registryId, 'group-channel:fixture'); assert.equal(body.grantId, 'group-grant:fixture'); assert.equal(body.confirmSchedule, true);
           plan.slots[1].groupSchedule = { status: 'scheduled', destinationId: 'group-destination-fixture', registryId: body.registryId, grantId: body.grantId };
@@ -120,6 +124,13 @@ async function main() {
     await page.getByRole('button', { name: 'Queue under existing Group grant', exact: true }).click();
     await page.getByText('Group queue: scheduled · group-destination-fixture', { exact: true }).waitFor();
     checks.push('Existing Group registry and grant identity handoff is explicit; no grant is created');
+    await page.getByRole('button',{name:'Review selected week',exact:true}).click();ownerActions.push('Review selected week');
+    await page.getByRole('checkbox',{name:/I approve publication and scheduling of only/}).check();ownerActions.push('Approve exact displayed publication snapshots');
+    if(withImages){await page.getByRole('checkbox',{name:/Authorize included Codex images only/}).check();ownerActions.push('Select exact weekly image authority');await page.getByLabel('Weekly total image budget',{exact:true}).fill('1');ownerActions.push('Enter total image bound');await page.getByLabel('Weekly daily image budget',{exact:true}).fill('1');ownerActions.push('Enter rolling daily bound');}
+    await page.getByLabel('Confirm bounded weekly authorization',{exact:true}).check();ownerActions.push('Confirm bounded week');
+    await page.getByRole('button',{name:'Authorize bounded week',exact:true}).click();ownerActions.push('Authorize bounded week');
+    await page.getByText(/Authority fixture-bounded-week/).waitFor();assert.equal(ownerActions.length,withImages?7:4);
+    checks.push('Measured exact weekly authorization session: '+ownerActions.length+' owner interactions; no repeated unchanged campaign approvals');
     await page.screenshot({ path: path.join(artifacts, 'weekly-desktop-dark.png'), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(() => { document.documentElement.classList.add('light'); document.documentElement.setAttribute('data-theme', 'light'); });
@@ -127,7 +138,7 @@ async function main() {
     await page.screenshot({ path: path.join(artifacts, 'weekly-mobile-light.png'), fullPage: true });
     assert.deepEqual(pageErrors, []);
     checks.push('Desktop dark and mobile light layouts render without horizontal overflow or browser exceptions');
-    const report = { status: 'PASS', fixtureOnly: true, ownerRuntimeStarted: false, providersCalled: false, checks, commands: commands.map(command => command.url), artifacts };
+    const report = { status: 'PASS', fixtureOnly: true, ownerRuntimeStarted: false, providersCalled: false, checks, ownerActions, commands: commands.map(command => command.url), artifacts };
     await writeFile(path.join(artifacts, 'result.json'), JSON.stringify(report, null, 2));
     console.log(JSON.stringify(report, null, 2));
   } finally { await browser.close(); await new Promise<void>(resolve => server.close(() => resolve())); }

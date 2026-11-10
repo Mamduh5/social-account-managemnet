@@ -42,6 +42,7 @@ export interface WeeklySlot {
   campaignId?: string;
   draftId?: string;
   preparedId?: string;
+  production?: {itemId:string;status:string;hold?:string};
   groupSchedule?: { status: string; destinationId?: string; registryId: string; grantId: string; hold?: string };
   hold?: string;
   outcome?: Record<string, unknown> | null;
@@ -61,6 +62,7 @@ export interface WeeklyPlan {
   planningApproval: { revision: number; at: string } | null;
   analysisTasks: { taskId: string; accountId: string; status: string; hold?: string }[];
   limitations: string[];
+  authorizations?: Array<{id:string;slotIds:string[];expiresAt:string;state:Record<string,unknown>}>;
 }
 export interface WeeklyTarget { accountId: string; graphId: string; name: string; persona: string }
 export interface WeeklyGroup { id: string; name: string; accountId: string; rules: string; limitations: string[] }
@@ -89,4 +91,7 @@ export const weeklyContentApi = {
   materialize: (plan: WeeklyPlan) => command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/materialize`, { revision: plan.revision }),
   outcomes: (plan: WeeklyPlan) => command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/outcomes`, { revision: plan.revision }),
   scheduleGroup: (plan: WeeklyPlan, slotId: string, registryId: string, grantId: string) => command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/schedule-group`, { revision: plan.revision, slotId, registryId, grantId, confirmSchedule: true }),
+  batchReview: (plan:WeeklyPlan,slotIds:string[])=>command<{review:WeeklyBatchReview}>(`/plans/${encodeURIComponent(plan.id)}/batch-review`,{revision:plan.revision,slotIds}),
+  authorizeWeek: (plan:WeeklyPlan,body:Record<string,unknown>)=>command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/authorize-week`,{revision:plan.revision,...body}),
 };
+export interface WeeklyBatchReview {hash:string;slotIds:string[];policy:string;imageHold:string|null;images:{reviewHash:string|null;concepts:Array<{slotId:string;taskId:string;count:number;continuity:string;frames:Array<{description:string;purpose:string;aspectRatio:string}>}>};slots:Array<WeeklySlot&{idea:WeeklyIdea;hold:string|null}>;campaigns:Array<{campaign:{id:string;name:string};account:{name:string};items:Array<{id:string;title:string;caption:string;hashtags:string;scheduledAt:string;media:Array<{id:string;previewUrl?:string;url?:string}>}>}>;}

@@ -13,6 +13,10 @@ import {GLOBAL_RELATIONSHIP_RULES,KNOWN_PERSONAS} from '../server/src/domain/soc
 import {assistantRules} from '../server/src/domain/content-assistant.js';
 import {StandingPageImages,imagePolicyBudget} from '../scripts/agent/page-image-policy.js';
 import {AgentWorkQueue} from '../scripts/agent/work-queue.js';
+import {PageContentImages} from '../scripts/agent/page-content-images.js';
+import {weeklyImageAdmission} from '../scripts/agent/weekly-image-policy.js';
+import {GeminiProduction} from '../scripts/agent/production.js';
+import {PipelineAdapter} from '../scripts/agent/pipeline.js';
 
 const now=new Date('2026-11-10T03:00:00Z'),later='2026-11-13T03:00:00Z';
 const ev={id:'evidence-1',kind:'direct_observation',summary:'One developer asked how to isolate a Git worktree. This is a single observed question, not a trend.',sourceRef:'https://example.com/observed-thread',observedAt:now.toISOString(),validUntil:later,limitations:['One small reference case; no causal inference'],accountId:'page'};
@@ -71,7 +75,7 @@ test('an existing standing image trial cannot silently adopt a new weekly image 
   const inputHash=f.store.getJob(policyId)!.inputHash,result=await policy.advance();assert.equal(result.state,'image_concept_preparation_pending_or_held');assert.equal(result.actions,0);assert.equal(f.store.getJob('page-images:'+a.taskId),null);assert.equal(f.store.runnerState('page-image.scopes'),null);assert.equal(f.store.getJob(policyId)!.inputHash,inputHash);assert.equal(imagePolicyBudget(f.store,f.store.getJob(policyId)!,+now).trialReservedOrStarted,0);
 });
 test('Reel preparation is an existing story-plan task with explicit production-scope hold and no generation',async t=>{
-  const f=fixture(t),a=await f.weekly.prepare({...prep,format:'reel'},true);assert.equal(a.kind,'story_plan');assert.match(a.hold!,/existing_video_production_scope_required/);assert.equal(f.writes(),0);await f.weekly.persist({jobId:a.jobId});assert.equal(f.writes(),0);
+  const f=fixture(t),a=await f.weekly.prepare({...prep,format:'reel'},true);assert.equal(a.kind,'prepare_video');assert.match(a.hold!,/existing_video_production_scope_required/);assert.equal(f.writes(),0);await f.weekly.persist({jobId:a.jobId});assert.equal(f.writes(),0);
 });
 test('Group text uses the exact existing Group preparation workflow and does not distribute to unrelated Groups',async t=>{
   const f=fixture(t),a=await f.weekly.prepare({...prep,groupId:'group'},true),task=f.store.getWork(a.taskId)!;assert.equal(task.kind,'group_post');assert.equal(task.payload.content.group.id,'group');
@@ -105,6 +109,28 @@ test('typed analysis preserves traceability and rejects invented evidence, cross
   assert.throws(()=>weeklyAnalysisResultSchema.parse({...good,verifiedReactions:100}));save(f,a.taskId,good);assert.equal(f.weekly.analysisResult(a.taskId).ideas[0].evidenceIds[0],ev.id);const task=f.store.getWork(a.taskId)!;
   f.store.saveWork({...task,revision:task.revision+1,result:JSON.stringify({...good,ideas:[{...good.ideas[0],evidenceIds:['invented']}]})});assert.throws(()=>f.weekly.analysisResult(a.taskId),/unknown evidence/);
   f.store.saveWork({...task,revision:task.revision+2,result:JSON.stringify({...good,ideas:[{...good.ideas[0],accountId:'other-page'}]})});assert.throws(()=>f.weekly.analysisResult(a.taskId),/another destination/);
+});
+test('V1.1 explicit image weeks retain exact concepts, prior reservations and expiry without renewing an old grant',async t=>{
+  const f=fixture(t),file=path.join(f.dir,'agent.db'),week=new WeeklyContent(f.store,f.weekly.scc,()=>now,file);
+  const a=await week.prepare({...prep,format:'image'},true);save(f,a.taskId,{...content,imageBrief:{description:'Original diagram',aspectRatio:'4:5',altText:'Independent worktrees',legibility:'Readable',consistency:'Same repository',disclosure:''}});await week.persist({jobId:a.jobId});
+  const review=week.imageReview({planId:prep.planId,slotIds:[prep.slotId]}),input={id:'explicit-week-1',planId:prep.planId,slotIds:[prep.slotId],expectedHash:review.reviewHash,startsAt:now.toISOString(),expiresAt:'2026-11-12T03:00:00Z',maxTotalImages:1,maxImagesPer24Hours:1,maxPendingItems:1};
+  await assert.rejects(()=>week.authorizeImages(input),/budget approval/);assert.equal(f.store.getJob('weekly-images:explicit-week-1'),null);
+  const grant=await week.authorizeImages(input,true),oldHash=f.store.getJob(grant.grantId)!.inputHash;await week.authorizeImages(input,true);assert.equal(grant.generationSubmitted,false);assert.equal(f.store.listWork(100).filter(w=>w.kind==='opening_image').length,0);
+  assert.equal((await new PageContentImages(week.pages,file,()=>now).advance()).state,'image_request_queued');const original=f.store.listWork(100).find(w=>w.kind==='opening_image')!;assert.ok(original);assert.equal(weeklyImageAdmission(f.store,f.store.getJob('page-images:'+a.taskId)!.input as any,+now),false);
+  await assert.rejects(()=>week.authorizeImages({...input,expiresAt:'2026-11-13T03:00:00Z'},true),/immutable/);
+  f.store.saveWork({...original,status:'blocked',revision:original.revision+1,result:{fixtureFailure:'quota_or_unknown_result_retained'}});
+  const next=new Date('2026-11-17T03:00:00Z'),week2=new WeeklyContent(f.store,f.weekly.scc,()=>next,file),p2={...prep,planId:'week-2',slotId:'image-2',format:'image' as const,scheduledAt:'2026-11-18T05:00:00Z',evidence:[{...ev,observedAt:next.toISOString(),validUntil:'2026-11-20T03:00:00Z'}]};
+  const second=await week2.prepare(p2,true);save(f,second.taskId,{...content,title:'Different selected concept',text:'A different original comparison for the explicitly selected second week.',research:{...content.research,observedAt:next.toISOString(),sources:[{url:ev.sourceRef,title:'Next actual fixture observation',accessedAt:next.toISOString()}]},imageBrief:{description:'Another original diagram',aspectRatio:'4:5',altText:'Original comparison',legibility:'Readable',consistency:'Consistent subjects',disclosure:''}});await week2.persist({jobId:second.jobId});
+  const r2=week2.imageReview({planId:p2.planId,slotIds:[p2.slotId]}),g2=await week2.authorizeImages({...input,id:'explicit-week-2',planId:p2.planId,slotIds:[p2.slotId],expectedHash:r2.reviewHash,startsAt:next.toISOString(),expiresAt:'2026-11-19T03:00:00Z'},true);
+  assert.notEqual(g2.grantId,grant.grantId);assert.equal(f.store.getJob(grant.grantId)!.inputHash,oldHash);assert.ok(f.store.getWork(original.id));assert.equal((await new PageContentImages(week2.pages,file,()=>next).advance()).state,'image_request_queued');assert.equal(f.store.listWork(100).filter(w=>w.kind==='opening_image').length,2);assert.equal(f.store.getJob('page-images:'+a.taskId)!.state.phase,'expired_original_recovery_hold');assert.equal(f.writes(),0);
+  const changed=f.store.getWork(second.taskId)!;f.store.saveWork({...changed,revision:changed.revision+1,result:JSON.stringify({...JSON.parse(changed.result),text:'Materially changed original concept'})});await new PageContentImages(week2.pages,file,()=>next).advance();assert.equal(f.store.getJob('page-images:'+second.taskId)!.state.phase,'changed_concept_hold');assert.equal(f.store.listWork(100).filter(w=>w.kind==='opening_image').length,2);
+});
+test('V1.1 exact weekly Reel concept enters the real existing production queue once with no provider submission',async t=>{
+  const f=fixture(t),pipeline=new PipelineAdapter(new JsonClient('http://127.0.0.1:13998',{fetch:async()=>{throw Error('No provider calls allowed');}}));
+  const production=new GeminiProduction(f.store,pipeline,f.weekly.scc,{scc:f.client.origin,pipeline:'http://127.0.0.1:13998'},f.dir,()=>now,()=>2**40);
+  const weekly=new WeeklyContent(f.store,f.weekly.scc,()=>now,undefined,()=>production);
+  const task=await weekly.prepare({...prep,format:'reel'},true);save(f,task.taskId,{version:'gemini-concept.v1',fictional:true,accountId:'page',title:'Selected original Reel',idea:'The selected original action',hook:'An object moves',development:'The action becomes clear',payoff:'The action completes',category:'visual_comedy',languageStrategy:{spokenLanguage:'none',dialogue:'',intendedAudience:'Visual comedy viewers',rationale:'No speech needed; audience fit remains a hypothesis.',evidenceBasis:'hypothesis',findingIds:[],captionLanguages:['th'],hashtagLanguages:[]}});
+  const first=await weekly.admitVideo({planId:prep.planId,slotId:prep.slotId}),second=await weekly.admitVideo({planId:prep.planId,slotId:prep.slotId});assert.equal(second.itemId,first.itemId);assert.equal(production.status().backlog.length,1);assert.equal(first.generationSubmitted,false);assert.equal(f.writes(),0);assert.equal(f.store.getOperation(first.itemId,'production_submit'),null);
 });
 test('analysis runs through existing runner with source-only instructions, normal usage accounting and no provider test calls',async t=>{
   const f=fixture(t);let invocations=0;

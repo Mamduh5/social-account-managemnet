@@ -11,6 +11,7 @@ import { generalPostsService } from '../server/src/services/general-posts.servic
 import { calendarService } from '../server/src/services/calendar.service.js';
 import { seal } from '../server/src/services/token-protection.js';
 import { weeklyContentRepo } from '../server/src/repositories/weekly-content.repo.js';
+import {WeeklyBatchService} from '../server/src/services/weekly-batch.service.js';
 import { weekWindow, evidenceInput, ideaInput, slotInput, validateEvidence, validateIdeasAndSlots, slotEvidenceHold, type WeeklyPlan } from '../server/src/domain/weekly-content.js';
 
 assert.ok(process.env.SCC_DATA_DIR && /test-runs/i.test(dataDir), 'Weekly tests require isolated SCC_DATA_DIR');
@@ -510,4 +511,51 @@ test('an existing Group schedule reconciles read-only after its date and evidenc
   assert.equal(p.slots[0].groupSchedule!.status, 'reconciliation_required');
   assert.equal(p.slots[0].groupSchedule!.hold, 'unknown_native_original_retained');
   assert.deepEqual(calls, ['groupStatus']);
+});
+
+function batchReady(){
+  const f=serviceFixture();let p=selectedPlan(f,[developer,rai,world]);
+  for(const slot of p.slots){const candidate=p.ideas.find(i=>i.id===slot.ideaId)!;const draft=generalPostsService.save({title:candidate.topic,contentType:'text',destinations:[{accountId:candidate.accountId,caption:'OFFLINE reviewed original '+candidate.accountId,hashtags:'',attachments:[]}]});slot.draftId=draft.id;slot.draftRevision=draft.revision;slot.preparation={status:'prepared',intentAt:now.toISOString()};}
+  p=weeklyContentRepo.save(p,p.revision);return {f,plan:()=>f.service.get(p.id),materialize:()=>f.service.materialize(p.id,{revision:f.service.get(p.id).revision})};
+}
+test('V1.1 exactly seven Bangkok calendar days include every day and exclude the eighth, including leap/year boundaries',()=>{
+  for(const start of ['2026-11-10','2026-12-29','2028-02-25']){const w=weekWindow(start);assert.equal(w.end-w.start,7*86400000);for(let day=0;day<7;day++){const at=w.start+day*86400000;assert.ok(at>=w.start&&at<w.end);}assert.equal(new Date(w.end+7*3600000).toISOString().slice(0,10),w.endDate);}
+  assert.throws(()=>validateEvidence(evidence({kind:'verified_fact',sourceRef:'https://www.etda.or.th/th/...',verificationNote:'Unsupported test attribution'}),+now),/placeholder/);
+});
+test('V1.1 one exact batch review queues all three ready Page campaigns without repeated approvals or future-content authority',async()=>{
+  const f=batchReady();let p=await f.materialize();const batches=new WeeklyBatchService(f.f.bridge,()=>now);const selected=p.slots.map(s=>s.id),review=await batches.review(p.id,{revision:p.revision,slotIds:selected});assert.equal(review.campaigns.length,3);
+  const before=(db.prepare('SELECT COUNT(*) n FROM publishing_destinations').get() as any).n;
+  const request={revision:p.revision,slotIds:selected,expectedHash:review.hash,expiresAt:'2026-11-16T17:00:00Z',confirm:true as const,operations:{prepare:true,materialize:true,publishExact:true},groupScopes:[]};
+  f.f.service.outcomes(p.id,{revision:p.revision}); // Status-only refresh must not require another unchanged content review.
+  p=await batches.authorize(p.id,request);assert.equal((db.prepare('SELECT COUNT(*) n FROM publishing_destinations').get() as any).n,before+3);assert.equal(p.authorizations!.length,1);assert.equal(p.authorizations![0].campaigns.length,3);
+  const retried=await batches.authorize(p.id,request);assert.equal(retried.authorizations!.length,1);assert.equal((db.prepare('SELECT COUNT(*) n FROM publishing_destinations').get() as any).n,before+3);
+  assert.throws(()=>f.f.service.edit(p.id,{revision:p.revision,ideas:p.ideas.map((i,n)=>n?i:{...i,topic:'Materially changed topic'})}),/immutable/);
+  const reopened=new WeeklyBatchService(f.f.bridge,()=>now);await reopened.advance(p.id);assert.equal((db.prepare('SELECT COUNT(*) n FROM publishing_destinations').get() as any).n,before+3);
+});
+test('V1.1 exact batch review rejects unseen edits and does not grant images from an unprepared idea or renew expiry',async()=>{
+  const f=batchReady();let p=await f.materialize();const b=new WeeklyBatchService(f.f.bridge,()=>now),selected=p.slots.map(s=>s.id),review=await b.review(p.id,{revision:p.revision,slotIds:selected});
+  const row=db.prepare('SELECT * FROM publishing_drafts WHERE id=?').get(p.slots[0].draftId) as any;generalPostsService.save({...JSON.parse(row.payload_json),title:'Owner changed the exact final copy'},row.id,row.revision);
+  const request={revision:p.revision,slotIds:selected,expectedHash:review.hash,expiresAt:'2026-11-16T17:00:00Z',confirm:true,operations:{prepare:true,materialize:true,publishExact:true}};
+  await assert.rejects(()=>b.authorize(p.id,request),/changed since review/);assert.equal(f.plan().authorizations,undefined);
+  const current=await b.review(p.id,{revision:p.revision,slotIds:selected});await assert.rejects(()=>b.authorize(p.id,{...request,expectedHash:current.hash,imageBudget:{maxTotalImages:3,maxImagesPer24Hours:1,maxPendingItems:1}}),/prepared image concepts/);
+  await assert.rejects(()=>b.authorize(p.id,{...request,expectedHash:current.hash,expiresAt:'2026-11-18T00:00:00Z'}),/seven-day/);
+});
+test('V1.1 bounded continuation prepares original selected lanes after restart and never approves future final drafts',async()=>{
+  let tick=+now;const calls:any[]=[];const bridge:WeeklyAgentBridge={async run(action,input:any){calls.push({action,input});if(action==='prepare')return {taskId:'batch-task-'+input.slotId,jobId:'batch-job-'+input.slotId,status:'ready'};if(action==='status')return {tasks:input.taskIds.map((taskId:string)=>({taskId,status:'ready'}))};throw Error('No generation or public action permitted');}};
+  const f=serviceFixture((action,input)=>bridge.run(action,input));let p=selectedPlan(f,[developer,rai,world]);const batch=new WeeklyBatchService(bridge,()=>new Date(tick)),review=await batch.review(p.id,{revision:p.revision,slotIds:p.slots.map(s=>s.id)});
+  p=await batch.authorize(p.id,{revision:p.revision,slotIds:p.slots.map(s=>s.id),expectedHash:review.hash,expiresAt:'2026-11-16T17:00:00Z',confirm:true,operations:{prepare:true,materialize:true,publishExact:true}});assert.equal(p.authorizations![0].campaigns.length,0);
+  const before=db.prepare('SELECT * FROM publishing_destinations ORDER BY id').all();for(let n=0;n<4;n++){await new WeeklyBatchService(bridge,()=>new Date(tick)).advance(p.id);tick+=61000;}
+  assert.equal(calls.filter(c=>c.action==='prepare').length,3);assert.deepEqual(db.prepare('SELECT * FROM publishing_destinations ORDER BY id').all(),before);assert.equal(f.service.get(p.id).authorizations![0].campaigns.length,0);
+});
+test('V1.1 realistic three-Page and registered-Group week advances independent lanes under one scoped authorization',async()=>{
+  const group=groupsWorkspaceService.save(undefined,{name:unique('Weekly developer Group'),url:`https://www.facebook.com/groups/${90000+sequence}/`,identityType:'page',accountId:developer,membership:'member',category:'developer_workflow',rules:'Original relevant developer discussion only',rulesReviewedAt:'2026-11-10',reviewedAt:now.toISOString(),eligibility:{pagesCanJoin:'yes',participationApproval:'not_required',postModeration:'required',promotionalRestrictions:'No promotion',questions:[]}});
+  let tick=+now,prepared:any[]=[];const calls:any[]=[];let service:WeeklyContentService;
+  const bridge:WeeklyAgentBridge={async run(action,input:any){calls.push({action,input});const p=service.get(planId);if(action==='prepare'){if(input.accountId===rai)throw Error('Fixture provider quota hold; no retry or paid fallback');prepared.push(input);return {taskId:'four-target-'+input.slotId,jobId:'four-target-job-'+input.slotId,status:'ready'};}if(action==='status')return {tasks:input.taskIds.map((taskId:string)=>({taskId,status:'prepared'}))};if(action==='persist'){const slot=p.slots.find(s=>s.id===input.slotId)!,i=p.ideas.find(i=>i.id===slot.ideaId)!;if(i.groupId)return {preparation:{preparedId:'four-target-group-package'}};if(slot.format==='reel')return {status:'prepared'};return {preparation:{draft:generalPostsService.save({title:i.topic,contentType:'text',destinations:[{accountId:i.accountId,caption:'Fixture original '+i.topic,hashtags:'',attachments:[]}]})}};}if(action==='videoAdmit')return {itemId:'four-target-original-production',status:'queued',hold:'Existing provider scope and mandatory World review still required'};if(action==='groupStatus')return {registries:[{id:'group-channel:four-target',groupId:group.id,accountId:developer}],destinations:[]};if(action==='groupSchedule')return {id:'group-text:'+input.id,state:{phase:'scheduled'}};throw Error('No provider or native social action allowed');}};
+  service=new WeeklyContentService(bridge,()=>new Date(tick));let p=service.create({name:'OFFLINE realistic four-target week',startDate:'2026-11-10',targetAccountIds:[developer,rai,world],groupIds:[group.id]});const planId=p.id;
+  const candidates:any[]=[];for(const [accountId,groupId,format,topic] of [[developer,undefined,'text','A practical debugging question'],[rai,undefined,'text','A carefully qualified Thai-interest discussion'],[world,undefined,'reel','An original fictional moving-object joke'],[developer,group.id,'text','A relevant peer workflow question']] as const){p=service.addEvidence(p.id,{revision:p.revision,evidence:evidence({accountId,summary:topic,sourceRef:groupId?group.url:'owner:four-target-'+accountId,...(groupId?{groupId,privacy:'authorized_group'}:{})})});const e=p.evidence.at(-1)!;candidates.push(idea(e.id,{accountId,...(groupId?{groupId}:{}),recommendedFormat:format,topic}));}
+  p=service.edit(p.id,{revision:p.revision,ideas:candidates,slots:candidates.map((i,n)=>({id:'four-target-slot-'+n,ideaId:i.id,format:i.recommendedFormat,scheduledAt:`2026-11-${11+n}T05:00:00Z`}))});
+  const batch=new WeeklyBatchService(bridge,()=>new Date(tick)),review=await batch.review(p.id,{revision:p.revision,slotIds:p.slots.map(s=>s.id)});
+  p=await batch.authorize(p.id,{revision:p.revision,slotIds:p.slots.map(s=>s.id),expectedHash:review.hash,expiresAt:'2026-11-16T17:00:00Z',confirm:true,operations:{prepare:true,materialize:true,publishExact:true},groupScopes:[{slotId:p.slots[3].id,registryId:'group-channel:four-target',grantId:'group-grant:four-target'}]});
+  for(let n=0;n<5;n++){await new WeeklyBatchService(bridge,()=>new Date(tick)).advance(p.id);tick+=61000;}
+  p=service.get(p.id);assert.ok(p.slots[0].campaignId);assert.match(p.slots[1].preparation!.hold!,/quota/);assert.ok(p.slots[2].production);assert.equal(p.slots[3].groupSchedule!.status,'scheduled');assert.equal(p.authorizations!.length,1);assert.equal(p.authorizations![0].campaigns.length,0);assert.equal(calls.filter(c=>c.action==='prepare').length,4);assert.equal(calls.filter(c=>c.action==='groupSchedule').length,1);assert.ok(p.evidence.every(e=>e.independentlyVerified===false));
 });

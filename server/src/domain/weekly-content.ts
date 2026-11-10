@@ -27,6 +27,7 @@ export type WeeklySlot = z.infer<typeof slotInput> & {
   preparation?: { status: string; taskId?: string; jobId?: string; hold?: string; intentAt?: string; [key: string]: unknown };
   draftId?: string; draftRevision?: number; campaignId?: string; preparedId?: string; outcome?: Record<string, unknown>;
   groupSchedule?: { status: string; destinationId: string; registryId: string; grantId: string; hold?: string };
+  production?: {itemId:string;status:string;hold?:string;candidateDraftId?:string|null;publicationPostId?:string|null;reviewRequired?:boolean};
 };
 export interface WeeklyPlan {
   version: 'weekly-content.v1'; id: string; name: string; revision: number;
@@ -35,7 +36,9 @@ export interface WeeklyPlan {
   planningApproval: { revision: number; at: string; hash: string } | null;
   analysisTasks: Array<{ taskId: string; accountId: string; status: string; hold?: string }>;
   limitations: string[]; createdAt: string; updatedAt: string;
+  authorizations?: Array<{id:string;issuedAt:string;expiresAt:string;selectionHash:string;slotIds:string[];operations:{prepare:boolean;materialize:boolean;publishExact:boolean};campaigns:Array<{id:string;accountId:string;expectedHash:string}>;targets:Array<{accountId:string;contextFingerprint:string}>;groupScopes:Array<{slotId:string;registryId:string;grantId:string}>;imageBudget?:Record<string,any>;state:Record<string,any>}>;
 }
+export function weeklySelectionHash(p:WeeklyPlan,slotIds:string[]){const slots=p.slots.filter(s=>slotIds.includes(s.id)).map(({id,ideaId,format,scheduledAt})=>({id,ideaId,format,scheduledAt}));const ideas=p.ideas.filter(i=>slots.some(s=>s.ideaId===i.id));return weeklyHash({planId:p.id,startDate:p.startDate,endDate:p.endDate,slots,ideas,evidence:p.evidence.filter(e=>ideas.some(i=>i.evidenceIds.includes(e.id)))});}
 export const weeklyHash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function weekWindow(startDate: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !Number.isFinite(Date.parse(startDate + 'T00:00:00Z')) || new Date(startDate + 'T00:00:00Z').toISOString().slice(0, 10) !== startDate) throw new Error('Use a valid Bangkok start date');
@@ -48,6 +51,7 @@ export function validateEvidence(evidence: z.infer<typeof evidenceInput>, now: n
   if (/^https?:/i.test(evidence.sourceRef)) {
     const url = new URL(evidence.sourceRef);
     if (url.protocol !== 'https:' || url.username || url.password || url.hash || url.search || !url.hostname.includes('.') || /^(localhost|[\d.]+)$/.test(url.hostname)) throw new Error('Use a public HTTPS source without credentials, query or fragment');
+    if (/(?:\.\.\.|placeholder|example-report)/i.test(url.pathname)) throw new Error('Supply an identifiable source page, not a placeholder citation');
     if (/(^|\.)facebook\.com$/i.test(url.hostname) && url.pathname.startsWith('/groups/') && !evidence.groupId) throw new Error('Facebook Group research requires the exact registered Group and authorized observation');
   } else if (!/^(owner:|scc:|docs\/content\/research\/)[\w./:-]+$/u.test(evidence.sourceRef)) throw new Error('Use a supported public source, owner reference or SCC evidence reference');
   if (evidence.kind === 'verified_fact' && !evidence.verificationNote?.trim()) throw new Error('A verified fact requires an explicit verification note; supplied claims are not independently verified');

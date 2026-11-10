@@ -4,13 +4,14 @@ import {AgentStore,stableHash} from './store.js';
 import type {PageContent} from './page-content.js';
 import {editorialAdmission} from './page-editorial.js';
 import {standingImageAdmission,standingImageActive,standingImageMatches} from './page-image-policy.js';
+import {weeklyImageAdmission} from './weekly-image-policy.js';
 type Any=Record<string,any>;
 const text=(n:number)=>z.string().trim().min(1).max(n);
 export const imagePlan=z.object({version:z.literal('codex-content-images.v1'),taskId:text(160),expiresAt:z.string().datetime(),continuity:text(2000),images:z.array(z.object({prompt:text(4000),altText:text(1000),aspectRatio:z.enum(['1:1','4:5','3:4','9:16','16:9']),purpose:text(600)}).strict()).min(1).max(10)}).strict();
 export function imageTaskEligible(store:AgentStore,task:Any,now=Date.now()){
   const p=task.payload?.codexImage;if(p?.version!=='codex-content-image.v1')return false;
   const job=store.getJob(p.scopeId),parent=job&&store.getWork((job.input as Any).plan.taskId);if(parent){try{if(editorialAdmission(store,parent,typeof parent.result==='string'?JSON.parse(parent.result):parent.result))return false;}catch{return false;}}
-  return !!job&&job.state.enabled===true&&Date.parse((job.input as Any).plan.expiresAt)>now&&!!parent&&stableHash(parent.result)===(job.input as Any).resultHash&&task.id===job.state.activeTaskId&&p.planHash===job.inputHash&&standingImageAdmission(store,p,now,task.id);
+  return !!job&&job.state.enabled===true&&Date.parse((job.input as Any).plan.expiresAt)>now&&!!parent&&stableHash(parent.result)===(job.input as Any).resultHash&&task.id===job.state.activeTaskId&&p.planHash===job.inputHash&&standingImageAdmission(store,p,now,task.id)&&weeklyImageAdmission(store,{...p,weeklyPolicyId:(job.input as Any).weeklyPolicyId},now,task.id);
 }
 /** Exact-concept bounded grants; no timer, recurring activation or publication authority. */
 export class PageContentImages {
@@ -18,13 +19,14 @@ export class PageContentImages {
   get store(){return this.page.store;}
   ids(){return this.store.runnerState<string[]>('page-image.scopes')??[];}
   status(){return {enabledScopes:this.ids().map(id=>this.store.getJob(id)).filter(j=>j?.state.enabled),recurringEnabled:!!this.store.runnerState<string>('page-image.policy')&&standingImageActive(this.store,this.store.runnerState<string>('page-image.policy')!,this.clock().getTime()),scopeRequired:true,maximumPendingItems:6};}
-  async authorize(raw:unknown,authorized=false,standingPolicyId?:string){
+  async authorize(raw:unknown,authorized=false,standingPolicyId?:string,weeklyPolicyId?:string){
     if(!authorized)throw new Error('Exact bounded image scope requires owner authorization');
     const plan=imagePlan.parse(raw),v=this.page.validate(plan.taskId),id='page-images:'+plan.taskId;
     if(v.payload.format!=='image')throw new Error('Image concept required');
     if(v.result.imageBrief?.frames&&v.result.imageBrief.frames.length!==plan.images.length)throw new Error('Image count differs from the concept sequence');
     if(standingPolicyId){const grant=this.store.getJob(standingPolicyId),policy=(grant?.input as Any)?.policy;if(!standingImageActive(this.store,standingPolicyId,this.clock().getTime())||!standingImageMatches(this.store,standingPolicyId,v.task.accountId!,v.payload.request.graphId)||Date.parse(plan.expiresAt)>Date.parse(policy.expiresAt))throw new Error('Standing image authority is inactive or differs from scope');}
-    const input={plan,resultHash:stableHash(v.task.result),origin:this.page.scc.client.origin,accountId:v.task.accountId,graphId:v.payload.request.graphId,...(standingPolicyId?{standingPolicyId}:{})};
+    if(weeklyPolicyId){const grant=this.store.getJob(weeklyPolicyId),policy=(grant?.input as Any)?.policy;if(!grant?.state.enabled||Date.parse(policy?.expiresAt)<=+this.clock()||Date.parse(plan.expiresAt)>Date.parse(policy?.expiresAt)||!policy?.concepts?.some((c:Any)=>c.taskId===plan.taskId&&c.resultHash===stableHash(v.task.result)&&c.count===plan.images.length))throw new Error('Exact active weekly image authority required');}
+    const input={plan,resultHash:stableHash(v.task.result),origin:this.page.scc.client.origin,accountId:v.task.accountId,graphId:v.payload.request.graphId,...(standingPolicyId?{standingPolicyId}:{}),...(weeklyPolicyId?{weeklyPolicyId}:{})};
     const old=this.store.getJob(id);if(old){if(old.inputHash!==stableHash(input))throw new Error('Original image scope cannot be replaced');return old;}
     if(Date.parse(plan.expiresAt)<=this.clock().getTime())throw new Error('Image scope expired');
     const state=this.store.runnerState<Any>('page-content.state:'+plan.taskId);
@@ -41,8 +43,16 @@ export class PageContentImages {
       const job=this.store.getJob(id)!,input=job.input as Any,plan=input.plan,state=job.state as Any;
       if(state.phase==='needs_owner_review')continue;
       const active=state.activeTaskId&&this.store.getWork(state.activeTaskId);
+      if(input.weeklyPolicyId){
+        const protectedSession=active&&this.store.runnerSessions({taskId:active.id}).some(s=>['running','reserved'].includes(s.status)||s.mayBeRunning);
+        if(protectedSession)return {state:'image_original_protected',actions:0};
+        const parent=this.store.getWork(plan.taskId);
+        if(!parent||stableHash(parent.result)!==input.resultHash){this.store.patchState(id,{enabled:false,phase:'changed_concept_hold'});continue;}
+        if(active?.status==='blocked'&&Date.parse(plan.expiresAt)<=+this.clock()){this.store.patchState(id,{enabled:false,phase:'expired_original_recovery_hold'});continue;}
+      }
       if(active){
         if(this.store.runnerSessions({taskId:active.id}).some(s=>['running','reserved'].includes(s.status)||s.mayBeRunning))return {state:'image_original_protected',actions:0};
+        if(input.weeklyPolicyId&&active.status==='ready'&&Date.parse(plan.expiresAt)<=this.clock().getTime()){this.store.patchState(id,{enabled:false,phase:'expired_original_hold'});continue;}
         if(active.status==='prepared'||active.status==='done'){
           const r=JSON.parse(active.result);if(r.status!=='imported_candidate_needs_owner_review'||!r.completion?.readbackByteIdentical)throw new Error('Image import completion required');
           const expected=active.payload.codexImage;if(r.requestId!==active.id||r.directory!==expected.directory)throw new Error('Image task result binding differs');
@@ -60,6 +70,7 @@ export class PageContentImages {
       }
       if(!state.enabled||Date.parse(plan.expiresAt)<=this.clock().getTime())continue;
       if(!standingImageAdmission(this.store,input,this.clock().getTime()))return {state:'standing_image_admission_wait',actions:0};
+      if(!weeklyImageAdmission(this.store,input,this.clock().getTime()))continue;
       this.pendingBound();const v=this.page.validate(plan.taskId);if(stableHash(v.task.result)!==input.resultHash)throw new Error('Concept changed after image scope');
       const context=await this.page.scc.preparationContext(v.task.accountId!);if(context.contextFingerprint!==v.payload.contextFingerprint||context.account.graphId!==input.graphId)throw new Error('Page context changed');
       const index=(state.completed??[]).length,requestId='page-image-'+stableHash({scope:id,planHash:job.inputHash,index}).slice(0,40),directory=path.join(path.dirname(path.resolve(this.stateFile)),'content-images',requestId);

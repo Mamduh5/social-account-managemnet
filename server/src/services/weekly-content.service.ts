@@ -7,6 +7,7 @@ import { contentWorkspaceRepo } from '../repositories/content-workspace.repo.js'
 import { weeklyContentRepo as repo } from '../repositories/weekly-content.repo.js';
 import { calendarRepo } from '../repositories/calendar.repo.js';
 import { generalPostsRepo } from '../repositories/general-posts.repo.js';
+import {publishingRepo} from '../repositories/publishing.repo.js';
 import { groupsWorkspaceService } from './groups-workspace.service.js';
 import { generalPostsService } from './general-posts.service.js';
 import { calendarService } from './calendar.service.js';
@@ -15,7 +16,7 @@ import { ExistingWeeklyAgentBridge, type WeeklyAgentBridge } from './weekly-agen
 import { GLOBAL_RELATIONSHIP_RULES, KNOWN_PERSONAS, resolvePagePersona } from '../domain/social-interaction.js';
 import { canonicalGroupIdentity } from '../domain/groups.js';
 import { redactContentSecrets } from '../domain/content-assistant.js';
-import { evidenceInput, ideaInput, slotInput, weekWindow, weeklyHash, validateEvidence, validateIdeasAndSlots, slotEvidenceHold, type WeeklyPlan, type WeeklyEvidence, type WeeklySlot } from '../domain/weekly-content.js';
+import { evidenceInput, ideaInput, slotInput, weekWindow, weeklyHash, weeklySelectionHash, validateEvidence, validateIdeasAndSlots, slotEvidenceHold, type WeeklyPlan, type WeeklyEvidence, type WeeklySlot } from '../domain/weekly-content.js';
 
 const revision = z.number().int().positive();
 const uniqueIds = z.array(z.string().min(1).max(200)).max(100).refine(v => new Set(v).size === v.length, 'Select each destination once');
@@ -118,7 +119,7 @@ export class WeeklyContentService {
     const p = this.current(id, raw);
     const input = z.object({ revision, name: z.string().trim().min(1).max(200).optional(), ideas: z.array(ideaInput).max(100).optional(), slots: z.array(slotInput).max(100).optional() }).strict().parse(raw);
     const next = { ...p, name: input.name ?? p.name, ideas: input.ideas ?? p.ideas, slots: input.slots ? input.slots.map(s => ({ ...p.slots.find(prior => prior.id === s.id), ...s })) : p.slots };
-    for (const prior of p.slots.filter(s => s.preparation?.intentAt || s.campaignId)) {
+    for (const prior of p.slots.filter(s => s.preparation?.intentAt || s.campaignId || p.authorizations?.some(a=>a.slotIds.includes(s.id)))) {
       const slot = next.slots.find(s => s.id === prior.id);
       if (!slot || JSON.stringify(slotInput.parse(slotInputFields(slot))) !== JSON.stringify(slotInput.parse(slotInputFields(prior))) || JSON.stringify(next.ideas.find(i => i.id === prior.ideaId)) !== JSON.stringify(p.ideas.find(i => i.id === prior.ideaId))) throw new Error('Authorized or handed-off slots and ideas are immutable; retain the original content');
     }
@@ -174,15 +175,15 @@ export class WeeklyContentService {
     p.planningApproval = null;
     return this.save(p);
   }
-  async prepare(id: string, raw: any) {
+  async prepare(id: string, raw: any, boundedSelectionHash?:string) {
     let p = this.current(id, raw);
     const input = z.object({ revision, slotIds: uniqueIds.refine(v => v.length > 0), confirmPreparation: z.literal(true) }).strict().parse(raw);
-    if (!p.planningApproval || p.planningApproval.hash !== weeklyHash(planningPayload(p))) throw new Error('Approve the current weekly plan before authorizing preparation');
-    const authorizedPlanHash = p.planningApproval.hash;
+    if (boundedSelectionHash ? boundedSelectionHash!==weeklySelectionHash(p,input.slotIds) : !p.planningApproval || p.planningApproval.hash !== weeklyHash(planningPayload(p))) throw new Error('Approve the current weekly plan before authorizing preparation');
+    const authorizedPlanHash = boundedSelectionHash || p.planningApproval!.hash;
     if (input.slotIds.some(slotId => !p.slots.some(s => s.id === slotId))) throw new Error('Unknown weekly slot');
     for (const slotId of input.slotIds) {
       p = this.get(id); const slot = p.slots.find(s => s.id === slotId)!;
-      if (!p.planningApproval || p.planningApproval.hash !== authorizedPlanHash || weeklyHash(planningPayload(p)) !== authorizedPlanHash) break;
+      if (boundedSelectionHash ? weeklySelectionHash(p,input.slotIds)!==authorizedPlanHash : !p.planningApproval || p.planningApproval.hash !== authorizedPlanHash || weeklyHash(planningPayload(p)) !== authorizedPlanHash) break;
       if (slot.preparation?.intentAt) continue; // Unknown results are read back, never resubmitted.
       const hold = slotEvidenceHold(p, slot, this.clock().getTime());
       if (hold) { slot.preparation = { status: 'held', hold }; this.save(p); continue; }
@@ -208,10 +209,15 @@ export class WeeklyContentService {
   }
   async materialize(id: string, raw: any) {
     let p = this.current(id, raw);
+    const selected=raw.slotIds ? uniqueIds.parse(raw.slotIds) : p.slots.map(s=>s.id);
     // Persist/reconcile original prepared work. An interrupted handoff retains the same durable CLI identity.
-    for (const original of p.slots.filter(s => s.preparation?.jobId && !s.draftId && !s.preparedId)) {
+    for (const original of p.slots.filter(s => selected.includes(s.id)&&s.preparation?.jobId && !s.draftId && !s.preparedId&&!s.production)) {
       try {
         const result = await this.bridge.run('persist', { planId: id, slotId: original.id });
+        if(original.format==='reel'){
+          const production=await this.bridge.run('videoAdmit',{planId:id,slotId:original.id});
+          p=this.get(id);const slot=p.slots.find(s=>s.id===original.id)!;slot.production=production;slot.preparation={...slot.preparation!,status:'production_queued',hold:production.hold};this.save(p);continue;
+        }
         p = this.get(id); const slot = p.slots.find(s => s.id === original.id)!;
         const saved = result.preparation || result;
         const draftId = saved.draftId || saved.draft?.id, preparedId = saved.preparedId || saved.prepared?.id;
@@ -231,7 +237,7 @@ export class WeeklyContentService {
       try {
         repo.transaction(() => {
           p = this.get(id);
-          const slots = p.slots.filter(s => s.draftId && !s.campaignId && p.ideas.find(i => i.id === s.ideaId)?.accountId === accountId && !p.ideas.find(i => i.id === s.ideaId)?.groupId);
+          const slots = p.slots.filter(s => selected.includes(s.id)&&s.draftId && !s.campaignId && p.ideas.find(i => i.id === s.ideaId)?.accountId === accountId && !p.ideas.find(i => i.id === s.ideaId)?.groupId);
           if (!slots.length) return;
           calendarService.requireReady();
           const campaignId = 'weekly-campaign-' + weeklyHash({ id, accountId }).slice(0, 32);
@@ -311,6 +317,9 @@ export class WeeklyContentService {
       if (slot.campaignId && slot.draftId) {
         const item = calendarService.getCalendarItems({ campaignId: slot.campaignId }).find(i => i.draftId === slot.draftId || i.id === slot.draftId);
         if (item) slot.outcome = { destinationId: item.destinationId, accountId: item.accountId, format: item.contentType, status: item.status, publishedAt: item.receipt?.publishedAt ?? null, receipt: item.receipt ?? null, metrics: item.destinationId ? repo.metric(item.destinationId) ?? null : null, observationNote: 'Saved receipt and confirmed API snapshots only. Missing metrics unavailable; no causal inference.' };
+      } else if(slot.production?.publicationPostId){
+        const idea=p.ideas.find(i=>i.id===slot.ideaId)!;const destination=publishingRepo.getPostDestinationRows(slot.production.publicationPostId).find(d=>d.account_id===idea.accountId);
+        if(destination)slot.outcome={destinationId:destination.id,accountId:idea.accountId,format:'reel',status:destination.status,publishedAt:destination.published_at??null,receipt:{remotePostId:destination.remote_post_id??null,url:destination.remote_post_url??null,confirmationSource:destination.confirmation_source??null},metrics:repo.metric(destination.id)??null};
       } else if (slot.preparedId) {
         const idea = p.ideas.find(i => i.id === slot.ideaId)!;
         if (idea.groupId) {

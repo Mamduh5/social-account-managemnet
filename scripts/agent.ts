@@ -41,6 +41,9 @@ const commands = {
   'weekly-preparation-enqueue':'Hand an explicitly authorized exact weekly slot to existing preparation queues; no generation grant or publication.',
   'weekly-preparation-persist':'Save completed original weekly preparation as an unapproved draft or Group handoff; no model or publication.',
   'weekly-agent-status':'Read cached exact weekly tasks, analysis results and preparation holds; zero HTTP.',
+  'weekly-image-review':'Review exact selected prepared image briefs; no grant or generation.',
+  'weekly-image-authorize':'Record explicit exact-concept weekly image budget; --owner-authorized, no generation.',
+  'weekly-video-admit':'Queue the completed exact weekly production concept into its existing Page lane; no submission.',
   'page-content-status':'Read bounded text/image preparation and awaiting-imagery evidence; no publication.',
   'page-image-scope':'Record one exact bounded concept/image plan with --input and --owner-authorized; no generation.',
   'page-image-status':'Read bounded image scopes and recorded standing-trial admission.',
@@ -226,7 +229,7 @@ async function main() {
     const contentScc=new SccAdapter(new JsonClient(sccClient.origin,{timeoutMs:10_000}));
     const content=()=>new AgentContent(local(),contentScc);
     const pageContent=()=>new PageContent(local(),contentScc,undefined,statePath);
-    const weekly=()=>new WeeklyContent(local(),contentScc,undefined,statePath);
+    const weekly=()=>new WeeklyContent(local(),contentScc,undefined,statePath,accountId=>{const pages=new PageReelPreparation(local(),pipeline,scc,{pipeline:pipelineClient.origin,scc:sccClient.origin},path.dirname(statePath));return pages.profiles().find(e=>e.accountId===accountId)?.categories.includes('game_concept')?production():pages.lane(accountId);});
     const pageImages=()=>new PageContentImages(pageContent(),statePath);
     const production=()=>new GeminiProduction(local(),new PipelineAdapter(new JsonClient(pipelineClient.origin,{timeoutMs:90_000})),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath));
     const publication=()=>new PagePublicationPolicies(local(),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin});
@@ -239,6 +242,7 @@ async function main() {
       try{const backlog=await production().processBacklog();if(!backlog.actions)await new PageReelPreparation(local(),pipeline,scc,{pipeline:pipelineClient.origin,scc:scc.client.origin},path.dirname(statePath)).processBacklog();}catch{local().setRunnerState('production.backlogLastTick',{state:'backlog_review_required',observedAt:new Date().toISOString()});}
       try{local().setRunnerState('publication.lastTick',{...await publication().tick(),at:new Date().toISOString()});}catch{local().setRunnerState('publication.lastTick',{state:'publication_review_required',at:new Date().toISOString()});}
       try{local().setRunnerState('page-content.lastTick',{...await pageContent().advance(),at:new Date().toISOString()});}catch{local().setRunnerState('page-content.lastTick',{state:'preparation_review_required',at:new Date().toISOString()});}
+      try{local().setRunnerState('weekly.lastTick',{...await contentScc.client.post<Record<string,any>>('/api/weekly-content/advance',{}),at:new Date().toISOString()});}catch{local().setRunnerState('weekly.lastTick',{state:'weekly_authorized_continuation_unavailable',at:new Date().toISOString()});}
       try{await new GeminiProduction(local(),pipeline,contentScc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath)).observe();}
       catch{local().setRunnerState('production.observationError',{code:'saved_observation_unavailable',at:new Date().toISOString()});}
       return result;
@@ -260,6 +264,9 @@ async function main() {
       case 'weekly-preparation-enqueue':data=await weekly().prepare(input,flags['owner-authorized']===true);break;
       case 'weekly-preparation-persist':data=await weekly().persist(input);break;
       case 'weekly-agent-status':data=weekly().status(input);break;
+      case 'weekly-image-review':data=weekly().imageReview(input);break;
+      case 'weekly-image-authorize':data=await weekly().authorizeImages(input,flags['owner-authorized']===true);break;
+      case 'weekly-video-admit':data=await weekly().admitVideo(input);break;
       case 'page-content-status':data=pageContent().status();break;
       case 'page-content-config':data=await pageContent().configure(input,flags['owner-authorized']===true);break;
       case 'page-content-enqueue':data=await pageContent().enqueue(input);break;
