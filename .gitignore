@@ -28,3 +28,7 @@ yarn-error.log*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Agent execution workspaces & session runtime state
+.agents/teamwork/
+
