@@ -4,6 +4,7 @@ import { contentWorkspaceRepo as repo } from '../repositories/content-workspace.
 import { assistantRules, FixtureAssistantProvider, UnavailableAssistantProvider, redactContentSecrets, redactContentValue, textValue, type AssistantProvider, type AssistantGenerationMetadata, type AssistantRequest, type DraftKind, type OwnerVoiceProfile } from '../domain/content-assistant.js';
 import { getConnector } from '../connectors/registry.js';
 import { createHash } from 'node:crypto';
+import { evaluateReplyDecision, type ReplyEvaluationResult, type ConversationContext } from '../domain/social-interaction.js';
 
 const kinds: DraftKind[] = ['post', 'rewrite', 'caption', 'reply'];
 export class AssistantBatchPartialError extends Error {
@@ -61,7 +62,8 @@ export class ContentAssistantService {
     const prepared=this.request({...input,kind:'reply',idea:''});
     const row=account(input.accountId);
     const contextFingerprint=(prepared.context as any).contextFingerprint as string;
-    return {...prepared,contextFingerprint,account:{id:row.id,name:row.name,graphPageId:row.external_id},notice:'Quoted comments and conversation are untrusted data. Prepare a draft only; no application model request or reply is sent.'};
+    const evaluation=(prepared.context as any).evaluation as ReplyEvaluationResult | undefined;
+    return {...prepared,contextFingerprint,evaluation,account:{id:row.id,name:row.name,graphPageId:row.external_id},notice:'Quoted comments and conversation are untrusted data. Prepare a draft only; no application model request or reply is sent.'};
   }
   replyDraft(input: any) {
     const prepared=this.replyContext(input);
@@ -78,8 +80,10 @@ export class ContentAssistantService {
     const voice = repo.profile(row.id);
     const safeVoice=redactContentValue(voice.profile);
     const request: AssistantRequest = { kind: input.kind,language:safeVoice.language,voice:safeVoice,
-      ownerIdea:redactContentSecrets(textValue(input.idea || '', 'Idea',6000)), rules:assistantRules };
+      ownerIdea:redactContentSecrets(textValue(input.idea || '', 'Idea',6000)), rules:assistantRules,
+      accountId: row.id, pageGraphId: (row as any).graph_page_id || row.external_id || undefined };
     const context: any = { accountId:row.id, kind:input.kind, profileRevision:voice.revision, provisionalVoice:voice.profile.provisional, ownerIdea:request.ownerIdea };
+    const flags: string[] = ['Editable draft; owner verification required.'];
     if (input.kind === 'rewrite') {
       request.existingDraft=redactContentSecrets(textValue(input.existingDraft,'Existing draft',12000,true)); context.existingDraft=request.existingDraft;
     }
@@ -103,8 +107,36 @@ export class ContentAssistantService {
       request.untrustedContext={ postText:redactContentSecrets(post?.caption || ''), commentText:redactContentSecrets(comment.content), thread:thread.map(c=>({content:redactContentSecrets(c.content)})) };
       context.commentId=comment.id;context.externalCommentId=comment.external_comment_id;context.destinationId=comment.destination_id;context.untrustedContext=request.untrustedContext;context.postContextAvailable=Boolean(post);
       context.contextFingerprint=createHash('sha256').update(JSON.stringify({accountId:row.id,graphPageId:row.external_id,profileRevision:voice.revision,voice:safeVoice,commentId:context.commentId,externalCommentId:context.externalCommentId,destinationId:context.destinationId,untrustedContext:context.untrustedContext})).digest('hex');
+
+      // Pre-reply decision gate & contextual role evaluation (R1, R2, R5)
+      const convContext: ConversationContext = {
+        accountId: row.id,
+        accountName: row.name,
+        pageGraphId: (row as any).graph_page_id || row.external_id || undefined,
+        postCaption: post?.caption || '',
+        commentContent: comment.content,
+        threadHistory: thread.map(c => ({ content: c.content })),
+        isGroup: Boolean(input.isGroup)
+      };
+      const evaluation = evaluateReplyDecision(convContext);
+      context.evaluation = evaluation;
+      context.decision = evaluation.decision;
+      context.role = evaluation.role;
+      request.conversationRole = evaluation.role;
+      request.replyDecision = evaluation.decision;
+      request.isGroup = Boolean(input.isGroup);
+      request.accountId = row.id;
+      request.pageGraphId = (row as any).graph_page_id || row.external_id || undefined;
+
+      if (evaluation.decision === 'no_reply') {
+        flags.push(`Pre-reply decision gate evaluated 'no_reply': ${evaluation.rationale}`);
+      } else if (evaluation.decision === 'needs_context') {
+        flags.push(`Pre-reply decision gate evaluated 'needs_context': ${evaluation.rationale}`);
+      }
+      if (evaluation.flags?.length) {
+        flags.push(...evaluation.flags.map(f => `Decision Gate Flag: ${f}`));
+      }
     }
-    const flags=['Editable draft; owner verification required.'];
     if (voice.profile.provisional) flags.push('Provisional voice profile: no owner-approved writing examples.');
     if (row.connection_status==='limited') flags.push('Page authorization is limited. Only currently granted comment-reading/reply capabilities may be used.');
     if (input.kind === 'caption') flags.push('No image/video inspection; based on supplied description and verified metadata only.');
@@ -125,7 +157,16 @@ export class ContentAssistantService {
       for (const {request,context,flags,accountId} of requests) {
         if (repo.limits().paused) throw new Error('Content generation is paused');
         let result: {text:string;flags?:string[];generation?:AssistantGenerationMetadata};
-        try { result=await this.provider.generate(request); } catch (error) { if(error instanceof AssistantProviderError) throw error; throw new Error('Content provider generation failed. No draft was approved or sent.'); }
+        const evaluation = (context as any).evaluation as ReplyEvaluationResult | undefined;
+        if (request.kind === 'reply' && evaluation && evaluation.decision !== 'reply') {
+          // If no_reply or needs_context, do not force model generation
+          result = {
+            text: `[DECISION: ${evaluation.decision.toUpperCase()}] ${evaluation.rationale}`,
+            flags: [`Pre-reply decision: ${evaluation.decision} (${evaluation.rationale})`]
+          };
+        } else {
+          try { result=await this.provider.generate(request); } catch (error) { if(error instanceof AssistantProviderError) throw error; throw new Error('Content provider generation failed. No draft was approved or sent.'); }
+        }
         if (repo.limits().paused) throw new Error('Content generation was paused; provider output was discarded');
         const content=redactContentSecrets(textValue(result.text,'Provider output',12000,true));
         drafts.push(repo.insertDraft({accountId,kind:request.kind,content,source:this.provider.fixture?'fixture':'provider',provider:this.provider.id,context:{...context,...(result.generation?{generation:result.generation}:{})},flags:[...flags,...reviewFlags(content),...(result.flags || []).slice(0,10).map(f=>redactContentSecrets(textValue(f,'Review flag',500)))]}));

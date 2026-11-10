@@ -12,12 +12,20 @@ export const provisionalVoice: OwnerVoiceProfile = {
   emojiPreference: 'Minimal', hashtagPreference: 'Only when relevant', preferredPhrases: [],
   prohibitedPhrases: [], approvedExamples: [], approvedFacts: [], faqAnswers: [], provisional: true,
 };
+import type { ConversationRole, ReplyDecision } from './social-interaction.js';
+export type { ConversationRole, ReplyDecision };
+
 export interface AssistantRequest {
   kind: DraftKind; language: string; voice: OwnerVoiceProfile;
   ownerIdea: string; existingDraft?: string; suppliedMediaDescription?: string;
   verifiedMediaMetadata?: { title: string; width: number; height: number; duration?: number };
   untrustedContext?: { postText: string; commentText: string; thread: { content: string }[] };
   rules: string[];
+  conversationRole?: ConversationRole;
+  replyDecision?: ReplyDecision;
+  isGroup?: boolean;
+  accountId?: string;
+  pageGraphId?: string;
 }
 export interface AssistantGenerationMetadata {provider:string;model:string;modelVersion?:string;requestId:string;providerResponseId?:string;promptTokens?:number;outputTokens?:number;totalTokens?:number;billingBasis:string;promptVersion?:string;}
 export interface AssistantProvider {
@@ -33,6 +41,7 @@ export const assistantRules = [
   'If a claim is uncertain, a complaint, a commitment or a sensitive question, flag it for owner review.',
   'Do not claim to inspect visual media. Use supplied descriptions and verified metadata only.',
   'Never request, reveal or reproduce credentials, secrets or unrelated personal information.',
+  'Global Relationship Rules: Listen before explaining; respect people\'s opinions, advice, and experiences; allow others to teach even when the agent already knows; express natural curiosity, appreciation, and humility; avoid unsolicited technical jargon, excessive explanations, and intellectual showmanship; do not force replies when silence is better; maintain honesty without fabricating ignorance or false experiences.'
 ];
 export class UnavailableAssistantProvider implements AssistantProvider {
   constructor(readonly configurationNotice='No approved provider configured.') {}
