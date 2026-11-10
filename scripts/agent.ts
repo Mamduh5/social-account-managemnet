@@ -33,9 +33,14 @@ import {OwnerVideoReviews} from './agent/video-review.js';
 import {PageContent} from './agent/page-content.js';
 import {prepareResearchTask,researchReceipt} from './agent/content-run.js';
 import {validateContentResult,contentOutputSchema} from './agent/content-contract.js';
+import {WeeklyContent} from './agent/weekly-content.js';
 
 const version = 'agent-workflow.v1';
 const commands = {
+  'weekly-analysis-enqueue':'Queue evidence-only weekly opportunity analysis on the existing AgentRunner; no model invoked here.',
+  'weekly-preparation-enqueue':'Hand an explicitly authorized exact weekly slot to existing preparation queues; no generation grant or publication.',
+  'weekly-preparation-persist':'Save completed original weekly preparation as an unapproved draft or Group handoff; no model or publication.',
+  'weekly-agent-status':'Read cached exact weekly tasks, analysis results and preparation holds; zero HTTP.',
   'page-content-status':'Read bounded text/image preparation and awaiting-imagery evidence; no publication.',
   'page-image-scope':'Record one exact bounded concept/image plan with --input and --owner-authorized; no generation.',
   'page-image-status':'Read bounded image scopes and recorded standing-trial admission.',
@@ -221,6 +226,7 @@ async function main() {
     const contentScc=new SccAdapter(new JsonClient(sccClient.origin,{timeoutMs:10_000}));
     const content=()=>new AgentContent(local(),contentScc);
     const pageContent=()=>new PageContent(local(),contentScc,undefined,statePath);
+    const weekly=()=>new WeeklyContent(local(),contentScc,undefined,statePath);
     const pageImages=()=>new PageContentImages(pageContent(),statePath);
     const production=()=>new GeminiProduction(local(),new PipelineAdapter(new JsonClient(pipelineClient.origin,{timeoutMs:90_000})),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath));
     const publication=()=>new PagePublicationPolicies(local(),scc,{scc:sccClient.origin,pipeline:pipelineClient.origin});
@@ -250,6 +256,10 @@ async function main() {
     if (!Number.isSafeInteger(offset) || offset < 0) throw new WorkflowError('invalid_offset', 'offset must be a nonnegative whole number.');
     let data: unknown;
     switch(command) {
+      case 'weekly-analysis-enqueue':data=await weekly().analyze(input);break;
+      case 'weekly-preparation-enqueue':data=await weekly().prepare(input,flags['owner-authorized']===true);break;
+      case 'weekly-preparation-persist':data=await weekly().persist(input);break;
+      case 'weekly-agent-status':data=weekly().status(input);break;
       case 'page-content-status':data=pageContent().status();break;
       case 'page-content-config':data=await pageContent().configure(input,flags['owner-authorized']===true);break;
       case 'page-content-enqueue':data=await pageContent().enqueue(input);break;

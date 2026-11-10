@@ -35,6 +35,7 @@ import {bridgeRouter} from './routes/bridge.routes.js';
 import {eventsRouter} from './routes/events.routes.js';
 import {runtimeControlRouter} from './routes/runtime.routes.js';
 import {calendarRouter} from './routes/calendar.routes.js';
+import {weeklyContentRouter} from './routes/weekly-content.routes.js';
 import {operatorRouter} from './routes/operator-workspace.routes.js';
 import {testDataInventoryRouter} from './routes/test-data-inventory.routes.js';
 import {testDataMetadataRouter} from './routes/test-data-metadata.routes.js';
@@ -72,6 +73,7 @@ async function boot(){
  app.get('/api/connectors/capabilities',(_req,res)=>res.json({capabilities:emptyCapabilities,notice:'Actual capabilities are resolved per account. Local preparation does not grant API permissions.'}));
  app.use('/api/assistant',assistantRouter);app.use('/api/groups',groupsRouter);
  app.use('/api/calendar',calendarRouter);
+ app.use('/api/weekly-content',weeklyContentRouter);
  app.use('/api/operator',operatorRouter);
  app.use('/api/video-review',videoReviewRouter());
  app.use('/api/test-data',testDataInventoryRouter);

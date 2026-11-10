@@ -297,18 +297,19 @@ test('One-time campaign approval binds exact hash, revisions, account, and sched
 
 test('Material edit invalidates campaign approval and reverts status to draft', () => {
   // Create and approve a 1-item campaign
+  const futureBangkokDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.now() + 86400000));
   const plan = calendarService.createCampaignPlan({
     accountId: testPageId,
     name: 'Approval Invalidation Test',
     days: 7,
-    startDate: '2026-11-10',
+    startDate: futureBangkokDate,
     origin: 'gemini_prepared',
     items: [
       {
         title: 'Post Before Edit',
         contentType: 'text',
         caption: 'ข้อความดั้งเดิม',
-        scheduledAt: '2026-11-10T10:00:00+07:00',
+        scheduledAt: `${futureBangkokDate}T10:00:00+07:00`,
       },
     ],
   });

@@ -36,6 +36,7 @@ import {
 import { PostContentType } from '../types/general-posts';
 import { calendarApi } from '../api/calendar';
 import { Modal } from '../components/common/Modal';
+import { WeeklyContentPlanner } from '../components/content/WeeklyContentPlanner';
 
 interface Props {
   selectedCategory?: string;
@@ -218,6 +219,7 @@ export const CalendarView: React.FC<Props> = () => {
 
   return (
     <div className="space-y-6">
+      <WeeklyContentPlanner />
       {/* Top Header & Range Controls */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-4">
         <div>
