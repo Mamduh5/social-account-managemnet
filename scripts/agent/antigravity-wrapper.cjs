@@ -11,6 +11,15 @@ if (process.argv.includes('--help')) {
   process.exit(0);
 }
 
+// Select one owner-configured included model. Never retry or choose a fallback.
+const selection = process.argv.slice(2);
+if (selection.length && (selection.length !== 2 || selection[0] !== '--model' ||
+    !/^[a-z][a-z0-9.-]{0,79}$/.test(selection[1]))) {
+  console.error('Use only --model with an exact supported Antigravity model ID');
+  process.exit(1);
+}
+const modelArgs = selection.length ? ['--model', selection[1]] : [];
+
 // Read stdin context
 let rawContext = '';
 try {
@@ -38,7 +47,7 @@ if (geminiRequest) {
     const file = path.join(tmp, 'schema.json');
     fs.writeFileSync(file, JSON.stringify(geminiRequest.schema));
     const response = spawnSync('C:\\Users\\mamdu\\AppData\\Local\\agy\\bin\\agy.exe',
-      ['--input-format','text','--output-format','json','--json-schema',file,'--disable-slash-commands','--mode','plan','--sandbox'],
+      [...modelArgs,'--input-format','text','--output-format','json','--json-schema',file,'--disable-slash-commands','--mode','plan','--sandbox'],
       {input:geminiRequest.prompt,encoding:'utf8',maxBuffer:10*1024*1024,timeout:180000,windowsHide:true});
     if(response.error||response.status!==0)throw new Error('Gemini preparation execution failed; inspect original receipt');
     console.log(JSON.stringify(geminiRoute.result(JSON.parse(response.stdout))));
@@ -159,6 +168,7 @@ fs.writeFileSync(schemaFile, JSON.stringify(schema));
 try {
   const agyPath = 'C:\\Users\\mamdu\\AppData\\Local\\agy\\bin\\agy.exe';
   const agyArgs = [
+    ...modelArgs,
     '--input-format', 'text',
     '--output-format', 'json',
     '--json-schema', schemaFile,
