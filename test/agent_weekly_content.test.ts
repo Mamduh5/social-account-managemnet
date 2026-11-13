@@ -2,8 +2,9 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync} from 'node:fs';
 import os from 'node:os';import path from 'node:path';
-import {AgentStore} from '../scripts/agent/store.js';
+import {AgentStore,stableHash} from '../scripts/agent/store.js';
 import {WeeklyContent,weeklyAnalysisResultSchema,weeklyAnalysisInstructions} from '../scripts/agent/weekly-content.js';
+import {pageContentInstructions,pageContentTaskContext,weeklyPageContentInstructions} from '../scripts/agent/page-content.js';
 import {SccAdapter} from '../scripts/agent/scc.js';
 import {JsonClient} from '../scripts/agent/http.js';
 import {AgentRunner} from '../scripts/agent/runner.js';
@@ -140,4 +141,46 @@ test('analysis runs through existing runner with source-only instructions, norma
   }
   configureRunner(f.store,{enabled:true,cooldownSeconds:0,executors:[{id:'fixture',adapter:'json',command:process.execPath,isolationReviewed:true,kinds:['audience_research']}]},true);
   const a=await f.weekly.analyze({id:'runner-analysis',planId:'week',revision:1,accountId:'page',graphId:'123',evidence:[ev],brief:'Analyze one small case',editorialRules:prep.editorialRules});const runner=new AgentRunner(f.store,f.dir,new Offline(f.dir),()=>now);await runner.tick();assert.equal(invocations,1);assert.equal(f.store.getWork(a.taskId)!.status,'blocked');assert.equal(f.store.runnerSessions()[0].usage.tokens,7);assert.equal(f.writes(),0);
+});
+
+
+test('oversized legacy weekly Page envelope resumes the original unqueued intent under the unchanged cap',async t=>{
+  const f=fixture(t),p={...prep,format:'image_caption' as const,topic:'PromptPay infographic',brief:'\u0e01'.repeat(1400),editorialRules:JSON.stringify({persona:KNOWN_PERSONAS.rai,globalRelationshipRules:GLOBAL_RELATIONSHIP_RULES,voice:{language:'Thai',tone:'Objective, modest peer'},restrictions:['Keep owner-attested facts qualified; no publication.']}),evidence:[{...ev,kind:'verified_fact',summary:'\u0e02'.repeat(650),limitations:'\u0e04'.repeat(500),provenance:'owner_attested_fact_not_independently_verified',independentlyVerified:false,verificationNote:'Owner supplied; not independently fetched.'}]};
+  const suffix=stableHash({origin:f.client.origin,planId:p.planId,slotId:p.slotId}).slice(0,32),jobId='weekly-preparation:'+suffix,taskId='weekly-content-'+suffix,{revision,...binding}=p;
+  f.store.createJob(jobId,{...p,origin:f.client.origin,identityHash:stableHash(binding),taskId});const original=f.store.getJob(jobId)!,beforeHash=original.inputHash;
+  assert.throws(()=>f.weekly.imageReview({planId:p.planId,slotIds:[p.slotId]}),/not queued; resume the original handoff/);
+  const r=await f.weekly.prepare(p,true),task=f.store.getWork(taskId)!,context=pageContentTaskContext(task),bytes=Buffer.byteLength(JSON.stringify(context));
+  assert.equal(r.taskId,taskId);assert.equal(r.jobId,jobId);assert(bytes<=16000);assert(Buffer.byteLength(JSON.stringify({...context,instructions:pageContentInstructions}))+1000>16000);
+  assert.equal(f.store.getJob(jobId)!.inputHash,beforeHash);assert.deepEqual(f.store.getJob(jobId)!.input,original.input);assert.deepEqual(task.payload.pageContent.weeklyResearch.evidence,p.evidence);assert.equal(task.payload.pageContent.request.brief,p.topic+'\n'+p.brief);assert.equal(task.payload.pageContent.request.editorialRules,p.editorialRules);assert.deepEqual(task.payload.pageContent.page.rules,['Public persona stays modest; internal analysis may be detailed.',...assistantRules]);
+  assert.match(context.instructions,/independentlyVerified:false remains owner-attested/);assert.match(context.instructions,/No tools/);assert.match(context.instructions,/separate image authorization/);assert.equal(context.instructions,weeklyPageContentInstructions);
+  let calls=0;class Fixture extends CommandExecutors {override async detect(){return {id:'fixture',adapter:'json' as const,available:true,reason:'offline fixture'};}override async execute(_c:any,_cap:any,input:string):Promise<any>{calls++;assert.equal(input,JSON.stringify(context));assert(Buffer.byteLength(input)<=16000);return {result:{version:'agent-result.v1',status:'prepared',result:JSON.stringify({...content,editorialCategory:'visual_explainer',imageBrief:{description:'ISOLATED FIXTURE, NOT REAL REVIEWED CONTENT',aspectRatio:'4:5',altText:'Fixture',legibility:'Readable',consistency:'Consistent',disclosure:''}}),lessons:[]},usage:{tokens:1,source:'offline_fixture'}};}}
+  configureRunner(f.store,{enabled:true,cooldownSeconds:0,maxContextBytes:16000,executors:[{id:'fixture',adapter:'json',command:process.execPath,isolationReviewed:true,kinds:['image_post']}]},true);
+  const runner=()=>new AgentRunner(f.store,f.dir,new Fixture(f.dir),()=>now);assert.equal((await runner().tick()).launched,1);
+  const restarted=new WeeklyContent(f.store,new SccAdapter(f.client),()=>now),again=await restarted.prepare(p,true);assert.equal(again.taskId,taskId);assert.equal(again.reused,true);await runner().tick();assert.equal(calls,1);assert.equal(f.store.workCount(),1);assert.equal(f.store.runnerSessions({taskId}).length,1);
+  const review=restarted.imageReview({planId:p.planId,slotIds:[p.slotId]});assert.equal(review.concepts[0].taskId,taskId);assert.equal(review.generationSubmitted,false);assert.equal(f.store.getJob('page-images:'+taskId),null);assert.equal(f.store.runnerState('page-image.scopes'),null);assert.equal(f.writes(),0);
+});
+
+test('mandatory weekly Page evidence over budget remains unqueued; diagnostics never create or replace originals',async t=>{
+  const f=fixture(t),p={...prep,format:'image' as const,editorialRules:'Mandatory rule '.repeat(800)};
+  await assert.rejects(()=>f.weekly.prepare(p,true),/Preparation context exceeds configured input budget \(\d+\/16000 bytes\)/);
+  const j=f.store.listJobs(10)[0],hash=j.inputHash;assert.equal(f.store.workCount(),0);assert.throws(()=>f.weekly.imageReview({planId:p.planId,slotIds:[p.slotId]}),/not queued/);assert.equal(f.store.getJob(j.id)!.inputHash,hash);
+  await assert.rejects(()=>f.weekly.prepare({...p,brief:'different'},true),/immutable/);assert.equal(f.store.runnerSessions().length,0);assert.equal(f.writes(),0);
+  const late=new WeeklyContent(f.store,new SccAdapter(f.client),()=>new Date('2026-11-12T00:00:00Z'));await assert.rejects(()=>late.prepare(p,true),/no catch-up/);assert.equal(f.store.workCount(),0);
+});
+
+test('a missing historical noncanonical task ID fails closed instead of creating a deterministic replacement',async t=>{
+  const f=fixture(t),{revision,...binding}=prep,suffix=stableHash({origin:f.client.origin,planId:prep.planId,slotId:prep.slotId}).slice(0,32),id='weekly-preparation:'+suffix;
+  f.store.createJob(id,{...prep,origin:f.client.origin,identityHash:stableHash(binding),taskId:'historical-original-task'});const original=f.store.getJob(id)!;
+  await assert.rejects(()=>f.weekly.prepare(prep,true),/Original weekly task identity differs/);assert.deepEqual(f.store.getJob(id),original);assert.equal(f.store.workCount(),0);assert.equal(f.client.requestCount,0);
+});
+
+
+test('runner refuses an irreducible saved Page envelope before any executor probe or charged claim',async t=>{
+  const f=fixture(t),r=await f.weekly.prepare({...prep,format:'image'},true),original=f.store.getWork(r.taskId)!;
+  // Historical task fixture: retain an over-budget mandatory payload as saved work.
+  f.store.saveWork({...original,revision:original.revision+1,payload:{pageContent:{...original.payload.pageContent,request:{...original.payload.pageContent.request,editorialRules:'Mandatory '.repeat(3000)}}}});
+  const hash=stableHash(f.store.getWork(r.taskId)!.payload);let probes=0;
+  class Never extends CommandExecutors {override async detect():Promise<any>{probes++;throw Error('Must not probe');}override async execute():Promise<any>{throw Error('Must not invoke');}}
+  configureRunner(f.store,{enabled:true,cooldownSeconds:0,maxContextBytes:16000,executors:[{id:'fixture',adapter:'json',command:process.execPath,isolationReviewed:true,kinds:['image_post']}]},true);
+  const runner=new AgentRunner(f.store,f.dir,new Never(f.dir),()=>now);assert.equal((await runner.tick()).state,'context_limit');assert.equal(probes,0);assert.equal(f.store.runnerSessions().length,0);assert.equal(stableHash(f.store.getWork(r.taskId)!.payload),hash);assert.equal(runner.status().budget.invocations,0);
 });
