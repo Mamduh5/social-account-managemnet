@@ -208,3 +208,23 @@ test('exact image admission honors an audited original preparation time without 
  const f=fixture(t),p={...prep,format:'image' as const},r=await f.weekly.prepare(p,true),clock=()=>new Date('2026-11-12T03:00:00Z'),file=path.join(f.dir,'agent.db'),w=new WeeklyContent(f.store,new SccAdapter(f.client),clock,file),before=f.store.getJob(r.jobId)!.inputHash;
  await w.reschedule({planId:p.planId,slotId:p.slotId,previousScheduledAt:p.scheduledAt,scheduledAt:'2026-11-12T05:00:00Z',notes:'ISOLATED reviewed future preparation',confirmReview:true},true);save(f,r.taskId,{...content,imageBrief:{description:'NOT AI fixture diagram',aspectRatio:'4:5',altText:'Fixture',legibility:'Pending review',consistency:'Same subject',disclosure:'NOT AI'}});await w.persist({jobId:r.jobId});const reviewed=w.imageReview({planId:p.planId,slotIds:[p.slotId]});await w.authorizeImages({id:'isolated-reviewed-time',planId:p.planId,slotIds:[p.slotId],expectedHash:reviewed.reviewHash,startsAt:clock().toISOString(),expiresAt:'2026-11-13T02:00:00Z',maxTotalImages:1,maxImagesPer24Hours:1,maxPendingItems:1},true);assert.equal((await new PageContentImages(w.pages,file,clock).advance()).state,'image_request_queued');assert.equal(f.store.getWork(r.taskId)!.payload.pageContent.weeklyResearch.scheduledAt,p.scheduledAt);assert.equal(f.store.getJob(r.jobId)!.inputHash,before);assert.equal(f.writes(),0);
 });
+
+
+test('exact weekly image brief authority remains inside global Page preparation controls',async t=>{
+ const f=fixture(t),r=await f.weekly.prepare({...prep,format:'image'},true);
+ const config={enabled:true,entries:[{accountId:'page',graphId:'123',formats:['text']}],expiresAt:null};
+ f.store.setRunnerState('page-content.config',config);
+ assert.equal(f.weekly.status({taskIds:[r.taskId]}).tasks[0].hold,null);
+ const {explicitWeeklyPreparation}=await import('../scripts/agent/weekly-original.js');
+ const task=f.store.getWork(r.taskId)!;assert.equal(explicitWeeklyPreparation(f.store,task),true);
+ assert.equal(explicitWeeklyPreparation(f.store,{...task,id:'another'}),false);
+ const changed=structuredClone(task);changed.payload.pageContent.request.brief+=' changed';assert.equal(explicitWeeklyPreparation(f.store,changed),false);
+ f.store.setRunnerState('page-content.config',{...config,enabled:false});assert.equal(f.weekly.status({taskIds:[r.taskId]}).tasks[0].hold,'existing_page_preparation_configuration_hold');
+ f.store.setRunnerState('page-content.config',{...config,entries:[{accountId:'other',graphId:'123',formats:['text']}]});assert.equal(f.weekly.status({taskIds:[r.taskId]}).tasks[0].hold,'existing_page_preparation_configuration_hold');
+ assert.equal(f.store.getJob('page-images:'+r.taskId),null);assert.equal(f.store.runnerSessions().length,0);
+ f.store.setRunnerState('page-content.config',config);
+ let calls=0;class Fixture extends CommandExecutors {override async detect(){return {id:'fixture',adapter:'json' as const,available:true,reason:'offline fixture'};}override async execute():Promise<any>{calls++;return {result:{version:'agent-result.v1',status:'blocked',result:'ISOLATED admission proof',lessons:[]},usage:{tokens:1,source:'offline_fixture'}};}}
+ configureRunner(f.store,{enabled:true,cooldownSeconds:0,executors:[{id:'fixture',adapter:'json',command:process.execPath,isolationReviewed:true,kinds:['image_post']}]},true);
+ assert.equal((await new AgentRunner(f.store,f.dir,new Fixture(f.dir),()=>now).tick()).launched,1);assert.equal(calls,1);
+ assert.equal(f.store.getJob('page-images:'+r.taskId),null);
+});

@@ -18,9 +18,13 @@ Automatic approval review initially rejected activating unattended Group publica
 
 The owner also approved moving the original Rai PromptPay preparation time from 13 November, 10:00 to 14 November, 10:00 Bangkok. This does not authorize image generation or publication, or change its reviewed concept/evidence. Apply through the supported recovery route and retain its original task `weekly-content-af104eda61bd6121d992135df3504d57` and handoff `weekly-preparation:af104eda61bd6121d992135df3504d57`.
 
+## Live follow-up correction
+
+The first activated operator pass saved the approved Rai time through the real UI and resumed its original task. It then exposed a standing text-only Page preparation entry that blocked the separately authorized weekly image brief. The follow-up recognizes only an exact durable weekly preparation binding (original task, Page/Graph, topic/brief, rules, evidence and explicit preparation-only receipt). Global enable/expiry/account controls still apply; standing formats, image grants and publication authority remain unchanged. Isolated regression checks reject altered task/brief/account and disabled controls, and exercise AgentRunner admission without generating imagery.
+
 ## Verification
 
-- Full repository regression: **1130/1130 tests, 108/108 suites passed**, with no unexplained failure.
+- Full repository regression: **1131/1131 tests, 108/108 suites passed**, with no unexplained failure.
 - Agent/backend typechecks and matching client build passed. Existing desktop/mobile planner browser fixtures passed, including exact image-budget review.
 - Real loopback Express routes, actual client recovery form and AgentRunner passed analysis/import, audited original resume, text/image drafts, exact fixture image scope/request, real FFmpeg decode/upload/readback, campaign review and scheduled queue readiness. Model/media outputs were explicitly NOT AI fixtures; workers never published.
 - The actual native browser adapter was invoked at a controlled due boundary by the AgentRunner integration, made exactly one fixture click, saved its receipt and did not replay after restart. External browser requests were blocked. Pending/uncertain outcomes remain charged.

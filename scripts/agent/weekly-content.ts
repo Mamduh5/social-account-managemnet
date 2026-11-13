@@ -1,3 +1,4 @@
+import {explicitWeeklyPreparation} from './weekly-original.js';
 import {originalPreparationTime as rescheduledAt,weeklyPreparationTime} from './weekly-original.js';
 import {selectWeeklyContext} from './weekly-context.js';
 import {z} from 'zod';
@@ -104,7 +105,7 @@ export class WeeklyContent {
     const task=this.store.getWork(taskId);if(!task)throw Error('Unknown weekly preparation task');
     const preparation=task.payload?.pageContent?this.store.runnerState<Any>('page-content.state:'+taskId)??null:task.preparation??null;
     let hold:string|null=weeklyTaskEvidenceHold(task,+this.clock(),this.store);if(task.status==='blocked')hold='original_task_blocked';if(task.payload?.weeklyVideo||task.payload?.content?.format==='gemini_video')hold='story_plan_only_existing_video_production_scope_required';
-    if(task.payload?.pageContent){const c=this.store.runnerState<Any>('page-content.config');if(c&&(!c.enabled||c.expiresAt&&Date.parse(c.expiresAt)<=+this.clock()||!c.entries?.some((e:Any)=>e.accountId===task.accountId&&e.graphId===task.payload.pageContent.request.graphId&&e.formats.includes(task.payload.pageContent.format))))hold='existing_page_preparation_configuration_hold';}
+    if(task.payload?.pageContent){const c=this.store.runnerState<Any>('page-content.config');if(c&&(!c.enabled||c.expiresAt&&Date.parse(c.expiresAt)<=+this.clock()||!c.entries?.some((e:Any)=>e.accountId===task.accountId&&e.graphId===task.payload.pageContent.request.graphId&&(e.formats.includes(task.payload.pageContent.format)||explicitWeeklyPreparation(this.store,task)))))hold='existing_page_preparation_configuration_hold';}
     const operation=task.payload?.pageContent?this.store.getOperation('page-content:'+taskId,'prepare'):null,save=task.payload?.content?this.store.runnerState<Any>('content-save:'+stableHash({origin:this.scc.client.origin,taskId})):null;
     if(operation&&['pending','uncertain'].includes(operation.status))hold='original_draft_save_'+operation.status+'_requires_reconciliation';
     if(save&&['pending','uncertain'].includes(save.status))hold='original_content_save_'+save.status+'_requires_reconciliation';
