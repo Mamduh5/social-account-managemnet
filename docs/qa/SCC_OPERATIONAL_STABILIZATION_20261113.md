@@ -22,9 +22,17 @@ The owner also approved moving the original Rai PromptPay preparation time from 
 
 The first activated operator pass saved the approved Rai time through the real UI and resumed its original task. It then exposed a standing text-only Page preparation entry that blocked the separately authorized weekly image brief. The follow-up recognizes only an exact durable weekly preparation binding (original task, Page/Graph, topic/brief, rules, evidence and explicit preparation-only receipt). Global enable/expiry/account controls still apply; standing formats, image grants and publication authority remain unchanged. Isolated regression checks reject altered task/brief/account and disabled controls, and exercise AgentRunner admission without generating imagery.
 
+## Exact original output recovery after the live preparation run
+
+Rai's original task was admitted at 14,813/16,000 bytes and the configured included executor produced a valid successful output (invocation `4e7baa96-1252-4e49-b45d-c102b6be8efc`, process exit 0, 22,148 reported tokens). The result was interrupted after execution, leaving its private temporary schema directory and a generic recovery hold. Temporary workspace cleanup could throw before result/diagnostic adoption. Cleanup now uses bounded Windows retries and a scoped retained-directory receipt, while preserving the successful result or original process error. It never repeats a model to clean up a schema.
+
+The existing Page saved-result reconciliation now verifies the original stopped receipt even when that interruption prevented saving session diagnostics. It checks exact task/payload/account binding, canonical local paths, bounded lifetime/bytes, successful exit, stopped process identities and reported usage, and records import-only provenance. No historical output or task identity is rewritten, no attempt is uncharged, and all content/media validation remains mandatory. An isolated sidecar copy adopted the exact saved Rai output and passed image review with one concept and `generationSubmitted:false`; tampered bytes, failed/live processes, wrong binding and missing usage are rejected. The four older protected recovery records are outside this recovery.
+
+A separate live MDN-sourced, nonduplicate Developer analysis completed and was imported. The delegated operator corrected a mistaken timezone example before draft preparation. Its completed real text preparation became unapproved draft `draft-4bec5595-275b-4168-be55-548833067869` in the same weekly plan; the original five slot concepts remain intact. No exact-content publication approval was issued.
+
 ## Verification
 
-- Full repository regression: **1131/1131 tests, 108/108 suites passed**, with no unexplained failure.
+- Full repository regression: **1133/1133 tests, 108/108 suites passed**, with no unexplained failure.
 - Agent/backend typechecks and matching client build passed. Existing desktop/mobile planner browser fixtures passed, including exact image-budget review.
 - Real loopback Express routes, actual client recovery form and AgentRunner passed analysis/import, audited original resume, text/image drafts, exact fixture image scope/request, real FFmpeg decode/upload/readback, campaign review and scheduled queue readiness. Model/media outputs were explicitly NOT AI fixtures; workers never published.
 - The actual native browser adapter was invoked at a controlled due boundary by the AgentRunner integration, made exactly one fixture click, saved its receipt and did not replay after restart. External browser requests were blocked. Pending/uncertain outcomes remain charged.

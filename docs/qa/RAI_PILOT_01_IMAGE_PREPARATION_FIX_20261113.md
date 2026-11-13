@@ -1,5 +1,7 @@
 # Pilot 01 Rai image preparation correction
 
+This records the initial `35ef8dd` checkpoint. The later owner-authorized time review, 14,813-byte context, actual included-model output and exact stopped-result recovery are documented in [the operational stabilization report](SCC_OPERATIONAL_STABILIZATION_20261113.md). Its private `completion.json` records final live adoption and activated release; the original missed-time hold below is historical.
+
 13 November 2026, Asia/Bangkok. Scope: the existing plan `week-0f7984fb-be0d-4c34-bc7e-935d879f5c45`, slot `slot-rai-promptpay-01`. Engineering and supported local activation are authorized; image generation, new grants, publication, quota changes, spending and Git push are excluded.
 
 ## Diagnosis

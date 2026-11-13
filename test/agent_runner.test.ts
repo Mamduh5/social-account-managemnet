@@ -7,7 +7,7 @@ import {spawnSync} from 'node:child_process';
 import {AgentStore} from '../scripts/agent/store.js';
 import {AgentRunner} from '../scripts/agent/runner.js';
 import {AgentWorkQueue} from '../scripts/agent/work-queue.js';
-import {CommandExecutors,ExecutionError,runProcess,supervisedProcess,type ExecutorCapability,type ExecutionResult,type ProcessRunner} from '../scripts/agent/executors.js';
+import {CommandExecutors,cleanupExecutorWorkspace,ExecutionError,runProcess,supervisedProcess,type ExecutorCapability,type ExecutionResult,type ProcessRunner} from '../scripts/agent/executors.js';
 import {configureRunner,defaultRunnerConfig,executorSchema,type ExecutorConfig} from '../scripts/agent/runner-config.js';
 import {manageSchedule,scheduleXml,scheduleIdentity} from '../scripts/agent/runner-schedule.js';
 import {AgentWorkflow} from '../scripts/agent/workflow.js';
@@ -296,4 +296,16 @@ test('multilingual policy is scoped to Gemini concepts and creator research desp
   const f=setup(t);f.add('gemini-language',{kind:'prepare_video',accountId:'page',payload:{production:{version:'gemini-concept.v1'},pageContext:{account:{name:'โลกจริงหลุดบท'},voice:{profile:{language:'Thai'}}}}});await f.runner.tick();const instructions=f.fake.calls[0].context.instructions;
   assert.match(instructions,/supersedes inherited Thai-only/);assert.match(instructions,/languageStrategy/);assert.match(instructions,/internationally/);assert.match(instructions,/Do not add speech, narration or subtitles/);assert.match(instructions,/actual reviewed video/);
   f.add('flow-legacy',{kind:'story_plan',payload:{provider:'flow_web'}});f.advance();await f.runner.tick();assert.doesNotMatch(f.fake.calls[1].context.instructions,/gemini-multilingual|languageStrategy|supersedes inherited/);
+});
+
+
+test('Windows cleanup failure preserves the successful charged result and original execution errors',async t=>{
+ const f=setup(t),targets:string[]=[],cleanup=(dir:string)=>{targets.push(dir);throw Object.assign(new Error('fixture locked CWD'),{code:'EBUSY'});};
+ assert.throws(()=>cleanupExecutorWorkspace(f.dir),/cleanup path differs/);
+ t.after(()=>{for(const dir of targets){assert.equal(path.dirname(path.resolve(dir)),path.resolve(tmpdir()));assert(path.basename(dir).startsWith('scc-agent-executor-'));rmSync(dir,{recursive:true,force:true});}});
+ const config=executorSchema.parse({id:'fixture',adapter:'json',command:process.execPath,isolationReviewed:true}),cap={id:'fixture',adapter:'json' as const,available:true,reason:'fixture',command:process.execPath};let calls=0;
+ const adapter=new CommandExecutors(path.join(f.dir,'probe'),async()=>{calls++;return {code:0,stdout:JSON.stringify(good.result)};},undefined,cleanup);
+ const result=await adapter.execute(config,cap,'fixture',path.join(f.dir,'cleanup-success'),{timeoutMs:1000,maxBytes:10000});assert.equal(result.result.result,good.result.result);assert.equal(calls,1);assert.equal(JSON.parse(readFileSync(path.join(f.dir,'cleanup-success/cleanup.json'),'utf8')).code,'EBUSY');
+ const failed=new CommandExecutors(path.join(f.dir,'probe'),async()=>{throw new ExecutionError('fixture_original_failure');},undefined,cleanup);
+ await assert.rejects(()=>failed.execute(config,cap,'fixture',path.join(f.dir,'cleanup-error'),{timeoutMs:1000,maxBytes:10000}),/fixture_original_failure/);
 });

@@ -140,8 +140,11 @@ export function parseCodexOutput(stdout:string,structured=false,live=false):Omit
   return {result:agentResultSchema.parse(value),usage,researchAudit};
 }
 
+/** Only the fresh private executor workspace may be removed; Windows may retain a closing CWD briefly. */
+export function cleanupExecutorWorkspace(directory:string){const target=path.resolve(directory);if(path.dirname(target)!==path.resolve(tmpdir())||!path.basename(target).startsWith('scc-agent-executor-'))throw Error('Executor cleanup path differs');rmSync(target,{recursive:true,force:true,maxRetries:3,retryDelay:100});}
+
 export class CommandExecutors {
-  constructor(readonly probeDirectory:string,readonly processRunner:ProcessRunner=runProcess,readonly includedCheck:(directory:string)=>Promise<any>=async directory=>createRequire(path.join(__dirname,'executors.ts'))('./codex-image-once.cjs').preflight(directory)){}
+  constructor(readonly probeDirectory:string,readonly processRunner:ProcessRunner=runProcess,readonly includedCheck:(directory:string)=>Promise<any>=async directory=>createRequire(path.join(__dirname,'executors.ts'))('./codex-image-once.cjs').preflight(directory),readonly cleanup:(directory:string)=>void=cleanupExecutorWorkspace){}
   async detect(config:ExecutorConfig):Promise<ExecutorCapability>{
     const resolved=resolveExecutor(config.command,config.adapter);
     if(!resolved)return {id:config.id,adapter:config.adapter,available:false,reason:'not_installed'};
@@ -206,7 +209,11 @@ export class CommandExecutors {
     const executeProcess=this.processRunner===runProcess?supervisedProcess:this.processRunner;
     let output:ProcessOutput;
     try{output=await executeProcess(capability.command,[...(capability.args??[]),...args],{...options,diagnosticsDirectory:path.join(directory,'process'),cwd:executionDirectory,stdin:context,env});}
-    finally{rmSync(executionDirectory,{recursive:true,force:true});}
+    finally{try{this.cleanup(executionDirectory);}catch(error){
+      // Cleanup cannot invalidate a charged, successful process result or mask its original failure.
+      // Retain only a local cleanup receipt; never repeat the model to remove a temporary schema.
+      try{writeFileSync(path.join(directory,'cleanup.json'),JSON.stringify({state:'retained',directory:executionDirectory,code:(error as NodeJS.ErrnoException).code??'cleanup_failed'}),{flag:'wx'});}catch{/* The original execution/result still governs accounting. */}
+    }}
     if(reviewImages.some((i:any)=>createHash('sha256').update(readFileSync(i.path)).digest('hex')!==i.sha256))throw new ExecutionError('review_images_changed_during_execution',false,output.diagnostics);
     if(output.code!==0)throw new ExecutionError('executor_exit_nonzero',false,output.diagnostics);
     let value:unknown,usage:ExecutionResult['usage']=null,researchAudit:ExecutionResult['researchAudit'];
