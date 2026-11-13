@@ -1,4 +1,5 @@
 import {overlappingTopic} from '../domain/weekly-topics.js';
+import {preparationContentHash} from '../domain/general-posts.js';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -218,7 +219,7 @@ export class WeeklyContentService {
     let p = this.current(id, raw);
     const selected=raw.slotIds ? uniqueIds.parse(raw.slotIds) : p.slots.map(s=>s.id);
     // Persist/reconcile original prepared work. An interrupted handoff retains the same durable CLI identity.
-    for (const original of p.slots.filter(s => selected.includes(s.id)&&s.preparation?.jobId && !s.draftId && !s.preparedId&&!s.production)) {
+    for (const original of p.slots.filter(s => selected.includes(s.id)&&s.preparation?.jobId && (!s.draftId||!s.draftContentHash) && !s.campaignId && !s.preparedId&&!s.production)) {
       try {
         const result = await this.bridge.run('persist', { planId: id, slotId: original.id });
         if(original.format==='reel'){
@@ -233,6 +234,7 @@ export class WeeklyContentService {
           if (!Number.isInteger(preparedRevision) || preparedRevision < 1) throw new Error('Original prepared draft revision is unavailable; retain the existing task for review');
           slot.draftId = draftId;
           slot.draftRevision = preparedRevision;
+          if(saved.contentHash)slot.draftContentHash=z.string().regex(/^[a-f0-9]{64}$/).parse(saved.contentHash);
         }
         if (preparedId) slot.preparedId = preparedId;
         slot.preparation = { ...slot.preparation!, status: result.status || (draftId || preparedId ? 'prepared' : 'held'), hold: result.hold || (!draftId && !preparedId ? 'original_preparation_not_ready_or_media_authority_required' : undefined) };
@@ -247,9 +249,14 @@ export class WeeklyContentService {
           const slots = p.slots.filter(s => selected.includes(s.id)&&s.draftId && !s.campaignId && p.ideas.find(i => i.id === s.ideaId)?.accountId === accountId && !p.ideas.find(i => i.id === s.ideaId)?.groupId);
           if (!slots.length) return;
           calendarService.requireReady();
-          const campaignId = 'weekly-campaign-' + weeklyHash({ id, accountId }).slice(0, 32);
-          const existing = calendarRepo.getCampaignById(campaignId);
-          if (existing && !['draft', 'awaiting_approval'].includes(existing.status)) throw new Error('Existing weekly campaign already authorized; keep its exact immutable items');
+          let campaignId = 'weekly-campaign-' + weeklyHash({ id, accountId }).slice(0, 32);
+          let existing = calendarRepo.getCampaignById(campaignId);
+          if (existing && (!['draft', 'awaiting_approval'].includes(existing.status)||existing.approvedHash||existing.approvedRevision)) {
+            // Approved campaign items are immutable. A deterministic incremental batch enters the same review workflow.
+            campaignId='weekly-campaign-'+weeklyHash({id,accountId,slots:slots.map(s=>s.id).sort()}).slice(0,32);
+            existing=calendarRepo.getCampaignById(campaignId);
+            if(existing&&(!['draft','awaiting_approval'].includes(existing.status)||existing.approvedHash||existing.approvedRevision))throw new Error('Existing incremental weekly campaign already authorized; retain its immutable items');
+          }
           const eligible = slots.filter(slot => {
             const hold = slotEvidenceHold(p, slot, this.clock().getTime());
             if (hold) { slot.preparation = { ...slot.preparation!, hold }; return false; }
@@ -260,8 +267,10 @@ export class WeeklyContentService {
           if (!existing) calendarRepo.saveCampaign({ id: campaignId, accountId, name: p.name + ' · ' + context.account.name, editorialScope: 'Evidence-backed weekly preparation; original source/task IDs are retained in weekly plan ' + id, startDate: p.startDate, endDate: p.endDate, days: 7, maxPublications: 50, origin: 'manual' });
           for (const slot of eligible) {
             const row = generalPostsRepo.get(slot.draftId!);
-            if (!row || row.revision !== slot.draftRevision || row.status !== 'draft' || row.approved_revision || row.queued_post_id || (row.campaign_id && row.campaign_id !== campaignId)) throw new Error('Only the exact original unapproved, unqueued draft revision can enter a weekly campaign');
+            if (!row || row.status !== 'draft' || row.approved_revision || row.queued_post_id || (row.campaign_id && row.campaign_id !== campaignId)) throw new Error('Only the exact original unapproved, unqueued draft revision can enter a weekly campaign');
             const payload = JSON.parse(row.payload_json);
+            const sameContent=slot.draftContentHash&&preparationContentHash(payload)===slot.draftContentHash;
+            if(slot.draftContentHash?!sameContent:row.revision!==slot.draftRevision)throw new Error('Original prepared content changed; review the edited draft outside automatic weekly handoff');
             if (payload.destinations.length !== 1 || payload.destinations[0].accountId !== accountId) throw new Error('Prepared draft destination differs from the weekly Page');
             const expected = slot.format === 'reel' ? ['reel'] : slot.format === 'text' ? ['text'] : ['image', 'multi_image'];
             if (!expected.includes(payload.contentType)) throw new Error('Prepared draft format differs from the weekly slot');
@@ -270,6 +279,7 @@ export class WeeklyContentService {
             contentWorkspaceRepo.audit(row.id, 'weekly_draft_linked', row.revision + 1, { planId: id, slotId: slot.id, evidenceIds: p.ideas.find(i => i.id === slot.ideaId)!.evidenceIds, originalTaskId: slot.preparation?.taskId });
             slot.campaignId = campaignId;
             slot.draftRevision = row.revision + 1;
+            slot.preparation={...slot.preparation!,status:'prepared',hold:undefined};
           }
           if (!existing || existing.status === 'draft') calendarService.submitCampaignForApproval(campaignId);
           this.save(p);

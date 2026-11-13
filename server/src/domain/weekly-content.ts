@@ -25,7 +25,7 @@ export type WeeklyIdea = z.infer<typeof ideaInput>;
 export const slotInput = z.object({ id, ideaId: id, format: z.enum(weeklyFormats), scheduledAt: text(80) }).strict();
 export type WeeklySlot = z.infer<typeof slotInput> & {
   preparation?: { status: string; taskId?: string; jobId?: string; hold?: string; intentAt?: string; [key: string]: unknown };
-  draftId?: string; draftRevision?: number; campaignId?: string; preparedId?: string; outcome?: Record<string, unknown>;
+  draftId?: string; draftRevision?: number; draftContentHash?: string; campaignId?: string; preparedId?: string; outcome?: Record<string, unknown>;
   groupSchedule?: { status: string; destinationId: string; registryId: string; grantId: string; hold?: string };
   production?: {itemId:string;status:string;hold?:string;candidateDraftId?:string|null;publicationPostId?:string|null;reviewRequired?:boolean};
 };

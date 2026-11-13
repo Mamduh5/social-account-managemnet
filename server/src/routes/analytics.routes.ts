@@ -49,7 +49,10 @@ analyticsRouter.get('/videos/:destinationId/history', (req, res) => {
 });
 
 analyticsRouter.post('/sync', async (req, res) => {
-  const { accountId } = req.body;
+  const { accountId } = req.body ?? {};
+  if (accountId !== undefined && (typeof accountId !== 'string' || !accountId.trim())) {
+    return res.status(400).json({ error: 'accountId must be a nonempty string' });
+  }
   if (accountId) {
     const result = await syncService.syncAccount(accountId);
     return res.json({ success: result.success, result, message: result.message });

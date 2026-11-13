@@ -23,6 +23,25 @@ async function approve(id:string){const state=store.runnerState<any>('page-conte
 async function grant(id:string,type:string){return controller().authorize({version:'page-publication-policy.v1',id,accountId:'page',graphId:'123',contentType:type,expiresAt:null,maxPer24Hours:2,minimumHours:3,maxTotal:null},true);}
 t.after(()=>{store.close();rmSync(dir,{recursive:true,force:true});});return {dir,store,content,controller,scc,page,drafts,posts,rows,images,sha,input,result,prepared,approve,grant,finish,clock,advance:(ms:number)=>{now=new Date(now.getTime()+ms);},counts:()=>({writes,queues,reconciles}),loseSave:()=>loseSave=true,loseQueue:()=>loseQueue=true};}
 
+test('preparation backlog releases only verified queued drafts and retains pending, uncertain, unavailable and wrong-account work',async t=>{
+  const f=fixture(t);await f.prepared('backlog');const saved=await f.content().persist('backlog'),d=f.drafts.get(saved.draftId);
+  f.store.setRunnerState('page-content.config',{maxPendingItems:1});
+  assert.equal(await f.content().refreshBacklog(),1);await assert.rejects(()=>f.content().enqueue(f.input('blocked')),/backlog full/);
+  const get=f.scc.getDraft;f.scc.getDraft=async()=>{throw Error('read unavailable');};assert.equal(await f.content().refreshBacklog(),1);f.scc.getDraft=get;
+  d.status='queued';assert.equal(await f.content().refreshBacklog(),1);d.queuedPostId='post-existing';d.destinations[0].accountId='wrong-page';assert.equal(await f.content().refreshBacklog(),1);
+  d.destinations[0].accountId='page';const original=f.store.getJob('page-content:backlog')!.inputHash;
+  assert.equal(await f.content().refreshBacklog(),0);assert.equal(f.store.getJob('page-content:backlog')!.inputHash,original);
+  assert.equal(f.content().pendingCount(),0);await f.content().enqueue(f.input('new-original'));assert.equal(f.content().pendingCount(),1);
+  await assert.rejects(()=>f.content().enqueue(f.input('over-limit')),/backlog full/);assert.equal(f.store.getWork('over-limit'),null);assert.equal(f.counts().queues,0);
+  assert.equal(new PageContent(f.store,f.scc,f.clock).pendingCount(),1);
+});
+
+test('concurrent incremental preparation keeps the original pending limit atomic',async t=>{
+  const f=fixture(t);f.store.setRunnerState('page-content.config',{maxPendingItems:1});
+  const attempts=await Promise.allSettled([f.content().enqueue(f.input('one')),f.content().enqueue(f.input('two'))]);
+  assert.equal(attempts.filter(r=>r.status==='fulfilled').length,1);assert.equal(f.content().pendingCount(),1);assert.equal(f.store.workCount(),1);
+});
+
 test('original multilingual text saves one unapproved unscheduled draft and keeps durable QA separate from approval',async t=>{const f=fixture(t);await f.prepared('text','text',r=>{r.language='ja';r.text='小さな出来事。AIによる創作。';});const s=await f.content().persist('text');assert.equal(s.phase,'needs_owner_review');const d=f.drafts.get(s.draftId);assert.equal(d.status,'draft');assert.equal(d.approvedRevision,null);assert.equal(d.scheduledAt,null);assert.equal(d.destinations[0].caption,'小さな出来事。AIによる創作。');await f.content().persist('text');assert.equal(f.counts().writes,1);const qa=f.store.listKnowledge({resourceId:'text',limit:10}).find(k=>k.source==='page_content_preparation_qa')!;assert.equal((qa.evidence as any).independentlyVerified,false);assert.match(qa.text,/owner|review/);assert.equal((await f.controller().tick()).state,'publication_disabled');});
 test('image concept awaits actual imagery, never reuses unrelated library assets or calls image/video generation',async t=>{const f=fixture(t);await f.prepared('image','image');assert.equal((await f.content().persist('image')).phase,'awaiting_imagery');assert.equal(f.counts().writes,0);assert.equal(f.content().status().imageProvider.available,false);assert.equal(f.store.runnerState<any>('page-content.state:image').hold,'exact_image_authorization_or_reviewed_assets_required');});
 test('reviewed multi-image binding preserves exact order, alt text, immutable hashes and revision approval',async t=>{const f=fixture(t);await f.prepared('images','image');await f.content().persist('images');const binding={resultHash:stableHash(f.store.getWork('images')!.result),images:[{id:'image-2',sha256:f.sha,altText:'Second source, first slide'},{id:'image-1',sha256:f.sha,altText:'First source, second slide'}],visualRelevance:true,legibility:true,consistency:true,notes:'Owner fixture inspected relevance and readability'};await assert.rejects(()=>f.content().attachImages('images',binding,false),/review required/);const s=await f.content().attachImages('images',binding,true),d=f.drafts.get(s.draftId);assert.equal(d.contentType,'multi_image');assert.deepEqual(d.destinations[0].attachments.map((a:any)=>a.mediaId),['image-2','image-1']);assert.equal(d.approvedRevision,null);await assert.rejects(()=>f.content().attachImages('images',binding,true),/cannot be replaced/);});

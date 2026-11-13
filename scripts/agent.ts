@@ -283,7 +283,7 @@ async function main() {
       case 'page-image-status':data=pageImages().status();break;
       case 'page-editorial':{const editorial=new PageEditorial(store!,scc);data=flags.input?await editorial.configure(input,flags['owner-authorized']===true):editorial.status();break;}
       case 'page-editorial-review':data=new PageEditorial(store!,scc).review(input,flags['owner-authorized']===true);break;
-      case 'page-editorial-supersede':data=await new PageEditorial(store!,scc).supersede(input,flags['owner-authorized']===true);break;
+      case 'page-editorial-supersede':data=await new PageEditorial(local(),scc).supersede(input,flags['owner-authorized']===true);break;
       case 'standing-image-transition':data=await new StandingPageImages(pageContent(),statePath).transition(input,flags['owner-authorized']===true);break;
       case 'standing-image-policy':{const policy=new StandingPageImages(pageContent(),statePath);data=flags.input?await policy.authorize(input,flags['owner-authorized']===true):policy.status();break;}
       case 'standing-image-control':data=new StandingPageImages(pageContent(),statePath).control(input,flags['owner-authorized']===true);break;

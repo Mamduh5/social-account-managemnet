@@ -40,6 +40,39 @@ function fixture(t:any){
 function save(f:ReturnType<typeof fixture>,id:string,result:any){const c=f.weekly.work.claim(id,{owner:'offline-fixture',commandId:'claim:'+id}).task;f.weekly.work.save({id,owner:c.owner,claimToken:c.claimToken,revision:c.revision,commandId:'save:'+id,status:'prepared',result:JSON.stringify(result)});}
 const content={version:'page-content-result.v1',title:'Worktree question',text:'A concise original question about isolated worktrees.',hashtags:'',language:'Thai',intendedAudience:'Developers',rationale:'One useful practical question',originality:'Original explanation, no copied comments',research:{observedAt:now.toISOString(),sources:[{url:ev.sourceRef,title:'Observed discussion',accessedAt:now.toISOString()}],summary:'Single observed question',limitations:'Not a general trend',creatorExamples:[]},claims:[],imageBrief:null};
 
+test('offset weekly image authorization reconciles partial local scope saves without changing grants or repeating uncertain attempts',async t=>{
+  const f=fixture(t),file=path.join(f.dir,'agent.db'),week=new WeeklyContent(f.store,f.weekly.scc,()=>now,file);
+  const p={...prep,format:'image' as const},a=await week.prepare(p,true);
+  save(f,a.taskId,{...content,imageBrief:{description:'Original diagram',aspectRatio:'4:5',altText:'Exact diagram',legibility:'Readable',consistency:'Same subjects',disclosure:''}});
+  await week.persist({jobId:a.jobId});const review=week.imageReview({planId:p.planId,slotIds:[p.slotId]});
+  const input={id:'offset-original',planId:p.planId,slotIds:[p.slotId],expectedHash:review.reviewHash,startsAt:'2026-11-10T10:00:00+07:00',expiresAt:'2026-11-12T23:00:00+07:00',maxTotalImages:1,maxImagesPer24Hours:1,maxPendingItems:1};
+  // Reproduce a pre-fix durable offset grant whose downstream scope was never saved.
+  const legacyId='weekly-images:'+input.id;
+  f.store.createJob(legacyId,{origin:f.client.origin,policy:{version:'weekly-codex-images.v1',id:input.id,planId:p.planId,startsAt:input.startsAt,expiresAt:input.expiresAt,maxTotalImages:1,maxImagesPer24Hours:1,maxActiveImages:1,maxPendingItems:1,provider:'codex_included',concepts:review.concepts.map(({slotId,taskId,accountId,graphId,resultHash,count})=>({slotId,taskId,accountId,graphId,resultHash,count}))}});
+  f.store.patchState(legacyId,{enabled:true,issuedAt:now.toISOString(),publicationAuthorized:false});
+  const context=week.pages.scc.preparationContext;week.pages.scc.preparationContext=async()=>{throw Error('Temporary local read failure after grant save');};
+  await assert.rejects(()=>week.authorizeImages(input,true),/Temporary local read/);const grant=f.store.getJob('weekly-images:'+input.id)!,hash=grant.inputHash;
+  assert.equal((grant.input as any).policy.expiresAt,input.expiresAt);assert.equal(f.store.getJob('page-images:'+a.taskId),null);
+  week.pages.scc.preparationContext=context;await week.authorizeImages(input,true);
+  const scope=f.store.getJob('page-images:'+a.taskId)!;assert.equal((scope.input as any).plan.expiresAt,'2026-11-12T16:00:00.000Z');assert.equal(f.store.getJob(grant.id)!.inputHash,hash);
+  assert.equal((await new PageContentImages(week.pages,file,()=>now).advance()).state,'image_request_queued');const task=f.store.listWork(100).find(t=>t.kind==='opening_image')!;
+  f.store.saveWork({...task,status:'blocked',revision:task.revision+1,result:{uncertainOriginal:'retain charged attempt'}});const count=f.store.workCount();
+  await new WeeklyContent(f.store,f.weekly.scc,()=>now,file).authorizeImages({...input,startsAt:now.toISOString(),expiresAt:'2026-11-12T16:00:00Z'},true);
+  assert.equal(f.store.workCount(),count);assert.equal(f.store.getJob(scope.id)!.inputHash,scope.inputHash);assert.equal(f.store.getWork(task.id)!.status,'blocked');assert.equal(weeklyImageAdmission(f.store,scope.input as any,+now),false);
+  await assert.rejects(()=>week.authorizeImages({...input,expiresAt:'2026-11-12T23:01:00+07:00'},true),/immutable/);
+  new PageContentImages(week.pages,file,()=>now).revoke(scope.id);await assert.rejects(()=>week.authorizeImages(input,true),/cannot be replaced/);assert.equal(f.writes(),0);
+});
+
+test('partially saved multi-concept image authorization resumes only missing scopes and preserves original attempts',async t=>{
+  const f=fixture(t),file=path.join(f.dir,'agent.db'),week=new WeeklyContent(f.store,f.weekly.scc,()=>now,file),tasks:string[]=[];
+  for(const slotId of ['partial-one','partial-two']){const r=await week.prepare({...prep,slotId,format:'image'},true);tasks.push(r.taskId);save(f,r.taskId,{...content,title:slotId,text:'A distinct original image concept '+slotId,imageBrief:{description:'Original diagram '+slotId,aspectRatio:'4:5',altText:slotId,legibility:'Readable',consistency:'Same subjects',disclosure:''}});await week.persist({jobId:r.jobId});}
+  const slotIds=['partial-one','partial-two'],review=week.imageReview({planId:prep.planId,slotIds}),request={id:'partial-scopes',planId:prep.planId,slotIds,expectedHash:review.reviewHash,startsAt:now.toISOString(),expiresAt:'2026-11-12T16:00:00Z',maxTotalImages:2,maxImagesPer24Hours:2,maxPendingItems:2};
+  let calls=0;const original=week.pages.scc.preparationContext.bind(week.pages.scc);week.pages.scc.preparationContext=async id=>{if(++calls===2)throw Error('Second scope local context unavailable');return original(id);};
+  await assert.rejects(()=>week.authorizeImages(request,true),/Second scope/);const first=f.store.getJob('page-images:'+tasks[0])!;assert.ok(first);assert.equal(f.store.getJob('page-images:'+tasks[1]),null);
+  const images=new PageContentImages(week.pages,file,()=>now);assert.equal((await images.advance()).state,'image_request_queued');const count=f.store.workCount(),active=f.store.getJob(first.id)!.state.activeTaskId;
+  week.pages.scc.preparationContext=original;await week.authorizeImages(request,true);assert.ok(f.store.getJob('page-images:'+tasks[1]));assert.equal(f.store.getJob(first.id)!.inputHash,first.inputHash);assert.equal(f.store.getJob(first.id)!.state.activeTaskId,active);assert.equal(f.store.workCount(),count);assert.equal(f.writes(),0);
+});
+
 test('weekly preparation requires separate authority, rejects stale/wrong-scope evidence, and does not create a queue on failure',async t=>{
   const f=fixture(t);await assert.rejects(()=>f.weekly.prepare(prep),/authorization/);await assert.rejects(()=>f.weekly.prepare({...prep,evidence:[{...ev,validUntil:now.toISOString()}]},true),/stale/);await assert.rejects(()=>f.weekly.prepare({...prep,evidence:[{...ev,accountId:'another-page'}]},true),/another Page/);assert.equal(f.store.workCount(),0);assert.equal(f.client.requestCount,0);
 });

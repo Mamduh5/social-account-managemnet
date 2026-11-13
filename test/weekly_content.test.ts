@@ -12,6 +12,7 @@ import { calendarService } from '../server/src/services/calendar.service.js';
 import { seal } from '../server/src/services/token-protection.js';
 import { weeklyContentRepo } from '../server/src/repositories/weekly-content.repo.js';
 import {WeeklyBatchService} from '../server/src/services/weekly-batch.service.js';
+import {preparationContentHash} from '../server/src/domain/general-posts.js';
 import { weekWindow, evidenceInput, ideaInput, slotInput, validateEvidence, validateIdeasAndSlots, slotEvidenceHold, type WeeklyPlan } from '../server/src/domain/weekly-content.js';
 
 assert.ok(process.env.SCC_DATA_DIR && /test-runs/i.test(dataDir), 'Weekly tests require isolated SCC_DATA_DIR');
@@ -87,6 +88,22 @@ function savedPublication(accountId: string, caption: string, status = 'publishe
       status === 'published' ? '2026-11-09T02:00:00Z' : null, 'text', 'api', 'confirmed');
   return { postId, destinationId };
 }
+
+test('lost image-authorization response resumes only the same local intent and clears its hold without generation',async()=>{
+  let tick=+now,attempts=0;const requests:any[]=[];
+  const f=serviceFixture(async(action,input)=>{
+    if(action==='imageReview')return {concepts:[{slotId:input.slotIds[0],count:1}],reviewHash:'exact-fixture-review'};
+    if(action==='imageAuthorize'){requests.push(structuredClone(input));if(++attempts===1)throw Error('Lost local authorization response');return {grantId:'weekly-images:'+input.id,generationSubmitted:false};}
+    throw Error('No generation or publication operation allowed');
+  });
+  let p=selectedPlan(f);p.slots[0].format='image';p.slots[0].preparation={status:'prepared',taskId:'original-image-task'};p=weeklyContentRepo.save(p,p.revision);
+  const batch=new WeeklyBatchService(f.bridge,()=>new Date(tick)),slotIds=[p.slots[0].id],review=await batch.review(p.id,{revision:p.revision,slotIds});
+  p=await batch.authorize(p.id,{revision:p.revision,slotIds,expectedHash:review.hash,expiresAt:'2026-11-16T23:59:00+07:00',confirm:true,operations:{prepare:false,materialize:false,publishExact:false},imageBudget:{maxTotalImages:1,maxImagesPer24Hours:1,maxPendingItems:1}});
+  await batch.advance(p.id);p=batch.content.get(p.id);assert.match(p.authorizations![0].state.imageHold,/Lost/);assert.equal(p.authorizations![0].state.imageIntent,'original_authorization_intent');
+  tick+=61000;await new WeeklyBatchService(f.bridge,()=>new Date(tick)).advance(p.id);p=batch.content.get(p.id);
+  assert.equal(attempts,2);assert.deepEqual(requests[0],requests[1]);assert.equal(p.authorizations![0].state.imageHold,null);assert.equal(p.authorizations![0].state.imageResult.generationSubmitted,false);
+  tick+=61000;await batch.advance(p.id);assert.equal(attempts,2);assert.equal(p.authorizations!.length,1);
+});
 
 test('weekly windows use Bangkok midnight, seven days and an exclusive end across month/year rollovers', () => {
   assert.deepEqual(weekWindow('2026-12-29'), { start: Date.parse('2026-12-28T17:00:00Z'), end: Date.parse('2027-01-04T17:00:00Z'), endDate: '2027-01-05' });
@@ -232,7 +249,9 @@ test('saved research collection preserves confirmed zero and unknown metrics and
   assert.match(collected.summary, /"shares":null/);
   assert.match(collected.summary, /1 visible official-API comments/);
   const serialized = JSON.stringify(p);
-  assert.doesNotMatch(serialized, /PRIVATE_AUTHOR|RAW_COMMENT|OTHER_PAGE_POST|UNPUBLISHED_CAPTION|777/);
+  assert.doesNotMatch(serialized, /PRIVATE_AUTHOR|RAW_COMMENT|OTHER_PAGE_POST|UNPUBLISHED_CAPTION/);
+  // Estimated metric sentinel must not reach research prose; random UUIDs may legitimately contain 777.
+  assert.doesNotMatch(p.evidence.map(e=>e.summary).join('\n'), /\b777\b/);
   assert.equal(f.calls.length, 0);
   p = f.service.addEvidence(p.id, { revision: p.revision, evidence: evidence({ kind: 'audience_opinion', sourceRef: 'scc:comment:' + commentIds.visible, privacy: 'public', summary: 'Selected anonymized question: how can separate working directories prevent accidental collisions?' }) });
   assert.equal(p.evidence.at(-1)!.independentlyVerified, false);
@@ -361,11 +380,57 @@ test('prepared drafts enter existing campaigns unapproved and repeated materiali
   assert.equal(f.calls.filter(c => c.action === 'prepare').length, 1);
 });
 
+test('incremental slots after active campaign use fresh approval while schedule-only revisions retain original content proof',async()=>{
+  const originals=new Map<string,any>();
+  const f=serviceFixture(async(action,input)=>{
+    if(action==='prepare'){
+      const draft=generalPostsService.save({title:unique('Incremental original'),contentType:'text',destinations:[{accountId:input.accountId,caption:unique('Exact prepared content'),attachments:[]}]})!;
+      originals.set(input.slotId,draft);return {taskId:'task-'+input.slotId,jobId:'job-'+input.slotId,status:'prepared'};
+    }
+    if(action==='persist'){const d=originals.get(input.slotId);return {status:'prepared',preparation:{draftId:d.id,revision:d.revision,contentHash:preparationContentHash(d)}};}
+    throw Error('No external or provider call allowed');
+  });
+  let p=selectedPlan(f),first=p.slots[0].id;
+  p=await f.service.prepare(p.id,{revision:p.revision,slotIds:[first],confirmPreparation:true});
+  p=await f.service.materialize(p.id,{revision:p.revision,slotIds:[first]});const campaign=p.slots[0].campaignId!;
+  const review=calendarService.getCampaignReview(campaign);calendarService.approveCampaign(campaign,{accountId:developer,expectedHash:review.expectedApprovalHash});
+  const beforeCampaign=calendarService.getCampaignById(campaign),beforeDestinations=db.prepare('SELECT * FROM publishing_destinations ORDER BY id').all();
+  const candidate=idea(p.evidence[0].id),second=unique('incremental-slot');
+  p=f.service.edit(p.id,{revision:p.revision,ideas:[...p.ideas,candidate],slots:[...p.slots.map(({id,ideaId,format,scheduledAt})=>({id,ideaId,format,scheduledAt})),{id:second,ideaId:candidate.id,format:'text',scheduledAt:'2026-11-12T10:00:00+07:00'}]});
+  p=f.service.approvePlanning(p.id,{revision:p.revision});p=await f.service.prepare(p.id,{revision:p.revision,slotIds:[second],confirmPreparation:true});
+  const original=originals.get(second),scheduled=generalPostsService.save({...original,scheduledAt:'2026-11-12T12:00:00+07:00'},original.id,original.revision)!;
+  assert.notEqual(scheduled.revision,original.revision);assert.equal(scheduled.approvedRevision,null);
+  p=await f.service.materialize(p.id,{revision:p.revision,slotIds:[second]});const slot=p.slots.find(s=>s.id===second)!;
+  assert.ok(slot.campaignId,String(slot.preparation?.hold));assert.notEqual(slot.campaignId,campaign);
+  const incremental=calendarService.getCampaignById(slot.campaignId!);assert.equal(incremental.status,'awaiting_approval');assert.equal(incremental.approvedRevision,null);
+  assert.equal(generalPostsService.get(original.id)!.scheduledAt,'2026-11-12T03:00:00.000Z');assert.equal(generalPostsService.get(original.id)!.approvedRevision,null);
+  assert.deepEqual(calendarService.getCampaignById(campaign),beforeCampaign);assert.deepEqual(db.prepare('SELECT * FROM publishing_destinations ORDER BY id').all(),beforeDestinations);
+  const linked=structuredClone(slot);p=await new WeeklyContentService(f.bridge,()=>now).materialize(p.id,{revision:p.revision,slotIds:[second]});assert.deepEqual(p.slots.find(s=>s.id===second),linked);
+  // Existing exact publication approval cannot authorize new campaign items.
+  assert.throws(()=>calendarService.approveCampaign(slot.campaignId!,{accountId:developer,expectedHash:review.expectedApprovalHash}),/snapshot|changed/i);
+});
+
+test('schedule-only revision before first campaign retains original content proof and still requires fresh exact approval',async()=>{
+  const draft=generalPostsService.save({title:unique('Schedule metadata original'),contentType:'text',destinations:[{accountId:developer,caption:unique('Exact source text'),attachments:[]}]})!;
+  const f=serviceFixture(async(action,input)=>action==='prepare'?{taskId:'task-'+input.slotId,jobId:'job-'+input.slotId,status:'prepared'}:{status:'prepared',preparation:{draftId:draft.id,revision:draft.revision,contentHash:preparationContentHash(draft)}});
+  let p=selectedPlan(f);p=await f.service.prepare(p.id,{revision:p.revision,slotIds:[p.slots[0].id],confirmPreparation:true});
+  generalPostsService.approveBatch([{id:draft.id,revision:draft.revision}]);
+  const edited=generalPostsService.save({...draft,scheduledAt:'2026-11-11T10:00:00+07:00'},draft.id,draft.revision)!;assert.equal(edited.approvedRevision,null);
+  p=await f.service.materialize(p.id,{revision:p.revision});assert.ok(p.slots[0].campaignId,String(p.slots[0].preparation?.hold));
+  const linked=generalPostsService.get(draft.id)!;assert.equal(linked.destinations[0].caption,draft.destinations[0].caption);assert.equal(linked.status,'draft');assert.equal(linked.approvedRevision,null);assert.equal(linked.queuedPostId,null);
+});
+
+test('original content proof rejects changed text, title, destination and ordered media despite scheduling edits',()=>{
+  const original={title:'Original',contentType:'multi_image',scheduledAt:null,destinations:[{accountId:developer,caption:'Exact caption',hashtags:'#Exact',attachments:[{mediaId:'image-1',altText:'first'},{mediaId:'image-2',altText:'second'}]}]};
+  const hash=preparationContentHash(original);assert.equal(preparationContentHash({...original,scheduledAt:'2026-11-12T10:00:00+07:00'}),hash);
+  for(const mutate of [(d:any)=>d.title='Changed',(d:any)=>d.destinations[0].caption='Changed',(d:any)=>d.destinations[0].accountId=rai,(d:any)=>d.destinations[0].attachments.reverse(),(d:any)=>d.destinations[0].attachments[0].altText='Changed']){const changed=structuredClone(original);mutate(changed);assert.notEqual(preparationContentHash(changed),hash);}
+});
+
 test('an owner-edited prepared draft remains untouched and cannot be silently rebound to a weekly campaign', async () => {
   const draft = generalPostsService.save({ title: 'Original worker draft', contentType: 'text', destinations: [{ accountId: developer, caption: 'Original prepared content', hashtags: '', attachments: [] }] })!;
   const f = serviceFixture(async (action, input) => action === 'prepare'
     ? { taskId: 'task-' + input.slotId, jobId: 'job-' + input.slotId, status: 'prepared' }
-    : { status: 'prepared', preparation: { draftId: draft.id, revision: draft.revision } });
+    : { status: 'prepared', preparation: { draftId: draft.id, revision: draft.revision, contentHash:preparationContentHash(draft) } });
   let p = selectedPlan(f);
   p = await f.service.prepare(p.id, { revision: p.revision, slotIds: [p.slots[0].id], confirmPreparation: true });
   const edited = generalPostsService.save({ ...draft, title: 'Owner-adjusted title', destinations: [{ ...draft.destinations[0], caption: 'OWNER_EDIT_MUST_SURVIVE' }] }, draft.id, draft.revision)!;

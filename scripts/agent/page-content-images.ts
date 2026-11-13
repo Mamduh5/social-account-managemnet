@@ -7,7 +7,7 @@ import {standingImageAdmission,standingImageActive,standingImageMatches} from '.
 import {weeklyImageAdmission} from './weekly-image-policy.js';
 type Any=Record<string,any>;
 const text=(n:number)=>z.string().trim().min(1).max(n);
-export const imagePlan=z.object({version:z.literal('codex-content-images.v1'),taskId:text(160),expiresAt:z.string().datetime(),continuity:text(2000),images:z.array(z.object({prompt:text(4000),altText:text(1000),aspectRatio:z.enum(['1:1','4:5','3:4','9:16','16:9']),purpose:text(600)}).strict()).min(1).max(10)}).strict();
+export const imagePlan=z.object({version:z.literal('codex-content-images.v1'),taskId:text(160),expiresAt:z.string().datetime({offset:true}).transform(value=>new Date(value).toISOString()),continuity:text(2000),images:z.array(z.object({prompt:text(4000),altText:text(1000),aspectRatio:z.enum(['1:1','4:5','3:4','9:16','16:9']),purpose:text(600)}).strict()).min(1).max(10)}).strict();
 export function imageTaskEligible(store:AgentStore,task:Any,now=Date.now()){
   const p=task.payload?.codexImage;if(p?.version!=='codex-content-image.v1')return false;
   const job=store.getJob(p.scopeId),parent=job&&store.getWork((job.input as Any).plan.taskId);if(parent){try{if(editorialAdmission(store,parent,typeof parent.result==='string'?JSON.parse(parent.result):parent.result))return false;}catch{return false;}}
@@ -27,13 +27,13 @@ export class PageContentImages {
     if(standingPolicyId){const grant=this.store.getJob(standingPolicyId),policy=(grant?.input as Any)?.policy;if(!standingImageActive(this.store,standingPolicyId,this.clock().getTime())||!standingImageMatches(this.store,standingPolicyId,v.task.accountId!,v.payload.request.graphId)||Date.parse(plan.expiresAt)>Date.parse(policy.expiresAt))throw new Error('Standing image authority is inactive or differs from scope');}
     if(weeklyPolicyId){const grant=this.store.getJob(weeklyPolicyId),policy=(grant?.input as Any)?.policy;if(!grant?.state.enabled||Date.parse(policy?.expiresAt)<=+this.clock()||Date.parse(plan.expiresAt)>Date.parse(policy?.expiresAt)||!policy?.concepts?.some((c:Any)=>c.taskId===plan.taskId&&c.resultHash===stableHash(v.task.result)&&c.count===plan.images.length))throw new Error('Exact active weekly image authority required');}
     const input={plan,resultHash:stableHash(v.task.result),origin:this.page.scc.client.origin,accountId:v.task.accountId,graphId:v.payload.request.graphId,...(standingPolicyId?{standingPolicyId}:{}),...(weeklyPolicyId?{weeklyPolicyId}:{})};
-    const old=this.store.getJob(id);if(old){if(old.inputHash!==stableHash(input))throw new Error('Original image scope cannot be replaced');return old;}
+    const old=this.store.getJob(id);if(old){const saved=old.input as Any,canonical={...saved,plan:{...saved.plan,expiresAt:new Date(saved.plan.expiresAt).toISOString()}};if(stableHash(canonical)!==stableHash(input)||old.state.revokedAt||old.state.enabled!==true)throw new Error('Original image scope cannot be replaced');return old;}
     if(Date.parse(plan.expiresAt)<=this.clock().getTime())throw new Error('Image scope expired');
     const state=this.store.runnerState<Any>('page-content.state:'+plan.taskId);
     if(state?.phase!=='awaiting_imagery'||state?.draftId||this.store.runnerState('page-content.images:'+plan.taskId)||this.store.getOperation(this.page.job(plan.taskId),'prepare'))throw new Error('Existing imagery/draft or held concept cannot be regenerated');
-    this.pendingBound();
+    await this.page.refreshBacklog();this.pendingBound();
     const context=await this.page.scc.preparationContext(v.task.accountId!);if(context.contextFingerprint!==v.payload.contextFingerprint||context.account.graphId!==v.payload.request.graphId)throw new Error('Page context changed');
-    return this.store.transaction(()=>{const job=this.store.createJob(id,input);this.store.patchState(id,{enabled:true,phase:'pending',completed:[],activeTaskId:null});this.store.setRunnerState('page-image.scopes',[...this.ids(),id]);return this.store.getJob(job.id);});
+    return this.store.transaction(()=>{const existing=this.store.getJob(id);if(existing){if(existing.inputHash!==stableHash(input)||existing.state.revokedAt||existing.state.enabled!==true)throw new Error('Original image scope cannot be replaced');return existing;}this.pendingBound();const job=this.store.createJob(id,input);this.store.patchState(id,{enabled:true,phase:'pending',completed:[],activeTaskId:null});this.store.setRunnerState('page-image.scopes',[...this.ids(),id]);return this.store.getJob(job.id);});
   }
   revoke(id:string){const job=this.store.getJob(id);if(!job)throw new Error('Unknown image scope');return this.store.patchState(id,{enabled:false,revokedAt:this.clock().toISOString()});}
   private pendingBound(){const c=this.store.runnerState<Any>('page-content.config'),limit=Math.min(6,c?.maxPendingItems??6),n=this.page.pendingCount();if(n>limit)throw new Error('Six-item content preparation bound exceeded');}

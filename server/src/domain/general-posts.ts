@@ -1,5 +1,6 @@
 import {z} from 'zod';
 import {isIP} from 'node:net';
+import {createHash} from 'node:crypto';
 export const postTypes=['text','image','multi_image','link','reel'] as const;
 export type ContentType=typeof postTypes[number];
 export function publicLink(value:string):string {
@@ -20,6 +21,12 @@ export const brandingOverrideInput=z.object({
 const destination=z.object({accountId:z.string().min(1).max(100),caption:z.string().max(60000).default(''),hashtags:z.string().max(2000).default(''),linkUrl:z.string().max(2048).optional(),attachments:z.array(z.object({mediaId:z.string().min(1).max(100),altText:z.string().max(1000).default('')})).max(10).default([]),selectedVariantId:z.string().nullable().optional(),applyBranding:z.boolean().optional(),brandingOverride:brandingOverrideInput.optional()});
 export const draftInput=z.object({title:z.string().trim().min(1).max(300),contentType:z.enum(postTypes),assistantSource:z.object({draftId:z.string().min(1).max(100),revision:z.number().int().positive()}).optional(),videoId:z.string().optional(),scheduledAt:z.string().nullable().optional(),destinations:z.array(destination).min(1).max(50)});
 export type DraftInput=z.infer<typeof draftInput>;
+/** Preparation identity excludes only scheduling metadata. Final approval still hashes the full payload. */
+export function preparationContentHash(raw:unknown):string {
+  const data=normalizeDraft(raw);data.scheduledAt=null;
+  const canonical=(value:any):any=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().filter(k=>value[k]!==undefined).map(k=>[k,canonical(value[k])])):value;
+  return createHash('sha256').update(JSON.stringify(canonical(data))).digest('hex');
+}
 export function normalizeDraft(raw:unknown):DraftInput {
   const data=draftInput.parse(raw);
   if(new Set(data.destinations.map(d=>d.accountId)).size!==data.destinations.length) throw new Error('Select each destination only once');
