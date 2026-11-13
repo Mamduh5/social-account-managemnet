@@ -78,7 +78,7 @@ export const weeklyContentApi = {
   create: (body: { name: string; startDate: string; targetAccountIds: string[]; groupIds: string[] }) => command<PlanResult>('/plans', body),
   collect: (plan: WeeklyPlan) => command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/collect`, { revision: plan.revision }),
   evidence: (plan: WeeklyPlan, evidence: Omit<WeeklyEvidence, 'id' | 'provenance' | 'independentlyVerified'>) => command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/evidence`, { revision: plan.revision, evidence }),
-  analyze: (plan: WeeklyPlan, accountId: string, brief: string) => command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/analyze`, { revision: plan.revision, accountId, brief }),
+  analyze: (plan: WeeklyPlan, accountId: string, brief: string,evidenceIds?:string[]) => command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/analyze`, { revision: plan.revision, accountId, brief,...(evidenceIds?.length?{evidenceIds}:{}) }),
   importAnalysis: (plan: WeeklyPlan, taskId: string) => command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/import-analysis`, { revision: plan.revision, taskId }),
   edit: (plan: WeeklyPlan, changes: { name?: string; slots?: WeeklySlot[]; ideas?: WeeklyIdea[] }) => command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}`, {
     revision: plan.revision,
@@ -88,6 +88,9 @@ export const weeklyContentApi = {
   }, 'PUT'),
   approvePlanning: (plan: WeeklyPlan) => command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/approve-planning`, { revision: plan.revision }),
   prepare: (plan: WeeklyPlan, slotIds: string[]) => command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/prepare`, { revision: plan.revision, slotIds, confirmPreparation: true }),
+  resumePreparation:(plan:WeeklyPlan,slotIds:string[])=>command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/resume-preparation`,{revision:plan.revision,slotIds,confirmPreparation:true}),
+  refreshProgress:(plan:WeeklyPlan)=>command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/refresh-progress`,{revision:plan.revision}),
+  reschedule:(plan:WeeklyPlan,slotId:string,scheduledAt:string,notes:string)=>command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/reschedule-preparation`,{revision:plan.revision,slotId,scheduledAt,notes,confirmReview:true}),
   materialize: (plan: WeeklyPlan) => command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/materialize`, { revision: plan.revision }),
   outcomes: (plan: WeeklyPlan) => command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/outcomes`, { revision: plan.revision }),
   scheduleGroup: (plan: WeeklyPlan, slotId: string, registryId: string, grantId: string) => command<PlanResult>(`/plans/${encodeURIComponent(plan.id)}/schedule-group`, { revision: plan.revision, slotId, registryId, grantId, confirmSchedule: true }),

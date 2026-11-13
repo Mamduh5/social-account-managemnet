@@ -8,6 +8,10 @@ Self-hosted multi-account Page and video publishing preparation, video distribut
 
 **Groups multi-account correction:** World retains port 9235; Developer uses a separate authenticated persistent profile on 9236. The shared CLI now selects by authorized account, discovers membership through Facebook's native Your Groups list and verifies selected destinations before registration. Gemini inside Antigravity independently passed Developer's empty-composer check; no Developer post or grant was created. See [browser isolation and recheck results](docs/qa/SCC_GROUPS_MULTI_ACCOUNT_20261109.md).
 
+## Bounded operational stabilization - 13 November 2026
+
+The owner explicitly delegated stabilization of the existing weekly workflow and approved exact future Group execution only for Developer on 15 November at 14:00 Bangkok and World on 16 November at 11:00 Bangkok. The default-off activation control binds their original destination/grant hashes and uses the existing five-minute AgentRunner; no new grant, timer, early publication, catch-up or automatic retry is added. This dated decision supersedes older statements that no callable unattended trigger exists, only for these separately activated exact destinations. Rai's original preparation time was separately reviewed for 14 November at 10:00 Bangkok; image generation and publication remain unauthorized without their own exact approvals. See [operational evidence](docs/qa/SCC_OPERATIONAL_STABILIZATION_20261113.md). No spending, quota change, protected-original recovery or Git push is authorized.
+
 ## Permanent engineering constraint — No additional spending
 
 Owner direction, 5 November 2026: SCC must operate without additional spending beyond the owner's existing **ChatGPT Business** and **Google AI Pro** subscriptions. Routine implementation, installation, testing, local activation or autonomous-operation authorization is **not financial authorization**.

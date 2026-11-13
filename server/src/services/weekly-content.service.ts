@@ -1,3 +1,4 @@
+import {overlappingTopic} from '../domain/weekly-topics.js';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -137,16 +138,17 @@ export class WeeklyContentService {
   }
   async analyze(id: string, raw: any) {
     let p = this.current(id, raw);
-    const input = z.object({ revision, accountId: z.string(), brief: z.string().max(1500).default('Propose useful original ideas and suitable formats for this week.') }).strict().parse(raw);
+    const input = z.object({ revision, accountId: z.string(), brief: z.string().max(1500).default('Propose useful original ideas and suitable formats for this week.'),evidenceIds:uniqueIds.optional() }).strict().parse(raw);
     if (!p.targetAccountIds.includes(input.accountId)) throw new Error('Select a Page in this weekly plan');
-    const evidence = p.evidence.filter(e => e.accountId === input.accountId && Date.parse(e.validUntil) > this.clock().getTime());
+    if(input.evidenceIds?.some(id=>!p.evidence.some(e=>e.id===id&&e.accountId===input.accountId)))throw Error('Select evidence for this exact Page');
+    const evidence = p.evidence.filter(e => e.accountId === input.accountId && (!input.evidenceIds||input.evidenceIds.includes(e.id)) && Date.parse(e.validUntil) > this.clock().getTime());
     if (!evidence.length) throw new Error('Collect or supply fresh research before analysis');
     const taskId = 'weekly-analysis-' + weeklyHash({ id, accountId: input.accountId, evidence, brief: input.brief }).slice(0, 32);
-    if (p.analysisTasks.some(t => t.taskId === taskId)) return p;
-    p.analysisTasks.push({ taskId, accountId: input.accountId, status: 'enqueue_intent' });
+    if(p.analysisTasks.some(t=>t.taskId===taskId))return p;
+    if(!p.analysisTasks.some(t=>t.taskId===taskId))p.analysisTasks.push({ taskId, accountId: input.accountId, status: 'enqueue_intent' });
     p = this.save(p);
     try {
-      const result = await this.bridge.run('analysis', { id: taskId, planId: id, revision: p.revision, accountId: input.accountId, graphId: this.account(input.accountId).external_id, evidence: evidence.map(agentEvidence), brief: input.brief, editorialRules: JSON.stringify({ ...this.rules(input.accountId), groups: p.groupIds.map(g => this.group(g)).filter(g => g.account_id === input.accountId).map(g => ({ id: g.id, subject: g.category, rules: g.rules, name: g.name })) }) });
+      const result = await this.bridge.run('analysis', { id: taskId, planId: id, revision: p.revision, accountId: input.accountId, graphId: this.account(input.accountId).external_id, evidence: evidence.map(agentEvidence), brief: input.brief, editorialRules: JSON.stringify({ ...this.rules(input.accountId), groups: p.groupIds.filter(id=>evidence.some(e=>e.groupId===id)).map(g => this.group(g)).filter(g => g.account_id === input.accountId).map(g => ({ id: g.id, subject: g.category, rules: g.rules, name: g.name })) }) });
       if (result.taskId !== taskId) throw new Error('Agent returned a different analysis identity; retain the original intent');
       p = this.get(id); const task = p.analysisTasks.find(t => t.taskId === taskId)!;
       task.status = result.status || 'ready';
@@ -175,7 +177,7 @@ export class WeeklyContentService {
     p.planningApproval = null;
     return this.save(p);
   }
-  async prepare(id: string, raw: any, boundedSelectionHash?:string) {
+  async prepare(id: string, raw: any, boundedSelectionHash?:string,resumeOriginal=false) {
     let p = this.current(id, raw);
     const input = z.object({ revision, slotIds: uniqueIds.refine(v => v.length > 0), confirmPreparation: z.literal(true) }).strict().parse(raw);
     if (boundedSelectionHash ? boundedSelectionHash!==weeklySelectionHash(p,input.slotIds) : !p.planningApproval || p.planningApproval.hash !== weeklyHash(planningPayload(p))) throw new Error('Approve the current weekly plan before authorizing preparation');
@@ -184,10 +186,12 @@ export class WeeklyContentService {
     for (const slotId of input.slotIds) {
       p = this.get(id); const slot = p.slots.find(s => s.id === slotId)!;
       if (boundedSelectionHash ? weeklySelectionHash(p,input.slotIds)!==authorizedPlanHash : !p.planningApproval || p.planningApproval.hash !== authorizedPlanHash || weeklyHash(planningPayload(p)) !== authorizedPlanHash) break;
-      if (slot.preparation?.intentAt) continue; // Unknown results are read back, never resubmitted.
+      if(slot.preparation?.intentAt&&!resumeOriginal)continue;
       const hold = slotEvidenceHold(p, slot, this.clock().getTime());
       if (hold) { slot.preparation = { status: 'held', hold }; this.save(p); continue; }
       const idea = p.ideas.find(i => i.id === slot.ideaId)!;
+      const overlap=!idea.groupId?repo.topicCandidates(idea.accountId).find(c=>overlappingTopic(idea.topic,c.title+' '+c.caption)):null;if(overlap){slot.preparation={...slot.preparation!,status:'held',hold:'duplicate_topic_review_required: '+overlap.id};this.save(p);continue;}
+      if(slot.preparation?.intentAt){try{const result=await this.bridge.run('resume',{planId:id,slotId});p=this.get(id);p.slots.find(s=>s.id===slotId)!.preparation={...slot.preparation,...result,hold:result.hold??undefined};this.save(p);}catch(e){p=this.get(id);p.slots.find(s=>s.id===slotId)!.preparation={...slot.preparation,hold:errorMessage(e)};this.save(p);}continue;}
       let rules: ReturnType<WeeklyContentService['rules']>;
       try { rules = this.rules(idea.accountId, idea.groupId); }
       catch (e) { slot.preparation = { status: 'held', hold: errorMessage(e) }; this.save(p); continue; }
@@ -207,6 +211,9 @@ export class WeeklyContentService {
     }
     return this.get(id);
   }
+  async resumePreparation(id:string,raw:unknown,boundedSelectionHash?:string){return this.prepare(id,raw,boundedSelectionHash,true);}
+  async reschedulePreparation(id:string,raw:unknown){const p=this.current(id,raw),r=z.object({revision,slotId:z.string(),scheduledAt:z.string(),notes:z.string().trim().min(1).max(1500),confirmReview:z.literal(true)}).strict().parse(raw),slot=p.slots.find(s=>s.id===r.slotId);if(!slot?.preparation?.intentAt||slot.draftId||slot.campaignId||slot.preparedId||slot.groupSchedule||slot.production)throw Error('Only an original unexecuted preparation handoff can be reviewed here');const at=new Date(r.scheduledAt).toISOString(),window=weekWindow(p.startDate);if(Date.parse(at)<=+this.clock()||Date.parse(at)<window.start||Date.parse(at)>=window.end)throw Error('Review a future time within this original seven-day plan');const check={...slot,scheduledAt:at};const hold=slotEvidenceHold(p,check,+this.clock());if(hold)throw Error(hold);const receipt=await this.bridge.run('reschedule',{planId:id,slotId:slot.id,previousScheduledAt:slot.scheduledAt,scheduledAt:at,notes:r.notes,confirmReview:true});const current=this.current(id,raw),target=current.slots.find(s=>s.id===slot.id)!;target.scheduledAt=at;target.preparation={...target.preparation!,hold:'reviewed_time_resume_original_preparation',rescheduleId:receipt.rescheduleId};current.planningApproval=null;return this.save(current);}
+  async refreshProgress(id:string,raw:unknown){let p=this.current(id,raw);for(const s of p.slots.filter(s=>s.preparation?.jobId&&!s.draftId&&!s.preparedId)){try{const response=await this.bridge.run('status',{planId:id,slotIds:[s.id]});const t=response.tasks?.[0];if(t){const current=this.get(id),slot=current.slots.find(x=>x.id===s.id)!;slot.preparation={...slot.preparation!,...(t.status!=='not_queued'?{taskId:t.taskId}:{}),status:t.status,hold:t.hold??undefined,contextAdmission:t.contextAdmission??undefined};p=this.save(current);}}catch(e){const current=this.get(id),slot=current.slots.find(x=>x.id===s.id)!;slot.preparation={...slot.preparation!,hold:errorMessage(e)};p=this.save(current);}}try{const groups=await this.bridge.run('groupStatus',{});p=this.get(id);for(const slot of p.slots){const idea=p.ideas.find(i=>i.id===slot.ideaId)!;if(!idea.groupId)continue;const url=this.group(idea.groupId,idea.accountId).url;(slot as any).relatedGroupSchedules=(groups.destinations??[]).filter((d:any)=>d.accountId===idea.accountId&&d.groupUrl===url&&Date.parse(d.scheduledAt)===Date.parse(slot.scheduledAt)).map((d:any)=>({destinationId:d.id,preparedId:d.preparedId,grantId:d.grantId,status:d.phase,admission:d.admission,scheduledAt:d.scheduledAt,automaticSubmission:groups.capabilities?.automaticSubmission===true}));}p=this.save(p);}catch{}return this.get(id);}
   async materialize(id: string, raw: any) {
     let p = this.current(id, raw);
     const selected=raw.slotIds ? uniqueIds.parse(raw.slotIds) : p.slots.map(s=>s.id);

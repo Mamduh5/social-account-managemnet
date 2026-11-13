@@ -23,6 +23,7 @@ export const weeklyContentRepo = {
     })();
   },
   transaction<T>(fn: () => T): T { return db.transaction(fn)(); },
+  topicCandidates(accountId:string){const published=db.prepare("SELECT d.id,p.title,d.caption FROM publishing_destinations d JOIN publishing_posts p ON p.id=d.post_id WHERE d.account_id=? AND d.status='published' ORDER BY d.published_at DESC LIMIT 50").all(accountId) as any[];const drafts=(db.prepare("SELECT id,payload_json FROM publishing_drafts WHERE status IN ('draft','approved') ORDER BY updated_at DESC LIMIT 100").all() as any[]).flatMap(d=>{const p=JSON.parse(d.payload_json);return p.destinations?.some((x:any)=>x.accountId===accountId)?[{id:d.id,title:p.title,caption:p.destinations.filter((x:any)=>x.accountId===accountId).map((x:any)=>x.caption).join(' ')}]:[];});return [...published,...drafts];},
   published(accountId: string) {
     return db.prepare(`SELECT d.id,d.caption,d.content_type,d.remote_post_id,d.remote_post_url,d.published_at,d.confirmation_source,d.verification_status
       FROM publishing_destinations d WHERE d.account_id=? AND d.status='published' AND d.remote_post_id IS NOT NULL

@@ -1,3 +1,4 @@
+import {advanceOwnerGroups,ownerGroupDataRoot,configureScheduledGroups} from './agent/group-scheduled.js';
 import {authorizeTechnicalPolicy} from './agent/reel-technical-policy.js';
 import {adoptPageSources} from './agent/page-reel-sources.js';
 import fs from 'node:fs';
@@ -37,6 +38,8 @@ import {WeeklyContent} from './agent/weekly-content.js';
 
 const version = 'agent-workflow.v1';
 const commands = {
+  'weekly-preparation-resume':'Continue the exact original handoff; no new task identity or grant.',
+  'weekly-preparation-reschedule':'Audit an explicit reviewed future time for an unexecuted original; no publication authority.',
   'weekly-analysis-enqueue':'Queue evidence-only weekly opportunity analysis on the existing AgentRunner; no model invoked here.',
   'weekly-preparation-enqueue':'Hand an explicitly authorized exact weekly slot to existing preparation queues; no generation grant or publication.',
   'weekly-preparation-persist':'Save completed original weekly preparation as an unapproved draft or Group handoff; no model or publication.',
@@ -157,6 +160,7 @@ const commands = {
   'group-browser-register':'Verify one native-discovered Group identity/composer/About and reuse SCC registry; --input {accountId,discoveryId,groupUrl} and --owner-authorized. No post/grant.',
   'group-browser-status':'Inspect dedicated SCC browser process/profile/loopback binding. No Facebook authority inferred.',
   'group-browser-check':'Verify exact joined Page and empty Group composer in dedicated Chrome through --input {registryId}; no text or Post.',
+  'group-text-scheduled-control':'Separately approve/disable existing exact scheduled destinations for the existing runner trigger; no new grant or immediate post.',
   'group-text-next':'Inspect the next eligible existing due Group text destination; no new schedule or claim.',
   'group-text-preflight':'Check an eligible exact destination and dedicated native composer through --input {destinationId}; no charged claim or Post.',
   'group-text-execute':'Shared exact authorized Group text execution after managed browser/composer readiness; --input {destinationId}; one fenced Post attempt.',
@@ -246,7 +250,7 @@ async function main() {
       try{await new GeminiProduction(local(),pipeline,contentScc,{scc:sccClient.origin,pipeline:pipelineClient.origin},path.dirname(statePath)).observe();}
       catch{local().setRunnerState('production.observationError',{code:'saved_observation_unavailable',at:new Date().toISOString()});}
       return result;
-    });
+    },()=>advanceOwnerGroups(local(),contentScc,statePath,path.resolve(__dirname,'..')));
     const workflow = () => new AgentWorkflow(local(),pipeline,scc,{scc:sccClient.origin,pipeline:pipelineClient.origin});
     const run = () => {
       if (typeof flags.run !== 'string' || !flags.run) throw new WorkflowError('run_required', 'Supply the stable --run ID.');
@@ -260,6 +264,8 @@ async function main() {
     if (!Number.isSafeInteger(offset) || offset < 0) throw new WorkflowError('invalid_offset', 'offset must be a nonnegative whole number.');
     let data: unknown;
     switch(command) {
+      case 'weekly-preparation-resume':data=await weekly().resume(input,flags['owner-authorized']===true);break;
+      case 'weekly-preparation-reschedule':data=await weekly().reschedule(input,flags['owner-authorized']===true);break;
       case 'weekly-analysis-enqueue':data=await weekly().analyze(input);break;
       case 'weekly-preparation-enqueue':data=await weekly().prepare(input,flags['owner-authorized']===true);break;
       case 'weekly-preparation-persist':data=await weekly().persist(input);break;
@@ -391,16 +397,16 @@ async function main() {
       case 'group-text-authorize':data=await new GroupTextPublication(local(),contentScc).authorize(input,flags['owner-authorized']===true);break;
       case 'group-text-schedule':data=await new GroupTextPublication(local(),contentScc).schedule(input);break;
       case 'group-text-claim':throw new Error('Standalone group-text-claim is disabled: use group-text-execute so dedicated-browser and exact composer readiness precede charging.');
-      case 'group-browser-list':data={browsers:new GroupBrowser(path.resolve(__dirname,'../.data'),local()).inventory()};break;
+      case 'group-browser-list':data={browsers:new GroupBrowser(ownerGroupDataRoot(path.resolve(__dirname,'..'),statePath,contentScc.client.origin),local()).inventory()};break;
       case 'group-browser-groups':case 'group-browser-register':{
-        if(statePath!==path.resolve(__dirname,'../.data/agent/agent.db')||contentScc.client.origin!=='http://localhost:3001')throw new Error('Native owner browser requires the original SCC store and owner origin');
-        const memberships=new GroupMemberships(local(),contentScc,new GroupBrowser(path.resolve(__dirname,'../.data'),local()));
+        ownerGroupDataRoot(path.resolve(__dirname,'..'),statePath,contentScc.client.origin);
+        const memberships=new GroupMemberships(local(),contentScc,new GroupBrowser(ownerGroupDataRoot(path.resolve(__dirname,'..'),statePath,contentScc.client.origin),local()));
         if(command==='group-browser-groups'){if(!(input.accountId??account))throw new Error('Supply exact accountId');data=await memberships.discover(input.accountId??account);}else data=await memberships.register(input,flags['owner-authorized']===true);break;
       }
       case 'group-browser-start':case 'group-browser-check':case 'group-browser-status':{
-        const browser=new GroupBrowser(path.resolve(__dirname,'../.data'),local()),accountId=input.accountId??account;
+        const browser=new GroupBrowser(ownerGroupDataRoot(path.resolve(__dirname,'..'),statePath,contentScc.client.origin),local()),accountId=input.accountId??account;
         if(command==='group-browser-status'){data={...await browser.status(accountId),lastNativeCheck:local().runnerState(accountId?'group-browser.last-check:'+accountId:'group-browser.last-check')??null};break;}
-        if(statePath!==path.resolve(__dirname,'../.data/agent/agent.db')||contentScc.client.origin!=='http://localhost:3001')throw new Error('Native owner browser requires the original SCC agent store and owner loopback origin; isolated/custom stores cannot dispatch into it');
+        const dataRoot=ownerGroupDataRoot(path.resolve(__dirname,'..'),statePath,contentScc.client.origin);
         const target=input.registryId?await new GroupTextPublication(local(),contentScc).browserTarget(input.registryId):null;
         const selectedAccount=target?.accountId??accountId;if(!selectedAccount)throw new Error('Supply an exact accountId or registered Group registryId');if(accountId&&target?.accountId&&target.accountId!==accountId)throw new Error('Requested account differs from the registered Group Page');await contentScc.pageContext(selectedAccount);
         if(command==='group-browser-check'&&!target)throw new Error('Group composer check requires a registered registryId; use account Groups discovery before registration');
@@ -409,12 +415,13 @@ async function main() {
         if(local().providerOwner('scc:facebook-group-browser')||!local().reserveProvider(lease,leaseId))throw new Error('Dedicated account browser is busy or requires original execution reconciliation');
         try{data=command==='group-browser-start'?await browser.start(selectedAccount,target?.groupUrl??'https://www.facebook.com/groups/feed/'):await browser.withPage(selectedAccount,page=>new FacebookGroupTextUI().check(page,target!));local().patchState(leaseId,{phase:'completed',result:data});if(command==='group-browser-check')local().setRunnerState('group-browser.last-check:'+selectedAccount,data);}catch(e){local().patchState(leaseId,{phase:'held',reason:(e as Error).message});throw e;}finally{local().releaseProvider(lease,leaseId);}break;
       }
+      case 'group-text-scheduled-control':ownerGroupDataRoot(path.resolve(__dirname,'..'),statePath,contentScc.client.origin);data=configureScheduledGroups(local(),input,flags['owner-authorized']===true);break;
       case 'group-text-next':{const destinations=new GroupTextPublication(local(),contentScc).status().destinations;data={destination:destinations.filter((d:any)=>(!account||d.accountId===account)&&['due_requires_authorized_native_executor','charged_original_continuation_requires_native_executor'].includes(d.admission)).sort((a:any,b:any)=>Date.parse(a.scheduledAt)-Date.parse(b.scheduledAt))[0]??null,notice:'Existing eligible destinations only; no catch-up, claim or auto-submission.'};break;}
       case 'group-text-preflight':case 'group-text-execute':case 'group-text-reconcile-visible':{
         if(typeof input.destinationId!=='string')throw new Error('Supply the original destinationId');
         const expectedAccount=input.accountId??account,savedDestination=local().getJob(input.destinationId);if(expectedAccount&&(!savedDestination||(savedDestination.input as any).accountId!==expectedAccount))throw new Error('Requested account differs from the exact authorized destination; no alternate Page or browser will be used');
-        if(statePath!==path.resolve(__dirname,'../.data/agent/agent.db')||contentScc.client.origin!=='http://localhost:3001')throw new Error('Native owner browser requires the original SCC agent store and owner loopback origin; isolated/custom stores cannot dispatch into it');
-        const lane=new GroupTextPublication(local(),contentScc),browser=new GroupBrowser(path.resolve(__dirname,'../.data'),local());
+        const dataRoot=ownerGroupDataRoot(path.resolve(__dirname,'..'),statePath,contentScc.client.origin);
+        const lane=new GroupTextPublication(local(),contentScc),browser=new GroupBrowser(dataRoot,local());
         const execution=new GroupTextExecution(local(),lane,new DedicatedGroupDriver(browser),async(preparedId,url)=>contentScc.client.post('/api/groups/prepared/'+encodeURIComponent(preparedId)+'/receipt',{url,confirmOwnerEntered:true,note:'Authorized SCC managed native browser observation; unverified receipt wrapper, not owner-firsthand or Groups API verification. See the original agent execution ledger.'}));data=command==='group-text-reconcile-visible'?await execution.reconcileVisible(input.destinationId):await execution.run(input.destinationId,command==='group-text-execute');break;
       }
       case 'group-text-reconcile-before-dispatch':data=new GroupTextPublication(local(),contentScc).reconcileBeforeDispatch(input,flags['owner-authorized']===true);break;

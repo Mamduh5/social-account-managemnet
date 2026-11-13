@@ -1,4 +1,4 @@
-import { test, after } from 'node:test';
+import { test, after,mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { db, dataDir } from '../server/src/db/database.js';
 import { initializeDatabase } from '../server/src/db/schema.js';
@@ -21,6 +21,9 @@ initializeCalendarSchema(db);
 after(() => db.close());
 
 const now = new Date('2026-11-10T00:00:00.000Z');
+// Calendar queue validation also reads Date directly; pin only this isolated suite.
+mock.timers.enable({apis:['Date'],now:+now});
+after(()=>mock.timers.reset());
 const developer = 'acc-f50fc6bc-b89b-4f4f-99ff-9f3c4fcbfac5';
 const world = 'acc-b82c9a5f-7a87-4c6a-88bd-9c8e93467978';
 const rai = 'acc-3523ffaf-a345-4868-b274-0e2269d34c34';
@@ -40,7 +43,7 @@ function evidence(overrides: Record<string, unknown> = {}) {
     accountId: developer, limitations: 'One supplied reference; no audience-trend or causal conclusion.', privacy: 'owner_supplied', relevanceConfirmed: true, ...overrides });
 }
 function idea(evidenceId: string, overrides: Record<string, unknown> = {}) {
-  return ideaInput.parse({ id: unique('idea'), accountId: developer, topic: 'Practical workflow isolation', intendedAudience: 'Developers using two coding tools',
+  return ideaInput.parse({ id: unique('idea'), accountId: developer, topic: unique('Fixture subject'), intendedAudience: 'Developers using two coding tools',
     evidenceIds: [evidenceId], interestReason: 'A specific owner-provided question can be answered usefully.', originalContribution: 'An original worked example and its limits.',
     recommendedFormat: 'text', formatReason: 'The useful steps fit concise ordinary text; no motion or native background is needed.',
     factualRequirements: ['Verify commands in primary documentation before publication.'], confidence: 'low', limitations: ['A single request does not establish broad demand.'], ...overrides });
@@ -558,4 +561,14 @@ test('V1.1 realistic three-Page and registered-Group week advances independent l
   p=await batch.authorize(p.id,{revision:p.revision,slotIds:p.slots.map(s=>s.id),expectedHash:review.hash,expiresAt:'2026-11-16T17:00:00Z',confirm:true,operations:{prepare:true,materialize:true,publishExact:true},groupScopes:[{slotId:p.slots[3].id,registryId:'group-channel:four-target',grantId:'group-grant:four-target'}]});
   for(let n=0;n<5;n++){await new WeeklyBatchService(bridge,()=>new Date(tick)).advance(p.id);tick+=61000;}
   p=service.get(p.id);assert.ok(p.slots[0].campaignId);assert.match(p.slots[1].preparation!.hold!,/quota/);assert.ok(p.slots[2].production);assert.equal(p.slots[3].groupSchedule!.status,'scheduled');assert.equal(p.authorizations!.length,1);assert.equal(p.authorizations![0].campaigns.length,0);assert.equal(calls.filter(c=>c.action==='prepare').length,4);assert.equal(calls.filter(c=>c.action==='groupSchedule').length,1);assert.ok(p.evidence.every(e=>e.independentlyVerified===false));
+});
+
+
+test('explicit original preparation resume uses only the saved CLI handoff and blocks duplicate editorial topics before a model task',async()=>{
+ const f=serviceFixture(async(action,input)=>{if(action==='prepare')return {taskId:'original-'+input.slotId,jobId:'original-job',status:'ready'};if(action==='resume')return {taskId:'original-'+input.slotId,jobId:'original-job',status:'ready'};throw Error('Unexpected action');});let p=selectedPlan(f);p=await f.service.prepare(p.id,{revision:p.revision,slotIds:[p.slots[0].id],confirmPreparation:true});const original=p.slots[0].preparation!.taskId;p=await f.service.resumePreparation(p.id,{revision:p.revision,slotIds:[p.slots[0].id],confirmPreparation:true});assert.equal(p.slots[0].preparation!.taskId,original);assert.equal(f.calls.at(-1)!.action,'resume');assert.deepEqual(Object.keys(f.calls.at(-1)!.input).sort(),['planId','slotId']);
+ const g=serviceFixture();let d=selectedPlan(g);d.ideas[0].topic='Zod Pydantic JSON Schema';d=weeklyContentRepo.save(d,d.revision);d=g.service.approvePlanning(d.id,{revision:d.revision});savedPublication(developer,'Zod Pydantic JSON Schema downstream validation');d=await g.service.prepare(d.id,{revision:d.revision,slotIds:[d.slots[0].id],confirmPreparation:true});assert.match(d.slots[0].preparation!.hold!,/duplicate_topic_review_required/);assert.equal(g.calls.length,0);
+});
+
+test('reviewed original preparation time is revision-bound and clears planning approval without authorizing publication',async()=>{
+ const f=serviceFixture(async action=>{assert.equal(action,'reschedule');return {rescheduleId:'original-time-review'};});let p=selectedPlan(f);p.slots[0].preparation={status:'not_queued',jobId:'original',intentAt:now.toISOString()};p=weeklyContentRepo.save(p,p.revision);const time='2026-11-12T05:00:00Z';p=await f.service.reschedulePreparation(p.id,{revision:p.revision,slotId:p.slots[0].id,scheduledAt:time,notes:'ISOLATED reviewed time only',confirmReview:true});assert.equal(p.slots[0].scheduledAt,new Date(time).toISOString());assert.equal(p.planningApproval,null);assert.equal(p.authorizations,undefined);assert.equal(f.calls[0].input.previousScheduledAt,'2026-11-11T03:00:00.000Z');assert.equal(f.calls[0].input.confirmReview,true);
 });

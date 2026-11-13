@@ -1,3 +1,4 @@
+import {weeklyPreparationTime} from './weekly-original.js';
 import { z } from 'zod';
 import { AgentStore } from './store.js';
 
@@ -24,7 +25,7 @@ export function weeklyImageAdmission(store: AgentStore, input: Record<string, an
   const concept = policy.concepts.find(c => c.taskId === parent);
   if (!concept || (scope?.input as any)?.resultHash !== concept.resultHash || store.getWork(parent)?.accountId !== concept.accountId) return false;
   const research=store.getWork(parent)?.payload?.pageContent?.weeklyResearch;
-  if(!research?.evidence?.length||research.evidence.some((e:any)=>Date.parse(e.validUntil)<=now||Date.parse(e.observedAt)>now+60000)||Date.parse(research.scheduledAt)<=now)return false;
+  if(!research?.evidence?.length||research.evidence.some((e:any)=>Date.parse(e.validUntil)<=now||Date.parse(e.observedAt)>now+60000)||Date.parse(weeklyPreparationTime(store,store.getWork(parent)!))<=now)return false;
   const rows: any[] = [];
   if (store.workCount() > 10000) return false;
   for (let offset = 0; offset < store.workCount(); offset += 100) rows.push(...store.listWork(100, offset));

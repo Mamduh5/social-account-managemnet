@@ -1,3 +1,4 @@
+import {selectWeeklyContext,WeeklyContextLimit} from './weekly-context.js';
 import {selectPageReviewContext,PageReviewContextLimit} from './page-reel-review-context.js';
 import {automaticPageBinding,pageMachineInstructions} from './page-reel-autonomy.js';
 import {technicalPolicy} from './reel-technical-policy.js';
@@ -23,7 +24,7 @@ import {weeklyAnalysisInstructions,weeklyTaskEvidenceHold} from './weekly-conten
 type Session=Record<string,any>;
 export class AgentRunner {
   readonly work:AgentWorkQueue;
-  constructor(readonly store:AgentStore,readonly directory:string,readonly executors=new CommandExecutors(path.join(directory,'probe')),readonly clock:()=>Date=()=>new Date(),readonly savePrepared?:(taskId:string)=>Promise<unknown>,readonly productionStep?:()=>Promise<Record<string,any>>){
+  constructor(readonly store:AgentStore,readonly directory:string,readonly executors=new CommandExecutors(path.join(directory,'probe')),readonly clock:()=>Date=()=>new Date(),readonly savePrepared?:(taskId:string)=>Promise<unknown>,readonly productionStep?:()=>Promise<Record<string,any>>,readonly scheduledGroupStep?:()=>Promise<Record<string,any>>){
     this.work=new AgentWorkQueue(store,clock);
   }
   config(){return getRunnerConfig(this.store);}
@@ -89,7 +90,7 @@ export class AgentRunner {
   }
   private eligible(c:RunnerConfig){
     return this.store.workCandidates().filter(task=>task.status==='ready'&&this.work.available(task)).filter(task=>{
-      if(weeklyTaskEvidenceHold(task,this.clock().getTime()))return false;
+      if(weeklyTaskEvidenceHold(task,this.clock().getTime(),this.store))return false;
       if(task.payload?.codexImage&&!imageTaskEligible(this.store,task,this.clock().getTime()))return false;
       if(task.payload?.pageContent?.version==='page-content.v1'){if(!editorialPreparationEligible(this.store,task))return false;const own=task.payload.pageContent.standingImagePolicyId;if(own){const grant=this.store.getJob(own),policy=(grant?.input as Session)?.policy;if(!standingImageActive(this.store,own,this.clock().getTime())||!standingImageMatches(this.store,own,task.accountId!,task.payload.pageContent.request.graphId))return false;}else{const p=this.store.runnerState<Session>('page-content.config');if(p&&(!p.enabled||p.expiresAt&&Date.parse(p.expiresAt)<=this.clock().getTime()||!p.entries.some((e:Session)=>e.accountId===task.accountId&&e.graphId===task.payload.pageContent.request.graphId&&e.formats.includes(task.payload.pageContent.format))))return false;}}
       if(task.payload?.pageReelReview&&technicalPolicy(this.store,task.accountId!))return false;
@@ -126,6 +127,7 @@ export class AgentRunner {
       try{const selected=selectPageReviewContext(value,config.maxContextBytes);record({...selected.admission,taskRevision:task.revision});return selected.text;}
       catch(e){if(e instanceof PageReviewContextLimit)record({...e.admission,taskRevision:task.revision});throw e;}
     }
+    if(task.payload?.weeklyAnalysis||task.payload?.content?.weeklyResearch||task.payload?.weeklyResearch){const selected=selectWeeklyContext(value,config.maxContextBytes);this.store.setRunnerState('context-admission:'+task.id,selected.admission);return selected.text;}
     if(task.payload?.production?.version==='gemini-concept.v1'){
       const record=(admission:Record<string,any>)=>{const key='context-admission:'+task.id;if(JSON.stringify(this.store.runnerState(key))!==JSON.stringify(admission))this.store.setRunnerState(key,admission);};
       try{const selected=selectGeminiConceptContext(value,config.maxContextBytes);record({...selected.admission,taskRevision:task.revision});return selected.text;}
@@ -184,6 +186,7 @@ export class AgentRunner {
   }
   private async executeTick(signal?:AbortSignal,taskLimit?:number){
     const config=this.config();
+    if(this.scheduledGroupStep&&config.enabled&&!config.paused&&runnerAuthorized(this.store,config)&&!signal?.aborted){try{this.store.setRunnerState('group-text.lastTick',{...await this.scheduledGroupStep(),at:this.clock().toISOString()});}catch(e){this.store.setRunnerState('group-text.lastTick',{state:'group_executor_hold',reason:e instanceof Error?e.message:'Group executor unavailable',at:this.clock().toISOString()});}}
     if(this.productionStep && config.enabled && !config.paused && runnerAuthorized(this.store,config) && !signal?.aborted){
       const production=await this.productionStep();
       if(production.state!=='disabled'){

@@ -66,7 +66,7 @@ test('exact owner-authorized kind extension admits weekly analysis through the r
   for(const flag of ['--json-schema','--disable-slash-commands','--sandbox','--mode'])assert(call.argv.includes(flag));
   assert.equal(call.schema.properties.version.const,'agent-result.v1');assert.match(call.options.input,/No tools, network, browser/);
   const received=JSON.parse(call.options.input.slice(call.options.input.indexOf('\n')+1));
-  assert.equal(received.task.kind,'audience_research');assert.deepEqual(received.task.payload.weeklyAnalysis.evidence,[evidence]);assert.equal(received.task.payload.weeklyAnalysis.editorialRules,f.input.editorialRules);assert.match(received.task.payload.weeklyAnalysis.page.rules[0],/Exact Page persona/);assert.match(received.instructions,/owner-attested, not independently verified/);assert.deepEqual(received.knowledge,[]);
+  assert.equal(received.task.kind,'audience_research');assert.deepEqual(received.task.payload.weeklyAnalysis.evidence,[evidence]);assert.deepEqual(received.task.payload.weeklyAnalysis.editorialRules,JSON.parse(f.input.editorialRules));assert.match(received.task.payload.weeklyAnalysis.page.rules[0],/Exact Page persona/);assert.match(received.instructions,/owner-attested, not independently verified/);assert.deepEqual(received.knowledge,[]);
   assert.equal(f.weekly.analysisResult(f.input.id).ideas[0].evidenceIds[0],evidence.id);assert.equal(f.store.runnerSessions()[0].usage.tokens,42);assert.equal(f.runner.status().budget.actualTokens,42);assert.equal(f.requests(),1);
   assert.deepEqual({...config,executors:config.executors.map(e=>({...e,kinds:e.kinds.filter(k=>k!=='audience_research')}))},old);
 });

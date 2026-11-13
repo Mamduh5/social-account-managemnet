@@ -1,5 +1,9 @@
 # API-first agent workflow
 
+## Bounded operational stabilization - 13 November 2026
+
+The owner explicitly delegated stabilization of the existing weekly workflow and approved exact future Group execution only for Developer on 15 November at 14:00 Bangkok and World on 16 November at 11:00 Bangkok. The default-off activation control binds their original destination/grant hashes and uses the existing five-minute AgentRunner; no new grant, timer, early publication, catch-up or automatic retry is added. This dated decision supersedes older statements that no callable unattended trigger exists, only for these separately activated exact destinations. Rai's original preparation time was separately reviewed for 14 November at 10:00 Bangkok; image generation and publication remain unauthorized without their own exact approvals. See [operational evidence](qa/SCC_OPERATIONAL_STABILIZATION_20261113.md). No spending, quota change, protected-original recovery or Git push is authorized.
+
 ## Current owner operating decision — 9 November 2026
 
 Autonomous implementation is **CLOSED — CONDITIONALLY ACCEPTED**. Preserve the live acceptance of Items 1–3 and every original operation, receipt, grant, counter and media asset. Continue existing eligible production; operational holds do not authorize indefinite development. Facebook Groups distribution is the new priority. No Item 3, creative-scoring, Windows-startup or Deep Analysis rework, extra spending or Git push.

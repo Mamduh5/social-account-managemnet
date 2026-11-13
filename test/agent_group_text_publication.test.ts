@@ -1,3 +1,6 @@
+import {advanceScheduledGroups,configureScheduledGroups,ownerGroupDataRoot} from '../scripts/agent/group-scheduled.js';
+import {AgentRunner} from '../scripts/agent/runner.js';
+import {configureRunner} from '../scripts/agent/runner-config.js';
 import {test} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
 import {AgentStore,stableHash} from '../scripts/agent/store.js';import {GroupTextPublication} from '../scripts/agent/group-text-publication.js';
 import {GroupTextExecution,type NativeDriver} from '../scripts/agent/group-text-execution.js';import {NativeHold} from '../scripts/agent/group-native-ui.js';
@@ -154,3 +157,25 @@ test('shared executor accepts its registered second-account port rather than req
 test('another account session or wrong reserved port fails before a charged claim',async t=>{
  for(const binding of [{accountId:'page-b',endpoint:'http://127.0.0.1:9235'},{accountId:'page-a',endpoint:'http://127.0.0.1:9236'}]){const f=await fixture(t),g=await f.grant(),j=await f.schedule(g);f.advance();const d=driver(f,{binding}),result=await new GroupTextExecution(f.store(),f.rawLane(),d.native,undefined,f.clock).run(j.id,true);assert.equal(result.submissionStarted,false);assert.equal(d.clicks(),0);assert.equal(f.store().getOperation(j.id,'native_submit'),null);assert.equal((f.store().getJob(g)!.state.charges as any[]).length,0);}
 });
+
+
+test('existing scheduled AgentRunner trigger dispatches one exact due Group post, independently of held video, and never replays it',async t=>{
+ for(const outcome of [{state:'pending_approval',notes:'ISOLATED moderation fixture'},{state:'uncertain',notes:'ISOLATED unknown outcome'}]){
+  const f=await fixture(t),at=f.iso(60000),g=await f.grant({mode:'exact_post',maxSubmissions:1,preparedId:'prepared-a',contentHash:stableHash(f.packets['prepared-a'].prepared.content),scheduledAt:at}),j=await f.schedule(g),d=driver(f,{outcome});
+  configureRunner(f.store(),{enabled:true,executors:[]},true);
+  const tick=()=>new AgentRunner(f.store(),path.dirname('isolated-agent.db'),undefined,f.clock,undefined,async()=>({state:'human_action_required',actions:0}),()=>advanceScheduledGroups(f.store(),f.rawLane(),id=>new GroupTextExecution(f.store(),f.rawLane(),d.native,undefined,f.clock).run(id,true))).tick();
+  // Default-off gate is enforced even though exact publication authority exists.
+  await tick();assert.equal(d.clicks(),0);assert.equal(f.store().runnerState<any>('group-text.lastTick').state,'automatic_group_execution_not_authorized');
+  f.store().setRunnerState('group-text.scheduled-executor',{enabled:true,destinations:[{id:j.id,inputHash:j.inputHash,grantHash:f.store().getJob(g)!.inputHash}]});
+  await tick();assert.equal(d.clicks(),0);assert.deepEqual(d.events,[]);f.advance();await tick();assert.equal(d.clicks(),1);assert.equal(f.store().getJob(j.id)!.state.submissions,1);assert.equal((f.store().getJob(g)!.state.charges as any[]).length,1);assert.equal(f.store().getOperation(j.id,'native_ui_dispatch')!.status,outcome.state==='uncertain'?'uncertain':'succeeded');
+  f.restart();await tick();assert.equal(d.clicks(),1);assert.equal(f.store().getJob(j.id)!.state.submissions,1);
+ }
+});
+
+
+test('automatic Group activation needs separate exact reviewed future bindings and creates no grant or submission',async t=>{
+ const f=await fixture(t),at=f.iso(60000),g=await f.grant({mode:'exact_post',maxSubmissions:1,preparedId:'prepared-a',contentHash:stableHash(f.packets['prepared-a'].prepared.content),scheduledAt:at}),j=await f.schedule(g),p={enabled:true,destinations:[{id:j.id,inputHash:j.inputHash,grantHash:f.store().getJob(g)!.inputHash}]},before=f.store().listJobs(100).map(j=>j.inputHash);
+ assert.throws(()=>configureScheduledGroups(f.store(),p,false,f.clock),/Separate explicit/);assert.throws(()=>configureScheduledGroups(f.store(),{...p,destinations:[{...p.destinations[0],grantHash:'wrong'}]},true,f.clock),/binding/);configureScheduledGroups(f.store(),p,true,f.clock);assert.deepEqual(f.store().listJobs(100).map(j=>j.inputHash),before);assert.equal(f.store().getJob(j.id)!.state.submissions,0);assert.equal(f.store().getOperation(j.id,'native_submit'),null);
+});
+
+test('frozen native CLI binds original owner data rather than a nonexistent release-local sidecar',t=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'scc-test-runs-group-binding-')),data=path.join(root,'.data'),release=path.join(data,'releases','a'.repeat(40)),state=path.join(data,'agent','agent.db');fs.mkdirSync(path.join(data,'runtime'),{recursive:true});fs.writeFileSync(path.join(data,'runtime','owner-config.json'),JSON.stringify({workspaceRoot:root,dataDir:data,releaseRoot:release}));assert.equal(ownerGroupDataRoot(release,state,'http://localhost:3001'),data);assert.throws(()=>ownerGroupDataRoot(release,state,'http://localhost:3199'),/original owner/);assert.throws(()=>ownerGroupDataRoot(release,path.join(data,'another.db'),'http://localhost:3001'),/original owner/);t.after(()=>fs.rmSync(root,{recursive:true,force:true}));});
